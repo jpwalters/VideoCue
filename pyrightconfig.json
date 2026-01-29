@@ -1,0 +1,29 @@
+{
+    "include": [
+        "videocue",
+        "videocue.py"
+    ],
+    "exclude": [
+        "**/__pycache__",
+        ".venv",
+        "**/.venv/**"
+    ],
+    "ignore": [
+        "**/.venv/**"
+    ],
+    "venvPath": ".",
+    "venv": ".venv",
+    "typeCheckingMode": "off",
+    "reportMissingImports": "none",
+    "reportMissingTypeStubs": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportGeneralTypeIssues": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "pythonVersion": "3.10",
+    "pythonPlatform": "Windows",
+    "stubPath": "",
+    "useLibraryCodeForTypes": true
+}
