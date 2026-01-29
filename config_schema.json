@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "cameras": [],
+  "preferences": {
+    "video_size_default": [512, 288],
+    "theme": "dark",
+    "auto_discover_ndi": true
+  },
+  "usb_controller": {
+    "enabled": true,
+    "device_name": "",
+    "dpad_speed": 0.7,
+    "joystick_speed": 1.0,
+    "zoom_speed": 0.7,
+    "invert_vertical": false,
+    "joystick_mode": "single",
+    "brightness_enabled": true,
+    "brightness_increase_button": 3,
+    "brightness_decrease_button": 0,
+    "brightness_step": 1,
+    "button_mappings": {
+      "button_4": "prev_camera",
+      "button_5": "next_camera",
+      "axis_0": "pan",
+      "axis_1": "tilt",
+      "axis_4": "zoom_out",
+      "axis_5": "zoom_in"
+    }
+  }
+}

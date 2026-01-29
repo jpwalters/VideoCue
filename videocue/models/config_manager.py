@@ -1,0 +1,244 @@
+"""
+Configuration manager for JSON persistence
+"""
+import json
+import os
+import uuid
+from pathlib import Path
+from typing import List, Optional
+
+
+class ConfigManager:
+    """Manages application configuration persistence"""
+
+    def __init__(self):
+        # Use %LOCALAPPDATA%/VideoCue/config.json on Windows
+        if os.name == 'nt':
+            config_dir = Path(os.getenv('LOCALAPPDATA', '')) / 'VideoCue'
+        else:
+            # Use ~/.config/VideoCue on Unix
+            config_dir = Path.home() / '.config' / 'VideoCue'
+
+        config_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path = config_dir / 'config.json'
+        self.config = self.load()
+
+    def load(self) -> dict:
+        """Load configuration from JSON file"""
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (IOError, json.JSONDecodeError) as e:
+                print(f"Error loading config: {e}")
+
+        # Return default schema
+        return self._default_schema()
+
+    def save(self):
+        """Save configuration to JSON file"""
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=2)
+        except IOError as e:
+            print(f"Error saving config: {e}")
+
+    def _default_schema(self) -> dict:
+        """Return default configuration schema"""
+        return {
+            "version": "1.0",
+            "cameras": [],
+            "preferences": {
+                "video_size_default": [512, 288],
+                "theme": "dark",
+                "auto_discover_ndi": True
+            },
+            "usb_controller": {
+                "enabled": True,
+                "device_name": "",
+                "dpad_speed": 0.7,
+                "joystick_speed": 1.0,
+                "zoom_speed": 0.7,
+                "invert_vertical": False,
+                "joystick_mode": "single",
+                "button_mappings": {
+                    "button_4": "prev_camera",
+                    "button_5": "next_camera",
+                    "axis_0": "pan",
+                    "axis_1": "tilt",
+                    "axis_4": "zoom_out",
+                    "axis_5": "zoom_in"
+                }
+            }
+        }
+
+    def add_camera(self, ndi_source_name: str, visca_ip: str,
+                   visca_port: int = 52381, video_size: List[int] = None) -> str:
+        """Add camera to configuration, return camera ID"""
+        camera_id = str(uuid.uuid4())
+        if video_size is None:
+            video_size = self.config['preferences']['video_size_default']
+
+        camera = {
+            "id": camera_id,
+            "ndi_source_name": ndi_source_name,
+            "visca_ip": visca_ip,
+            "visca_port": visca_port,
+            "video_size": video_size,
+            "position": len(self.config['cameras']),
+            "presets": []
+        }
+
+        self.config['cameras'].append(camera)
+        self.save()
+        return camera_id
+
+    def remove_camera(self, camera_id: str):
+        """Remove camera from configuration"""
+        self.config['cameras'] = [
+            cam for cam in self.config['cameras']
+            if cam['id'] != camera_id
+        ]
+        # Reorder positions
+        for i, cam in enumerate(self.config['cameras']):
+            cam['position'] = i
+        self.save()
+
+    def update_camera(self, camera_id: str, **kwargs):
+        """Update camera configuration"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                cam.update(kwargs)
+                self.save()
+                break
+
+    def get_camera(self, camera_id: str) -> Optional[dict]:
+        """Get camera configuration by ID"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                return cam
+        return None
+
+    def get_camera_by_ndi_name(self, ndi_name: str) -> Optional[dict]:
+        """
+        Find camera by NDI source name using fuzzy matching.
+        Matches base name before IP address in parentheses.
+        """
+        search_base = ndi_name.split('(')[0].strip()
+
+        for cam in self.config['cameras']:
+            stored_name = cam.get('ndi_source_name', '')
+            stored_base = stored_name.split('(')[0].strip()
+
+            if stored_base == search_base:
+                # Update stored name with current full name (IP may have changed)
+                cam['ndi_source_name'] = ndi_name
+                return cam
+
+        return None
+
+    def update_camera_ndi_name(self, camera_id: str, ndi_name: str):
+        """Update NDI source name for a camera"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                cam['ndi_source_name'] = ndi_name
+                break
+
+    def add_preset(self, camera_id: str, name: str, pan: int, tilt: int, zoom: int):
+        """Add preset to camera"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                preset = {
+                    "name": name,
+                    "pan": pan,
+                    "tilt": tilt,
+                    "zoom": zoom
+                }
+                cam['presets'].append(preset)
+                self.save()
+                break
+
+    def remove_preset(self, camera_id: str, preset_name: str):
+        """Remove preset from camera"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                cam['presets'] = [
+                    p for p in cam['presets']
+                    if p['name'] != preset_name
+                ]
+                self.save()
+                break
+
+    def update_preset_name(self, camera_id: str, old_name: str, new_name: str):
+        """Rename a preset"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                for preset in cam['presets']:
+                    if preset['name'] == old_name:
+                        preset['name'] = new_name
+                        self.save()
+                        return True
+                break
+        return False
+
+    def update_preset(self, camera_id: str, preset_name: str, pan: int, tilt: int, zoom: int):
+        """Update preset position values"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                for preset in cam['presets']:
+                    if preset['name'] == preset_name:
+                        preset['pan'] = pan
+                        preset['tilt'] = tilt
+                        preset['zoom'] = zoom
+                        self.save()
+                        return True
+                break
+        return False
+
+    def reorder_preset(self, camera_id: str, preset_name: str, direction: str):
+        """Move preset up or down in the list"""
+        for cam in self.config['cameras']:
+            if cam['id'] == camera_id:
+                presets = cam['presets']
+                for i, preset in enumerate(presets):
+                    if preset['name'] == preset_name:
+                        if direction == 'up' and i > 0:
+                            # Swap with previous
+                            presets[i], presets[i-1] = presets[i-1], presets[i]
+                            self.save()
+                            return True
+                        elif direction == 'down' and i < len(presets) - 1:
+                            # Swap with next
+                            presets[i], presets[i+1] = presets[i+1], presets[i]
+                            self.save()
+                            return True
+                        break
+                break
+        return False
+
+    def get_presets(self, camera_id: str) -> List[dict]:
+        """Get all presets for camera"""
+        cam = self.get_camera(camera_id)
+        return cam.get('presets', []) if cam else []
+
+    def set_default_video_size(self, width: int, height: int):
+        """Set default video size preference"""
+        self.config['preferences']['video_size_default'] = [width, height]
+        self.save()
+
+    def get_default_video_size(self) -> List[int]:
+        """Get default video size preference"""
+        return self.config['preferences']['video_size_default']
+
+    def set_usb_controller_name(self, name: str):
+        """Set USB controller device name"""
+        self.config['usb_controller']['device_name'] = name
+        self.save()
+
+    def get_usb_controller_config(self) -> dict:
+        """Get USB controller configuration"""
+        return self.config.get('usb_controller', self._default_schema()['usb_controller'])
+
+    def get_cameras(self) -> List[dict]:
+        """Get all cameras sorted by position"""
+        return sorted(self.config['cameras'], key=lambda c: c['position'])

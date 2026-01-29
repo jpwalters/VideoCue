@@ -1,0 +1,384 @@
+# VideoCue - Python Edition
+
+A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video streaming and USB game controller support.
+
+## Features
+
+### Camera Control
+- **Multi-camera Management**: Control multiple PTZ cameras simultaneously
+- **NDI Video Streaming**: Live preview with automatic NDI source discovery
+- **VISCA-over-IP Protocol**: Industry-standard PTZ control via UDP
+- **Camera Presets**: Store and recall pan/tilt/zoom positions per camera
+
+### Exposure Controls
+- **5 Exposure Modes**: Auto, Manual, Shutter Priority, Iris Priority, Bright
+- **Iris Control**: F-stop adjustment (F16 to F1.4)
+- **Shutter Speed**: 1/10000 to 1/4 second
+- **Gain Control**: 0-45 dB range
+- **Brightness**: 0-41 levels (Bright mode)
+- **Backlight Compensation**: Enable/disable
+
+### White Balance
+- **5 White Balance Modes**: Auto, Indoor (3200K), Outdoor (5600K), One Push, Manual
+- **Manual Color Temperature**: Adjustable red/blue gain (0-255)
+- **One Push Calibration**: Single-button white balance
+
+### Focus Controls
+- **Auto Focus** with continuous tracking
+- **Manual Focus** mode
+- **One Push AF**: Single autofocus operation
+
+### USB Game Controller Support
+- **Pan/Tilt**: Analog stick or D-pad control
+- **Zoom**: Trigger-based variable speed
+- **Camera Switching**: Shoulder buttons (L1/R1)
+- **Brightness Control**: Y/A buttons (configurable, Bright mode only)
+- **Configurable Mappings**: Customize all button/axis assignments
+- **Speed Adjustment**: Independent speed settings for pan/tilt/zoom
+- **Dual Joystick Mode**: Separate left/right stick control
+- **Hotplug Detection**: Automatic controller connect/disconnect
+
+### User Interface
+- **Dark Theme**: Professional appearance with qdarkstyle
+- **Multi-tab Layout**: Organized camera and cue management
+- **Collapsible Sections**: Clean, organized control panels
+- **Status Indicators**: Real-time connection status with red/green indicators
+- **Video Size Options**: Multiple preview size presets
+- **Controller Status**: Visual USB controller connection indicator
+- **Loading Progress**: Granular progress bar during camera initialization
+- **Deferred Loading**: UI appears immediately before network connections
+- **Play/Pause Controls**: Toggle video streaming per camera
+- **Reconnect Button**: One-click reconnection for failed cameras
+- **Comprehensive Error Handling**: Graceful error recovery prevents crashes
+
+## Requirements
+
+### Windows
+- Python 3.10 or higher
+- NDI Runtime (optional, bundled in executable)
+- **Firewall**: Allow NDI Discovery Service on UDP port 5353 (mDNS) for auto-discovery
+
+### macOS
+- Python 3.10 or higher
+- Install NDI Runtime from https://ndi.tv/tools/
+- **Firewall**: Allow NDI Discovery Service on UDP port 5353 (mDNS) for auto-discovery
+
+### Linux
+- Python 3.10 or higher
+- Install NDI Runtime:
+  ```bash
+  # Ubuntu/Debian
+  sudo apt install libndi4
+  
+  # Or download from https://ndi.tv/tools/
+  ```
+- **Firewall**: Allow mDNS traffic on UDP port 5353 for NDI auto-discovery
+
+## Installation
+
+### From Source
+```bash
+# Clone repository
+cd VideoCue/python
+
+# Create virtual environment (recommended)
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+source .venv/bin/activate  # macOS/Linux
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Dependencies
+- **PyQt6**: Modern Qt6 framework for Python
+- **ndi-python**: NDI SDK Python bindings (optional)
+- **pygame**: USB game controller support
+- **qdarkstyle**: Dark theme stylesheet
+
+## Running
+
+```bash
+python videocue.py
+```
+
+The application will:
+1. Auto-discover NDI sources on the network
+2. Detect connected USB game controllers
+3. Load previously configured cameras from `%LOCALAPPDATA%\VideoCue\config.json` (Windows)
+
+## Building Executable
+
+### Windows
+```bash
+pyinstaller VideoCue.spec
+```
+
+The executable will be in `dist/VideoCue/` folder (~100-120MB with NDI Runtime).
+
+### Configuration
+Edit `VideoCue.spec` to update:
+- NDI DLL path (line 13)
+- Application icon (if `resources/icon.png` exists)
+
+## Camera Setup
+
+### Adding Cameras
+1. Click **File → Add Camera**
+2. Select from discovered NDI sources (requires mDNS/port 5353 open), or
+3. Enter NDI source name manually (for firewall-restricted networks), or
+4. Enter camera IP address manually for IP-only control
+5. Configure VISCA port (default: 52381)
+
+### Camera Controls
+- **Pan/Tilt**: 8-direction movement with variable speed
+- **Zoom**: Variable speed in/out
+- **Focus**: Auto/Manual modes with one-push AF
+- **Presets**: Store current position, recall with one click
+
+## USB Controller Configuration
+
+### Accessing Settings
+- Menu: **Edit → Controller Preferences**
+- Or click the controller icon in the toolbar
+
+### Available Settings
+- **Speed Settings**: Adjust pan/tilt/zoom response (0.1x to 1.5x)
+- **Direction Settings**: Invert vertical axis if needed
+- **Joystick Mode**: Single stick (combined) or dual stick (separate pan/tilt)
+- **Brightness Control**: Enable/disable and configure increase/decrease buttons
+
+### Default Controller Mapping
+- **Left Stick** (Axis 0/1): Pan/Tilt (analog)
+- **D-Pad**: Pan/Tilt (digital)
+- **Right Trigger** (Axis 5): Zoom in
+- **Left Trigger** (Axis 4): Zoom out
+- **L1/LB** (Button 4): Previous camera
+- **R1/RB** (Button 5): Next camera
+- **B/Circle** (Button 1): Reconnect disconnected camera
+- **Y/Triangle** (Button 3): Brightness increase (Bright mode)
+- **A/Cross** (Button 0): Brightness decrease (Bright mode)
+
+### Supported Controllers
+- Xbox controllers (wired/wireless)
+- PlayStation controllers (DS4, DualSense)
+- Generic USB game controllers
+- Any DirectInput/XInput compatible device
+
+## Configuration Files
+
+### Location
+- **Windows**: `%LOCALAPPDATA%\VideoCue\config.json`
+- **macOS/Linux**: `~/.config/VideoCue/config.json`
+
+### Schema
+```json
+{
+  "cameras": [
+    {
+      "id": "unique-id",
+      "ndi_source_name": "CAMERA-NAME (IP)",
+      "visca_ip": "192.168.1.100",
+      "visca_port": 52381,
+      "video_size": [512, 288],
+      "presets": {
+        "Preset 1": {"pan": 0, "tilt": 0, "zoom": 0}
+      }
+    }
+  ],
+  "preferences": {
+    "video_size_default": [512, 288],
+    "theme": "dark"
+  },
+  "usb_controller": {
+    "enabled": true,
+    "dpad_speed": 0.7,
+    "joystick_speed": 1.0,
+    "zoom_speed": 0.7,
+    "brightness_enabled": true,
+    "brightness_increase_button": 3,
+    "brightness_decrease_button": 0
+  }
+}
+```
+
+## VISCA Protocol
+
+### Supported Commands
+- **Camera Control**: Pan, tilt, zoom with variable speed
+- **Focus**: Auto/manual mode, one-push AF
+- **Exposure**: Mode selection, iris, shutter, gain, brightness
+- **White Balance**: Mode selection, manual color temperature
+- **Picture Quality**: Backlight compensation
+
+### Protocol Details
+- **Transport**: UDP on port 52381 (default)
+- **Packet Format**: VISCA-over-IP with 8-byte header
+- **Timeout**: 1 second per command
+- **Connection Testing**: Uses query commands that require responses (not fire-and-forget)
+- **Command Types**: 
+  - Send commands: Fire-and-forget for control operations
+  - Query commands: Wait for response to verify connection and sync state
+
+### Query Support
+All camera settings are queried on load to synchronize UI with camera state:
+- Focus mode (Auto/Manual)
+- Exposure mode and parameters (iris, shutter, gain, brightness)
+- White balance mode and color temperature
+- Backlight compensation status
+
+## Troubleshooting
+
+### NDI Discovery Not Finding Cameras
+- **Most Common**: Firewall blocking mDNS on UDP port 5353
+  - Check Windows Firewall: Allow "NDI Discovery Service"
+  - Run as admin: `Get-NetFirewallRule | Where-Object {$_.DisplayName -like "*NDI*"}`
+- **Workaround**: Use manual NDI source name entry in Add Camera dialog
+  - Get exact name from NDI Studio Monitor (NDI Tools)
+  - Format: "BIRDDOG-12345 (Channel 1)"
+- Ensure camera and computer are on same network/subnet
+- Verify NDI is enabled in camera's web interface
+
+### NDI Not Loading
+- Verify NDI Runtime is installed from https://ndi.tv/tools/
+- Application will continue without NDI (IP-only control available)
+- Check console for NDI error messages on startup
+
+### Camera Not Responding
+- Verify IP address is correct
+- Check VISCA port (usually 52381)
+- Ensure no firewall blocking UDP traffic to camera
+- Status indicator turns red on communication failure
+- **Reconnect Options**:
+  - Click the Reconnect button that appears when status is red
+  - Press B button on USB controller to reconnect selected camera
+  - Camera controls automatically disable until connection restored
+
+### Application Loading
+- UI loads immediately, then cameras connect in background
+- Progress bar shows loading status with 3 steps per camera:
+  1. Creating camera widget
+  2. Configuring camera settings
+  3. Testing connection
+- Individual camera failures don't prevent other cameras from loading
+- Failed cameras show red status with reconnect button
+
+### USB Controller Not Detected
+- Verify controller is recognized by operating system
+- Try reconnecting controller (hotplug detection every 5 seconds)
+- Check pygame compatibility with your controller
+- Windows may require Xbox controller drivers
+
+### Video Frame Rate Issues
+- Reduce video size: **View → Video Size** menu
+- Lower resolution reduces CPU load for UYVY→RGB conversion
+- Frame dropping is intentional to prevent UI lag
+
+### Application Crashes/Errors
+- **Global Exception Handler**: Unhandled errors show dialog instead of crashing
+- **Error Logging**: Check console output for detailed error traces
+- **Graceful Degradation**: Most errors allow application to continue running
+- **NDI Timeout**: Invalid NDI sources timeout after 5 seconds (prevents app freeze)
+- All critical operations wrapped in try-except blocks for stability
+
+## Development
+
+### Project Structure
+```
+videocue/
+├── controllers/
+│   ├── visca_ip.py          # VISCA protocol implementation
+│   ├── ndi_video.py          # NDI video receiver threads (with error handling)
+│   └── usb_controller.py     # USB game controller handler
+├── models/
+│   ├── config_manager.py     # JSON configuration persistence
+│   └── video.py              # Video size and preset models
+├── ui/
+│   ├── main_window.py        # Main application window with deferred loading
+│   ├── camera_widget.py      # Individual camera control widget with reconnect
+│   ├── camera_add_dialog.py  # Camera discovery/add dialog
+│   └── controller_preferences_dialog.py  # USB controller settings
+└── utils.py                  # Resource path helpers
+
+resources/
+└── icon.png                  # Application icon (if present)
+
+config_schema.json            # Default configuration template
+VideoCue.spec                 # PyInstaller build specification
+requirements.txt              # Python dependencies including ruff for linting
+```
+
+### Key Architectural Features
+- **Deferred Initialization**: Camera connections happen after UI loads
+- **Connection State Tracking**: `is_connected` flag enables/disables controls
+- **Query-based Testing**: Connection verification uses commands that require responses
+- **Error Resilience**: Global exception handler + try-except in all critical paths
+- **Progress Tracking**: Signals between widgets and main window for loading feedback
+- **Thread Safety**: NDI threads use Qt signals for cross-thread communication
+
+### Adding New Camera Parameters
+
+When adding new VISCA commands and UI controls, follow this pattern:
+
+1. **VISCA Protocol** (`visca_ip.py`):
+   ```python
+   def set_parameter(self, value: int) -> bool:
+       """Set parameter description"""
+       return self.send_command(f"81 01 04 XX {value:02X} FF")
+   
+   def query_parameter(self) -> Optional[int]:
+       """Query parameter description"""
+       response = self.query_command("81 09 04 XX FF")
+       # Parse response (skip 16 hex chars for header)
+       visca_response = response.hex().upper()[16:]
+       value = int(visca_response[5], 16)
+       return value
+   ```
+
+2. **UI Controls** (`camera_widget.py`):
+   ```python
+   # In create_controls_tree():
+   self.parameter_slider = QSlider()
+   self.parameter_slider.valueChanged.connect(self.on_parameter_changed)
+   
+   def on_parameter_changed(self, value: int):
+       """Handle UI change"""
+       self.parameter_label.setText(str(value))
+       success = self.visca.set_parameter(value)
+       self.update_status_indicator(success)
+   ```
+
+3. **Query on Load** (`camera_widget.py` in `query_all_settings()`):
+   ```python
+   # Block signals, query, update UI, unblock
+   parameter_value = self.visca.query_parameter()
+   if parameter_value is not None:
+       self.parameter_slider.blockSignals(True)
+       self.parameter_slider.setValue(parameter_value)
+       self.parameter_slider.blockSignals(False)
+       self.parameter_label.setText(str(parameter_value))
+   ```
+
+This ensures UI always reflects camera state on load without triggering unnecessary commands.
+
+## Credits
+
+- **VISCA Protocol**: Sony standard for PTZ camera control
+- **NDI Technology**: NewTek Network Device Interface
+- **PyQt6**: Qt6 Python bindings by Riverbank Computing
+- **qdarkstyle**: Dark theme by Colin Duquesnoy
+
+## License
+
+See LICENSE file for details.
+
+## Support
+
+For BirdDog camera-specific features and tested configurations, refer to:
+- [BirdDog User Manuals](https://www.bird-dog.tv/support/)
+- VISCA protocol specifications in project documentation
+
+Tested with:
+- BirdDog P400 cameras
+- BirdDog P200 cameras
+- Standard VISCA-compatible PTZ cameras

@@ -1,0 +1,20 @@
+PyQt6>=6.5.0
+pygame>=2.5.0
+qdarkstyle>=3.1
+numpy>=1.24.0
+
+# Alternative controller library for better compatibility
+# Try: pip install inputs
+# inputs>=0.5
+
+# Optional: NDI video streaming support
+# Requires Python 3.10 (ndi-python has compatibility issues with Python 3.11+)
+# Requires NDI SDK installed from https://ndi.tv/tools/
+# 
+# To install:
+#   git clone --recursive https://github.com/buresu/ndi-python.git
+#   cd ndi-python
+#   pip install .
+#
+# Application gracefully falls back to IP-only mode without NDI
+# ndi-python>=5.0.0
