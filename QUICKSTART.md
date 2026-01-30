@@ -15,7 +15,7 @@ pip install ruff  # Recommended for development
 
 ### 2. Install NDI Runtime
 Download and install NDI Runtime from https://ndi.tv/tools/
-- Windows: Use the installer, NDI DLL will be at `C:\Program Files\NDI\NDI 5 Runtime\v5\`
+- Windows: Use the installer, NDI DLL will be at `C:\Program Files\NDI\NDI 6 SDK\Bin\x64\`
 - The application will work without NDI but video streaming features will be disabled
 
 ### 3. Run the Application
@@ -53,7 +53,7 @@ python/
 ### 1. Update NDI DLL Path
 Edit `VideoCue.spec` and update the NDI DLL path if needed:
 ```python
-ndi_dll_path = r'C:\Program Files\NDI\NDI 5 Runtime\v5\Processing.NDI.Lib.x64.dll'
+ndi_dll_path = r'C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll'
 ```
 
 ### 2. Build
