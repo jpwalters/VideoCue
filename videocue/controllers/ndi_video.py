@@ -1,9 +1,15 @@
 """
 NDI video receiver with frame dropping for performance
 """
+import logging
+import threading
 from typing import Optional, List, Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
+from videocue.exceptions import NDINotAvailableError, NDIConnectionError, NDISourceNotFoundError
+from videocue.constants import NetworkConstants
+
+logger = logging.getLogger(__name__)
 
 # Try to import NDI library
 ndi: Any = None  # Type annotation for ndi module (conditionally imported)
@@ -11,6 +17,7 @@ ndi_available = False
 ndi_error_message = ""
 _ndi_initialized = False
 _global_finder = None
+_ndi_lock = threading.Lock()  # Thread safety for global NDI resources
 
 try:
     import NDIlib as ndi
@@ -28,34 +35,59 @@ except Exception as e:
     print(f"NDI Error: {e}")
 
 
-def _ensure_ndi_initialized():
-    """Ensure NDI is initialized globally (call once)"""
+def _ensure_ndi_initialized() -> bool:
+    """Ensure NDI is initialized globally (call once) - thread-safe"""
     global _ndi_initialized, _global_finder
     if not ndi_available:
         return False
 
-    if not _ndi_initialized:
-        print("[NDI Global] Initializing NDI...")
-        try:
-            if ndi.initialize():
-                _ndi_initialized = True
-                print("[NDI Global] Creating global finder...")
-                find_settings = ndi.FindCreate()
-                find_settings.show_local_sources = True
-                _global_finder = ndi.find_create_v2(find_settings)
-                if _global_finder:
-                    print("[NDI Global] NDI initialized successfully")
+    # Use lock to ensure only one thread initializes NDI
+    with _ndi_lock:
+        if not _ndi_initialized:
+            logger.info("[NDI Global] Initializing NDI...")
+            try:
+                if ndi.initialize():
+                    _ndi_initialized = True
+                    logger.info("[NDI Global] Creating global finder...")
+                    find_settings = ndi.FindCreate()
+                    find_settings.show_local_sources = True
+                    _global_finder = ndi.find_create_v2(find_settings)
+                    if _global_finder:
+                        logger.info("[NDI Global] NDI initialized successfully")
+                    else:
+                        logger.error("[NDI Global] Failed to create finder")
+                        return False
                 else:
-                    print("[NDI Global] Failed to create finder")
+                    logger.error("[NDI Global] Failed to initialize NDI")
                     return False
-            else:
-                print("[NDI Global] Failed to initialize NDI")
+            except (ImportError, RuntimeError, OSError, AttributeError) as e:
+                logger.exception(f"[NDI Global] Exception during initialization: {e}")
                 return False
-        except (ImportError, RuntimeError, OSError, AttributeError) as e:
-            print(f"[NDI Global] Exception during initialization: {e}")
-            return False
 
-    return _ndi_initialized and _global_finder is not None
+        return _ndi_initialized and _global_finder is not None
+
+
+def cleanup_ndi() -> None:
+    """Cleanup NDI resources (call on application shutdown)"""
+    global _ndi_initialized, _global_finder
+    with _ndi_lock:
+        if _global_finder:
+            try:
+                ndi.find_destroy(_global_finder)
+                logger.info("[NDI Global] Finder destroyed")
+            except Exception as e:
+                logger.error(f"[NDI Global] Error destroying finder: {e}")
+            finally:
+                _global_finder = None
+        
+        if _ndi_initialized:
+            try:
+                ndi.destroy()
+                logger.info("[NDI Global] NDI destroyed")
+            except Exception as e:
+                logger.error(f"[NDI Global] Error destroying NDI: {e}")
+            finally:
+                _ndi_initialized = False
 
 
 class NDIVideoThread(QThread):
@@ -73,15 +105,43 @@ class NDIVideoThread(QThread):
         super().__init__()
         self.source_name = source_name
         self.running = False
+        self._stop_event = threading.Event()
         self._receiver = None
         self._finder = None
+        logger.debug(f"NDI thread created for source: {source_name}")
 
-    def run(self):
-        """Main video reception loop"""
-        if not _ensure_ndi_initialized():
-            self.error.emit("NDI not available or failed to initialize")
-            return
+    def run(self) -> None:
+        """Main video reception loop with comprehensive error handling"""
+        # Wrap EVERYTHING in try-except to prevent thread crashes from killing the app
+        try:
+            if not _ensure_ndi_initialized():
+                err_msg = "NDI not available or failed to initialize"
+                logger.error(f"[NDI] {err_msg}")
+                self.error.emit(err_msg)
+                return
 
+            self._run_reception_loop()
+        except NDINotAvailableError as e:
+            logger.error(f"[NDI] NDI not available: {e}")
+            self.error.emit(str(e))
+        except NDISourceNotFoundError as e:
+            logger.warning(f"[NDI] Source not found: {e}")
+            self.error.emit(str(e))
+        except Exception as e:
+            # Catch ANY unhandled exception to prevent app crash
+            import traceback
+            error_msg = f"Video thread crashed: {str(e)}"
+            logger.exception(f"[NDI] CRITICAL: {error_msg}")
+            self.error.emit(error_msg)
+        finally:
+            # Always clean up, even if something catastrophic happened
+            try:
+                self._cleanup()
+            except Exception as cleanup_error:
+                logger.error(f"[NDI] Error during cleanup: {cleanup_error}")
+
+    def _run_reception_loop(self):
+        """Internal reception loop (called by run() with error handling)"""
         try:
             # Use the global finder
             ndi.find_wait_for_sources(_global_finder, 5000)
@@ -173,23 +233,41 @@ class NDIVideoThread(QThread):
                         print("[NDI] Interrupted")
                         break
                     except (ImportError, RuntimeError, OSError, AttributeError) as e:
-                        import traceback
-                        print(f"[NDI] Error in reception loop: {e}")
-                        traceback.print_exc()
+                        logger.error(f"Error in reception loop: {e}", exc_info=True)
                         self.error.emit(f"NDI error: {str(e)}")
                         break
+                    except Exception as e:
+                        # Catch ANY other exception in the frame processing
+                        logger.error(f"Unexpected error processing frame: {e}", exc_info=True)
+                        self.error.emit(f"NDI unexpected error: {str(e)}")
+                        break
             except Exception as e:
-                import traceback
-                print(f"[NDI] Fatal error in reception loop: {e}")
-                traceback.print_exc()
+                logger.critical(f"Fatal error in reception loop: {e}", exc_info=True)
                 self.error.emit(f"NDI fatal error: {str(e)}")
-        finally:
-            self._cleanup()
+        except Exception as e:
+            # Outer catch for the entire reception setup
+            logger.critical(f"Fatal error during source setup: {e}", exc_info=True)
+            self.error.emit(f"NDI setup error: {str(e)}")
 
-    def stop(self):
-        """Stop video reception"""
+    def stop(self, timeout: float = None) -> bool:
+        """
+        Stop video reception with proper synchronization.
+        
+        Args:
+            timeout: Not used (kept for API compatibility)
+        
+        Returns:
+            Always returns True (thread stops asynchronously)
+        """
+        if timeout is None:
+            timeout = NetworkConstants.NDI_THREAD_STOP_TIMEOUT_S
+        logger.debug(f"Stopping NDI thread for {self.source_name}")
         self.running = False
-        self.wait()  # Wait for thread to finish
+        self._stop_event.set()
+        
+        # DON'T call self.wait() here - it blocks the main thread!
+        # Thread will stop asynchronously, caller should check isRunning() if needed
+        return True
 
     def _extract_web_control(self) -> Optional[str]:
         """Extract web control URL from NDI receiver metadata"""
@@ -206,16 +284,16 @@ class NDIVideoThread(QThread):
                 if isinstance(web_url, bytes):
                     web_url = web_url.decode('utf-8')
                 
-                print(f"[NDI] Web control URL: {web_url}")
+                logger.info(f"Web control URL: {web_url}")
                 return web_url
             
             return None
         except (ImportError, RuntimeError, AttributeError, KeyError) as e:
-            print(f"[NDI] Failed to get web control URL: {e}")
+            logger.warning(f"Failed to get web control URL: {e}")
             return None
 
     def _convert_frame(self, video_frame) -> Optional[QImage]:
-        """Convert NDI video frame (UYVY422) to QImage (RGB)"""
+        """Convert NDI video frame (UYVY422) to QImage (RGB) with comprehensive error handling"""
         try:
             # Get frame data
             width = video_frame.xres
@@ -244,16 +322,32 @@ class NDIVideoThread(QThread):
 
             # Convert UYVY to RGB
             rgb_data = self._uyvy_to_rgb(frame_data, width, height, line_stride)
+            if not rgb_data:
+                print("[NDI] RGB conversion returned empty data")
+                return None
 
-            # Create QImage
-            qimage = QImage(rgb_data, width, height, width * 3, QImage.Format.Format_RGB888)
-
-            # Make a copy so it persists after frame is freed
-            return qimage.copy()
+            # Create QImage - use bytearray to ensure data ownership
+            # QImage constructor doesn't take ownership of bytes, so we need to ensure
+            # the data persists long enough for copy() to complete
+            rgb_bytearray = bytearray(rgb_data)
+            qimage = QImage(rgb_bytearray, width, height, width * 3, QImage.Format.Format_RGB888)
+            
+            # Make a copy so it persists independently
+            # We need to explicitly keep rgb_bytearray alive until copy() completes
+            result = qimage.copy()
+            # Force Python to not optimize away rgb_bytearray before copy() completes
+            _ = len(rgb_bytearray)
+            return result
 
         except (ValueError, TypeError, MemoryError, AttributeError) as e:
             import traceback
             print(f"[NDI] Frame conversion error: {e}")
+            traceback.print_exc()
+            return None
+        except Exception as e:
+            # Catch ANY other exception to prevent thread crash
+            import traceback
+            print(f"[NDI] Unexpected error during frame conversion: {e}")
             traceback.print_exc()
             return None
 
@@ -354,15 +448,23 @@ class NDIVideoThread(QThread):
         return bytes(rgb)
 
     def _cleanup(self):
-        """Clean up NDI resources"""
-        if self._receiver:
-            ndi.recv_destroy(self._receiver)
-            self._receiver = None
+        """Clean up NDI resources - never throws exceptions"""
+        try:
+            if self._receiver:
+                try:
+                    ndi.recv_destroy(self._receiver)
+                except Exception as e:
+                    print(f"[NDI] Error destroying receiver: {e}")
+                finally:
+                    self._receiver = None
 
-        # Don't destroy global finder - it's shared
-        self._finder = None
+            # Don't destroy global finder - it's shared
+            self._finder = None
 
-        # Don't call ndi.destroy() - keep NDI initialized globally
+            # Don't call ndi.destroy() - keep NDI initialized globally
+        except Exception as e:
+            # Catch ANY exception during cleanup
+            print(f"[NDI] Unexpected error during cleanup: {e}")
 
 
 def find_ndi_cameras(timeout_ms: int = 5000) -> List[str]:
@@ -372,39 +474,38 @@ def find_ndi_cameras(timeout_ms: int = 5000) -> List[str]:
     
     Note: Requires firewall to allow mDNS traffic on UDP port 5353.
     If discovery returns empty list, check firewall configuration.
-    
-    WARNING: This function blocks for timeout_ms. Call from a worker thread!
+    Thread-safe: Uses lock to prevent concurrent access to global finder.
     """
     if not _ensure_ndi_initialized():
         print("[NDI Discovery] NDI not available or failed to initialize")
         return []
 
     try:
-        # Wait for sources (this blocks!)
-        ndi.find_wait_for_sources(_global_finder, timeout_ms)
-        sources = ndi.find_get_current_sources(_global_finder)
+        # Use lock to prevent concurrent access to global finder
+        with _ndi_lock:
+            # Wait for sources (this blocks!)
+            ndi.find_wait_for_sources(_global_finder, timeout_ms)
+            sources = ndi.find_get_current_sources(_global_finder)
 
-        camera_names = []
-        for i, source in enumerate(sources):
-            try:
-                if hasattr(source, 'ndi_name'):
-                    name = source.ndi_name
-                    if isinstance(name, bytes):
-                        name = name.decode('utf-8')
-                    else:
-                        name = str(name)
-                    camera_names.append(name)
-            except (AttributeError, UnicodeDecodeError, ValueError) as e:
-                print(f"[NDI Discovery] Error processing source {i}: {e}")
+            camera_names = []
+            for i, source in enumerate(sources):
+                try:
+                    if hasattr(source, 'ndi_name'):
+                        name = source.ndi_name
+                        if isinstance(name, bytes):
+                            name = name.decode('utf-8')
+                        else:
+                            name = str(name)
+                        camera_names.append(name)
+                except (AttributeError, UnicodeDecodeError, ValueError) as e:
+                    logger.warning(f"NDI Discovery - Error processing source {i}: {e}")
 
-        if camera_names:
-            print(f"[NDI Discovery] Found {len(camera_names)} camera(s)")
-        return camera_names
+            if camera_names:
+                logger.info(f"NDI Discovery found {len(camera_names)} camera(s)")
+            return camera_names
 
     except (ImportError, RuntimeError, OSError, AttributeError) as e:
-        import traceback
-        print(f"[NDI Discovery] Error: {e}")
-        traceback.print_exc()
+        logger.error(f"NDI Discovery error: {e}", exc_info=True)
         return []
 
 

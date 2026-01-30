@@ -1,20 +1,56 @@
 """
 Camera widget displaying video and controls
 """
+import logging
 from PyQt6.QtWidgets import (  # type: ignore
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QGridLayout, QSizePolicy,
     QRadioButton, QButtonGroup, QInputDialog, QMessageBox,
     QSlider, QCheckBox, QScrollArea, QFrame
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer  # type: ignore
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QThread  # type: ignore
 from PyQt6.QtGui import QPixmap, QImage  # type: ignore
 
 from videocue.controllers.visca_ip import ViscaIP, FocusMode, Direction
+from videocue.controllers.visca_commands import ViscaConstants
 from videocue.controllers.ndi_video import NDIVideoThread, ndi_available
 from videocue.controllers.usb_controller import MovementDirection
 from videocue.models.config_manager import ConfigManager
 from videocue.models.video import CameraPreset
+from videocue.exceptions import ViscaTimeoutError, ViscaConnectionError
+from videocue.constants import HardwareConstants
+
+logger = logging.getLogger(__name__)
+
+
+class ViscaConnectionTestThread(QThread):
+    """Background thread for testing VISCA connection without blocking UI"""
+    test_complete = pyqtSignal(bool, str)  # success, error_message
+    
+    def __init__(self, visca: ViscaIP):
+        super().__init__()
+        self.visca = visca
+    
+    def run(self) -> None:
+        """Test connection in background"""
+        try:
+            # Test with a query command that requires a response
+            focus_mode = self.visca.query_focus_mode()
+            success = focus_mode != FocusMode.UNKNOWN
+            if success:
+                logger.debug(f"VISCA connection test passed for {self.visca.ip}")
+            else:
+                logger.warning(f"VISCA connection test failed for {self.visca.ip}")
+            self.test_complete.emit(success, "" if success else "Connection failed")
+        except ViscaTimeoutError as e:
+            logger.error(f"VISCA connection timeout for {self.visca.ip}: {e}")
+            self.test_complete.emit(False, str(e))
+        except ViscaConnectionError as e:
+            logger.error(f"VISCA connection error for {self.visca.ip}: {e}")
+            self.test_complete.emit(False, str(e))
+        except Exception as e:
+            logger.exception(f"Unexpected error testing VISCA connection for {self.visca.ip}")
+            self.test_complete.emit(False, str(e))
 
 
 class CameraWidget(QWidget):
@@ -44,6 +80,15 @@ class CameraWidget(QWidget):
 
         # Auto pan state
         self.auto_pan_active = False
+        
+        # Connection retry state
+        self._retry_count = 0
+        self._max_retries = 3
+        self._retry_timer = QTimer()
+        self._retry_timer.timeout.connect(self._retry_connection)
+        
+        # Cached display name to avoid repeated formatting
+        self._cached_display_name: str = ""
 
         # Pre-initialize attributes (defined in init_ui and create_controls_layout)
         self.brightness_vertical_container = None
@@ -109,7 +154,7 @@ class CameraWidget(QWidget):
         self.one_push_wb_btn = None
         self.red_gain_layout_widget = None
         self.blue_gain_layout_widget = None
-        self._last_frame_time = 0
+        self._last_frame_time = None
 
         self.init_ui()
         
@@ -133,6 +178,42 @@ class CameraWidget(QWidget):
             else:
                 QTimer.singleShot(100, self.initialized.emit)
 
+    def _format_camera_display_name(self, ndi_name: str = None, ip: str = None, force_refresh: bool = False) -> str:
+        """
+        Format camera display name, avoiding redundancy.
+        If NDI name and IP are the same (case-insensitive), only show one.
+        Results are cached to avoid repeated formatting.
+        
+        Args:
+            ndi_name: Optional NDI source name override
+            ip: Optional IP address override
+            force_refresh: Force recalculation even if cached
+        
+        Returns:
+            Formatted display name string
+        """
+        # Use cached value if available and not forcing refresh
+        if self._cached_display_name and not force_refresh:
+            return self._cached_display_name
+        
+        ndi = ndi_name or self.ndi_source_name
+        addr = ip or self.visca_ip
+        
+        if not ndi:
+            # No NDI name, just show IP
+            result = addr
+        elif addr.lower() in ndi.lower() or ndi.lower() == addr.lower():
+            # Redundant, just show NDI name
+            result = ndi
+        else:
+            # Different, show both
+            result = f"{ndi} ({addr})"
+        
+        # Cache the result
+        self._cached_display_name = result
+        logger.debug(f"Formatted camera display name: {result}")
+        return result
+    
     def init_ui(self):
         """Initialize widget UI"""
         # Don't set fixed width initially - will be set based on video size
@@ -190,8 +271,7 @@ class CameraWidget(QWidget):
         status_bar.addWidget(self.loading_label)
 
         # Camera name and IP
-        camera_name = self.ndi_source_name or self.visca_ip
-        display_text = f"{camera_name} ({self.visca_ip})" if self.ndi_source_name else self.visca_ip
+        display_text = self._format_camera_display_name()
         self.name_label = QLabel(display_text)
         status_bar.addWidget(self.name_label)
         status_bar.addStretch()
@@ -698,7 +778,7 @@ class CameraWidget(QWidget):
 
         red_gain_layout = QHBoxLayout()
         self.red_gain_slider = QSlider(Qt.Orientation.Horizontal)
-        self.red_gain_slider.setRange(0, 255)
+        self.red_gain_slider.setRange(HardwareConstants.COLOR_GAIN_MIN, HardwareConstants.COLOR_GAIN_MAX)
         self.red_gain_slider.setValue(128)
         self.red_gain_slider.valueChanged.connect(self.on_red_gain_changed)
         self.red_gain_value_label = QLabel("128")
@@ -714,7 +794,7 @@ class CameraWidget(QWidget):
 
         blue_gain_layout = QHBoxLayout()
         self.blue_gain_slider = QSlider(Qt.Orientation.Horizontal)
-        self.blue_gain_slider.setRange(0, 255)
+        self.blue_gain_slider.setRange(HardwareConstants.COLOR_GAIN_MIN, HardwareConstants.COLOR_GAIN_MAX)
         self.blue_gain_slider.setValue(128)
         self.blue_gain_slider.valueChanged.connect(self.on_blue_gain_changed)
         self.blue_gain_value_label = QLabel("128")
@@ -730,8 +810,10 @@ class CameraWidget(QWidget):
         self.on_exposure_mode_changed(self.exposure_combo.currentIndex(), send_command=False)
         self.on_wb_mode_changed(self.wb_combo.currentData(), send_command=False)
 
-        # Query all camera settings
-        self.query_all_settings()
+        # Don't query settings here - camera not ready yet
+        # Settings will be queried after connection is fully established:
+        # - For NDI cameras: in on_ndi_connected() after video connects
+        # - For IP-only cameras: in _on_visca_test_complete() after connection test
 
         return widget
 
@@ -814,31 +896,37 @@ class CameraWidget(QWidget):
         self.presets_layout.addWidget(widget)
 
     def _test_visca_connection(self):
-        """Test VISCA connection for IP-only cameras"""
+        """Test VISCA connection for IP-only cameras using background thread"""
         print(f"[Camera] Testing VISCA connection to {self.visca_ip}...")
         
+        # Emit connection starting signal
+        self.connection_starting.emit()
+        
+        # Create and start background test thread
+        test_thread = ViscaConnectionTestThread(self.visca)
+        test_thread.test_complete.connect(self._on_visca_test_complete)
+        test_thread.start()
+    
+    def _on_visca_test_complete(self, success: bool, error_message: str):
+        """Handle VISCA connection test completion (called from background thread signal)"""
         try:
-            # Test with a query command that requires a response
-            from videocue.controllers.visca_ip import FocusMode
-            focus_mode = self.visca.query_focus_mode()
-            success = focus_mode != FocusMode.UNKNOWN
-            
             if success:
                 self.is_connected = True
                 self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
                 self.set_controls_enabled(True)
                 self.video_label.setText("IP Control Ready\n(No Video)")
-                self.query_all_settings()
+                # Query settings after a short delay to ensure camera is ready
+                # VISCA connection test passes but camera may need time to be fully ready
+                QTimer.singleShot(500, self.query_all_settings)
             else:
                 self.is_connected = False
                 self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
                 self.reconnect_button.setVisible(True)
                 self.set_controls_enabled(False)
-                self.video_label.setText(f"Connection Failed\nIP: {self.visca_ip}")
+                error_text = error_message[:50] if error_message else "Connection Failed"
+                self.video_label.setText(f"{error_text}\nIP: {self.visca_ip}")
         except Exception as e:
-            import traceback
-            print(f"[Camera] Connection test error: {e}")
-            traceback.print_exc()
+            logger.exception("Connection test handler error")
             self.is_connected = False
             self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
             self.reconnect_button.setVisible(True)
@@ -865,7 +953,8 @@ class CameraWidget(QWidget):
             if self.visca_ip in camera_name:
                 print(f"[Camera] Matched NDI source: {camera_name}")
                 self.ndi_source_name = camera_name
-                self.name_label.setText(camera_name)
+                # Update label with formatted name (avoids redundancy)
+                self.name_label.setText(self._format_camera_display_name())
 
                 # Update configuration
                 self.config.update_camera_ndi_name(self.camera_id, camera_name)
@@ -936,7 +1025,7 @@ class CameraWidget(QWidget):
         from PyQt6.QtCore import QTime  # type: ignore
         current_time = QTime.currentTime()
 
-        if not hasattr(self, '_last_frame_time'):
+        if self._last_frame_time is None:
             self._last_frame_time = current_time
 
         elapsed = self._last_frame_time.msecsTo(current_time)
@@ -963,8 +1052,22 @@ class CameraWidget(QWidget):
             import re
             match = re.search(r'(\d+\.\d+\.\d+\.\d+)', web_url)
             if match:
-                self.visca_ip = match.group(1)
-                self.visca = ViscaIP(self.visca_ip, self.visca_port)
+                extracted_ip = match.group(1)
+                print(f"[Camera] Extracted IP {extracted_ip} from NDI web control URL")
+                
+                # Update IP address if it was unknown or different
+                if self.visca_ip != extracted_ip:
+                    self.visca_ip = extracted_ip
+                    self.visca = ViscaIP(self.visca_ip, self.visca_port)
+                    
+                    # Update UI label with formatted name (avoids redundancy)
+                    display_text = self._format_camera_display_name()
+                    self.name_label.setText(display_text)
+                    print(f"[Camera] Updated UI label to: {display_text}")
+                    
+                    # Save IP to config
+                    self.config.update_camera(self.camera_id, visca_ip=self.visca_ip)
+                    print(f"[Camera] Saved IP {self.visca_ip} to config")
         
         # Emit initialized signal
         self.initialized.emit()
@@ -979,9 +1082,9 @@ class CameraWidget(QWidget):
         self.query_all_settings()
 
     @pyqtSlot(str)
-    def on_ndi_error(self, error: str):
+    def on_ndi_error(self, error: str) -> None:
         """Handle NDI error"""
-        print(f"NDI error for {self.ndi_source_name}: {error}")
+        logger.error(f"NDI error for {self.ndi_source_name}: {error}")
         self.video_label.setText(f"Error: {error}")
         
         # Mark as disconnected and show reconnect button
@@ -1056,6 +1159,7 @@ class CameraWidget(QWidget):
         - Visibility logic is applied based on queried state
         - Signal blocking prevents command loops
         """
+        logger.info(f"Querying all settings for camera {self.visca_ip}...")
         self.loading_label.setVisible(True)
 
         # Query focus mode
@@ -1064,15 +1168,21 @@ class CameraWidget(QWidget):
         # Query exposure mode
         from videocue.controllers.visca_ip import ExposureMode
         exp_mode = self.visca.query_exposure_mode()
+        logger.debug(f"Exposure mode query returned: {exp_mode}")
         if exp_mode != ExposureMode.UNKNOWN:
             # Block signals to prevent triggering commands while updating
             self.exposure_combo.blockSignals(True)
             index = self.exposure_combo.findData(exp_mode.value)
             if index >= 0:
                 self.exposure_combo.setCurrentIndex(index)
+                logger.info(f"Set exposure combo to index {index} (mode: {exp_mode.name})")
+            else:
+                logger.warning(f"Could not find combo index for exposure mode value: {exp_mode.value}")
             self.exposure_combo.blockSignals(False)
             # Manually trigger visibility update without sending command
             self.on_exposure_mode_changed(self.exposure_combo.currentIndex(), send_command=False)
+        else:
+            logger.warning(f"Exposure mode query returned UNKNOWN for camera {self.visca_ip}")
 
         # Query iris
         iris_value = self.visca.query_iris()
@@ -1092,10 +1202,8 @@ class CameraWidget(QWidget):
             self.shutter_slider.blockSignals(True)
             self.shutter_slider.setValue(shutter_value)
             self.shutter_slider.blockSignals(False)
-            # Update label
-            speeds = ["1/10000", "1/6000", "1/4000", "1/3000", "1/2000", "1/1500",
-                      "1/1000", "1/725", "1/500", "1/350", "1/250", "1/180", "1/125",
-                      "1/100", "1/90", "1/60", "1/50", "1/30", "1/25", "1/15", "1/8", "1/4"]
+            # Update label using constant list
+            speeds = ViscaConstants.SHUTTER_SPEEDS[2:]  # Skip "Auto" and "Manual"
             if shutter_value < len(speeds):
                 self.shutter_value_label.setText(speeds[shutter_value])
 
@@ -1123,11 +1231,16 @@ class CameraWidget(QWidget):
         # Query white balance mode
         from videocue.controllers.visca_ip import WhiteBalanceMode
         wb_mode = self.visca.query_white_balance_mode()
+        logger.info(f"White balance mode from camera: {wb_mode}, enum value: {wb_mode.value}")
         if wb_mode != WhiteBalanceMode.UNKNOWN:
             self.wb_combo.blockSignals(True)
             index = self.wb_combo.findData(wb_mode.value)
+            logger.info(f"Finding combo item with data={wb_mode.value}, found index={index}")
             if index >= 0:
                 self.wb_combo.setCurrentIndex(index)
+                logger.info(f"Set white balance combo to index {index}")
+            else:
+                logger.warning(f"Could not find combo index for white balance value: {wb_mode.value}")
             self.wb_combo.blockSignals(False)
             # Manually trigger visibility update without sending command
             self.on_wb_mode_changed(wb_mode.value, send_command=False)
@@ -1155,6 +1268,7 @@ class CameraWidget(QWidget):
             self.backlight_checkbox.setChecked(backlight_enabled)
             self.backlight_checkbox.blockSignals(False)
 
+        logger.info(f"Finished querying all settings for camera {self.visca_ip}")
         self.loading_label.setVisible(False)
 
     def on_focus_mode_changed(self):
@@ -1391,12 +1505,10 @@ class CameraWidget(QWidget):
         success = self.visca.set_iris(value)
         self.update_status_indicator(success)
 
-    def on_shutter_changed(self, value: int):
+    def on_shutter_changed(self, value: int) -> None:
         """Handle shutter slider change"""
-        # Shutter speed values (common VISCA mapping)
-        speeds = ["1/10000", "1/6000", "1/4000", "1/3000", "1/2000", "1/1500",
-                  "1/1000", "1/725", "1/500", "1/350", "1/250", "1/180", "1/125",
-                  "1/100", "1/90", "1/60", "1/50", "1/30", "1/25", "1/15", "1/8", "1/4"]
+        # Use constant list, skipping "Auto" and "Manual" entries
+        speeds = ViscaConstants.SHUTTER_SPEEDS[2:]
         if value < len(speeds):
             self.shutter_value_label.setText(speeds[value])
         else:
@@ -1546,7 +1658,7 @@ class CameraWidget(QWidget):
                 widget.setEnabled(enabled)
     
     def reconnect_camera(self):
-        """Attempt to reconnect to camera"""
+        """Attempt to reconnect to camera (non-blocking)"""
         try:
             print(f"[Camera] Attempting to reconnect to {self.visca_ip}...")
             
@@ -1554,18 +1666,12 @@ class CameraWidget(QWidget):
             self.reconnect_button.setVisible(False)
             self.loading_label.setVisible(True)
             
-            # Stop existing video thread if any
-            if self.ndi_thread:
-                self.ndi_thread.stop()
-                self.ndi_thread = None
-            
-            # Try to reconnect
-            if self.ndi_source_name and ndi_available:
-                # Restart video with delay
-                QTimer.singleShot(500, self._attempt_video_reconnect)
-            else:
-                # Just test VISCA connection
-                QTimer.singleShot(500, self._attempt_visca_reconnect)
+            # Force UI to process events immediately so user sees loading indicator
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()            
+
+            # No thread to wait for, reconnect immediately
+            QTimer.singleShot(100, self._cleanup_and_reconnect)
         except Exception as e:
             import traceback
             print(f"[Camera] Error in reconnect_camera: {e}")
@@ -1573,6 +1679,31 @@ class CameraWidget(QWidget):
             self.loading_label.setVisible(False)
             self.reconnect_button.setVisible(True)
             self.video_label.setText(f"Reconnect Error:\\n{str(e)[:50]}")
+    
+    def _wait_for_thread_stop(self):
+        """Poll for thread to finish without blocking UI"""
+        if self.ndi_thread and self.ndi_thread.isRunning():
+            # Thread still running, check again in 100ms
+            print("[Camera] Waiting for thread to stop...")
+            QTimer.singleShot(100, self._wait_for_thread_stop)
+        else:
+            # Thread stopped, proceed with reconnection
+            print("[Camera] Thread stopped, proceeding with reconnection")
+            self._cleanup_and_reconnect()
+    
+    def _cleanup_and_reconnect(self):
+        """Clean up old thread and attempt reconnection"""
+        # Ensure thread is fully stopped
+        if self.ndi_thread:
+            self.ndi_thread = None
+        
+        # Try to reconnect
+        if self.ndi_source_name and ndi_available:
+            # Restart video
+            self._attempt_video_reconnect()
+        else:
+            # Just test VISCA connection
+            self._attempt_visca_reconnect()
     
     def _attempt_video_reconnect(self):
         """Attempt to reconnect video stream"""
@@ -1589,27 +1720,72 @@ class CameraWidget(QWidget):
     def _attempt_visca_reconnect(self):
         """Attempt to reconnect VISCA control"""
         try:
+            # Use background thread to avoid blocking UI and other cameras
+            self.connection_test_thread = ViscaConnectionTestThread(self.visca)
+            self.connection_test_thread.test_complete.connect(self._on_visca_reconnect_complete)
+            self.connection_test_thread.start()
+        except Exception as e:
+            import traceback
+            print(f"[Camera] Error starting VISCA reconnect: {e}")
+            traceback.print_exc()
             self.loading_label.setVisible(False)
-            # Test connection with a query that requires a response
-            from videocue.controllers.visca_ip import FocusMode
-            focus_mode = self.visca.query_focus_mode()
-            success = focus_mode != FocusMode.UNKNOWN
+            self.reconnect_button.setVisible(True)
+            self.video_label.setText(f"VISCA Reconnect Failed:\n{str(e)[:50]}")
+    
+    def _on_visca_reconnect_complete(self, success: bool, error_message: str):
+        """Handle VISCA reconnection test result"""
+        try:
+            self.loading_label.setVisible(False)
             
             if success:
                 self.is_connected = True
                 self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
                 self.set_controls_enabled(True)
-                self.query_all_settings()
+                # Don't query all settings on reconnect - it blocks UI
+                print(f"[Camera] Reconnected to {self.visca_ip}")
             else:
                 # Reconnect failed, show button again
+                self.is_connected = False
                 self.reconnect_button.setVisible(True)
                 self.video_label.setText("Reconnection failed\nClick Reconnect to retry")
         except Exception as e:
             import traceback
-            print(f"[Camera] Error in VISCA reconnect: {e}")
+            print(f"[Camera] Error handling VISCA reconnect result: {e}")
             traceback.print_exc()
             self.reconnect_button.setVisible(True)
-            self.video_label.setText(f"VISCA Reconnect Failed:\n{str(e)[:50]}")
+    
+    def _retry_connection(self) -> None:
+        """Retry connection with exponential backoff"""
+        self._retry_timer.stop()
+        
+        if self._retry_count >= self._max_retries:
+            logger.warning(f"Max retries ({self._max_retries}) reached for {self.visca_ip}")
+            self._retry_count = 0
+            self.reconnect_button.setVisible(True)
+            return
+        
+        self._retry_count += 1
+        delay_seconds = 2 ** self._retry_count  # Exponential backoff: 2, 4, 8 seconds
+        
+        logger.info(f"Retrying connection to {self.visca_ip} (attempt {self._retry_count}/{self._max_retries}) in {delay_seconds}s")
+        self._retry_timer.start(delay_seconds * 1000)
+        
+        # Attempt reconnection
+        QTimer.singleShot(100, self.reconnect_camera)
+    
+    def start_retry_mechanism(self) -> None:
+        """Start automatic retry mechanism for failed connections"""
+        if self.is_connected:
+            return
+        
+        self._retry_count = 0
+        logger.info(f"Starting retry mechanism for {self.visca_ip}")
+        QTimer.singleShot(2000, self._retry_connection)  # Start after 2 seconds
+    
+    def stop_retry_mechanism(self) -> None:
+        """Stop automatic retry mechanism"""
+        self._retry_timer.stop()
+        self._retry_count = 0
 
     def open_web_browser(self):
         """Open camera web interface"""

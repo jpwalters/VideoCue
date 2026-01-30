@@ -95,6 +95,7 @@ pip install -r requirements.txt
 - **ndi-python**: NDI SDK Python bindings (optional)
 - **pygame**: USB game controller support
 - **qdarkstyle**: Dark theme stylesheet
+- **ruff** (recommended): Fast Python linter with better accuracy than Pylint
 
 ## Running
 
@@ -227,6 +228,14 @@ All camera settings are queried on load to synchronize UI with camera state:
 - White balance mode and color temperature
 - Backlight compensation status
 
+**BirdDog Camera Support**:
+- BirdDog P200/P400 cameras use non-standard VISCA response values
+- Exposure BRIGHT mode: Standard VISCA=13, BirdDog=15 (both supported)
+- White Balance:
+  - INDOOR: Standard=1, BirdDog=6 (both supported)
+  - OUTDOOR/MANUAL: BirdDog P200=5, P400=10 (firmware limitation prevents distinction)
+- The app defaults to MANUAL for ambiguous values (5/10) since precise control is typically preferred
+
 ## Troubleshooting
 
 ### NDI Discovery Not Finding Cameras
@@ -286,19 +295,21 @@ All camera settings are queried on load to synchronize UI with camera state:
 ### Project Structure
 ```
 videocue/
+├── constants.py              # Application constants (NetworkConstants, UIConstants, etc.)
 ├── controllers/
-│   ├── visca_ip.py          # VISCA protocol implementation
-│   ├── ndi_video.py          # NDI video receiver threads (with error handling)
-│   └── usb_controller.py     # USB game controller handler
+│   ├── visca_ip.py          # VISCA protocol implementation with BirdDog support
+│   ├── visca_commands.py    # VISCA command definitions and constants
+│   ├── ndi_video.py         # NDI video receiver threads (with error handling)
+│   └── usb_controller.py    # USB game controller handler
 ├── models/
-│   ├── config_manager.py     # JSON configuration persistence
-│   └── video.py              # Video size and preset models
+│   ├── config_manager.py    # JSON configuration persistence
+│   └── video.py             # Video size and preset models
 ├── ui/
-│   ├── main_window.py        # Main application window with deferred loading
-│   ├── camera_widget.py      # Individual camera control widget with reconnect
-│   ├── camera_add_dialog.py  # Camera discovery/add dialog
+│   ├── main_window.py       # Main application window with deferred loading
+│   ├── camera_widget.py     # Individual camera control widget with reconnect
+│   ├── camera_add_dialog.py # Camera discovery/add dialog
 │   └── controller_preferences_dialog.py  # USB controller settings
-└── utils.py                  # Resource path helpers
+└── utils.py                  # Resource path helpers and utility functions
 
 resources/
 └── icon.png                  # Application icon (if present)
@@ -309,12 +320,15 @@ requirements.txt              # Python dependencies including ruff for linting
 ```
 
 ### Key Architectural Features
-- **Deferred Initialization**: Camera connections happen after UI loads
-- **Connection State Tracking**: `is_connected` flag enables/disables controls
+- **Deferred Initialization**: Camera connections happen after UI loads (500ms delay after VISCA test)
+- **Connection State Tracking**: `is_connected` flag enables/disables controls automatically
 - **Query-based Testing**: Connection verification uses commands that require responses
 - **Error Resilience**: Global exception handler + try-except in all critical paths
 - **Progress Tracking**: Signals between widgets and main window for loading feedback
 - **Thread Safety**: NDI threads use Qt signals for cross-thread communication
+- **Constants Module**: Centralized configuration (NetworkConstants, UIConstants, HardwareConstants, ViscaConstants)
+- **Comprehensive Logging**: Python logging framework with file output to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
+- **Query-based Sync**: All camera settings queried after connection to sync UI with camera state
 
 ### Adding New Camera Parameters
 

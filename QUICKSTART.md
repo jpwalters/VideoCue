@@ -27,20 +27,22 @@ python videocue.py
 
 ```
 python/
-├── videocue.py              # Main entry point
+├── videocue.py              # Main entry point with global exception handler
 ├── videocue/
 │   ├── __init__.py
+│   ├── constants.py         # Application constants (NetworkConstants, UIConstants, etc.)
 │   ├── utils.py             # Resource loading utilities
 │   ├── controllers/
-│   │   ├── visca_ip.py      # VISCA-over-IP protocol
-│   │   ├── ndi_video.py     # NDI video streaming
+│   │   ├── visca_ip.py      # VISCA-over-IP protocol with BirdDog support
+│   │   ├── visca_commands.py # VISCA command definitions
+│   │   ├── ndi_video.py     # NDI video streaming with comprehensive error handling
 │   │   └── usb_controller.py # USB game controller
 │   ├── models/
 │   │   ├── video.py         # Video size and preset models
 │   │   └── config_manager.py # JSON configuration persistence
 │   └── ui/
-│       ├── main_window.py    # Main application window
-│       ├── camera_widget.py  # Camera control widget
+│       ├── main_window.py    # Main application window with deferred loading
+│       ├── camera_widget.py  # Camera control widget with query-based sync
 │       └── camera_add_dialog.py # Camera discovery dialog
 ├── requirements.txt
 ├── config_schema.json
@@ -88,6 +90,7 @@ The configuration includes:
 - Exposure modes (Auto, Manual, Shutter/Iris Priority, Bright)
 - White balance modes (Auto, Indoor, Outdoor, One-Push, Manual)
 - Query commands for connection verification and state sync
+- BirdDog P200/P400 non-standard value support (exposure=15, WB modes)
 
 ✅ NDI video streaming
 - Network camera discovery
@@ -132,6 +135,7 @@ The configuration includes:
 - Global exception handler prevents crashes
 - Try-except blocks in all critical paths
 - Error dialogs with detailed information
+- Comprehensive logging to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
 - Console logging with full tracebacks
 - Graceful degradation on failures
 
@@ -141,11 +145,13 @@ The configuration includes:
 
 1. **Preset Position Query**: VISCA commands for querying current PTZ position are not yet implemented. Presets currently store placeholder values (0, 0, 0). This requires additional VISCA protocol research.
 
-2. **NDI Web Control URL**: The `ndi-python` library's API for extracting web control URLs needs verification. Currently returns None - may need metadata parsing.
+2. **BirdDog White Balance Firmware**: BirdDog P200/P400 cameras return identical values for OUTDOOR and MANUAL white balance modes (P200=5, P400=10). This is a camera firmware limitation. The app defaults to showing MANUAL for these values since precise control is typically preferred.
 
-3. **Frame Dropping**: PyQt6 signals with QueuedConnection don't have explicit queue size limits. Frame dropping relies on Qt's internal handling. If UI lag occurs, may need manual implementation.
+3. **NDI Web Control URL**: The `ndi-python` library's API for extracting web control URLs needs verification. Currently returns None - may need metadata parsing.
 
-4. **Connection State**: Connection verification uses query commands (not fire-and-forget) for reliability, but doesn't implement full state machine with automatic retry logic.
+4. **Frame Dropping**: PyQt6 signals with QueuedConnection don't have explicit queue size limits. Frame dropping relies on Qt's internal handling. If UI lag occurs, may need manual implementation.
+
+5. **Connection State**: Connection verification uses query commands (not fire-and-forget) for reliability, but doesn't implement full state machine with automatic retry logic.
 
 ## Testing Checklist
 

@@ -3,8 +3,15 @@ VISCA-over-IP protocol implementation using UDP
 """
 import socket
 import struct
+import logging
+import threading
 from enum import Enum
 from typing import Optional
+from videocue.controllers.visca_commands import ViscaCommands, ViscaLimits, ViscaResponse
+from videocue.exceptions import ViscaConnectionError, ViscaTimeoutError, ViscaCommandError
+from videocue.constants import NetworkConstants
+
+logger = logging.getLogger(__name__)
 
 
 class FocusMode(Enum):
@@ -33,13 +40,80 @@ class WhiteBalanceMode(Enum):
     UNKNOWN = 5
 
 
-class ViscaIP:
-    """VISCA protocol controller using UDP datagrams"""
+class VideoFormat(Enum):
+    """Video format enumeration - BirdDog P400 format codes
+    
+    Based on actual camera responses and VISCA protocol documentation.
+    Query: 81 09 06 23 FF
+    Response: 90 50 pp FF (where pp is the format code)
+    """
+    FORMAT_1080P60 = 0x00  # 1920x1080 60fps
+    FORMAT_1080P50 = 0x01  # 1920x1080 50fps  
+    FORMAT_720P50 = 0x02  # 1280x720 50fps - CONFIRMED
+    FORMAT_1080P25 = 0x03  # 1920x1080 25fps (PAL)
+    FORMAT_1080P29_97 = 0x04  # 1920x1080 29.97fps (NTSC)
+    FORMAT_1080P30 = 0x05  # 1920x1080 30fps
+    FORMAT_1080I60 = 0x06  # 1920x1080 60i
+    FORMAT_1080I59_94 = 0x07  # 1920x1080 59.94i
+    FORMAT_1080I50 = 0x08  # 1920x1080 50i
+    FORMAT_720P60 = 0x09  # 1280x720 60fps
+    FORMAT_720P59_94 = 0x0A  # 1280x720 59.94fps
+    FORMAT_1080P59_94 = 0x0B  # 1920x1080 59.94fps
+    FORMAT_720P30 = 0x0C  # 1280x720 30fps
+    FORMAT_720P29_97 = 0x0D  # 1280x720 29.97fps
+    FORMAT_720P25 = 0x0E  # 1280x720 25fps
+    UNKNOWN = 0xFF  # Unknown/unsupported format
 
-    def __init__(self, ip: str, port: int = 52381):
+
+class ViscaIP:
+    """
+    VISCA protocol controller using UDP datagrams with connection pooling.
+    
+    Thread Safety:
+        This class is thread-safe. The internal socket is protected by _socket_lock
+        and can be safely called from multiple threads (e.g., main thread and USB
+        controller thread). Each command acquires the lock before sending.
+    """
+
+    def __init__(self, ip: str, port: int = None):
+        if port is None:
+            port = NetworkConstants.VISCA_DEFAULT_PORT
         self.ip = ip
         self.port = port
         self._seq_num = 0
+        self._socket: Optional[socket.socket] = None
+        self._socket_lock = threading.Lock()
+        self._last_error: Optional[str] = None
+        logger.info(f"ViscaIP initialized for {ip}:{port}")
+
+    def __del__(self) -> None:
+        """Cleanup socket on destruction"""
+        self.close()
+
+    def close(self) -> None:
+        """Close socket connection"""
+        with self._socket_lock:
+            if self._socket:
+                try:
+                    self._socket.close()
+                    logger.debug(f"Socket closed for {self.ip}:{self.port}")
+                except Exception as e:
+                    logger.warning(f"Error closing socket: {e}")
+                finally:
+                    self._socket = None
+
+    def _get_socket(self) -> socket.socket:
+        """Get or create socket with proper error handling"""
+        with self._socket_lock:
+            if self._socket is None:
+                try:
+                    self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self._socket.settimeout(ViscaLimits.COMMAND_TIMEOUT)
+                    logger.debug(f"Socket created for {self.ip}:{self.port}")
+                except OSError as e:
+                    logger.error(f"Failed to create socket: {e}")
+                    raise ViscaConnectionError(f"Socket creation failed: {e}") from e
+            return self._socket
 
     def _get_seq_num(self) -> int:
         """Get unique sequence number for packet"""
@@ -67,18 +141,30 @@ class ViscaIP:
     def send_command(self, command: str) -> bool:
         """Send VISCA command without waiting for response"""
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(1.0)
+            sock = self._get_socket()
             packet = self._build_packet(command)
             sock.sendto(packet, (self.ip, self.port))
+            logger.debug(f"Sent command to {self.ip}: {command[:20]}...")
             return True
-        except Exception as e:
-            print(f"[VISCA] Send error: {e}")
+        except ViscaConnectionError:
+            raise
+        except socket.timeout:
+            self._last_error = "Send timeout"
+            logger.warning(f"Send timeout for {self.ip}")
+            self.close()  # Recreate socket on next call
             return False
-        finally:
-            sock.close()
+        except OSError as e:
+            self._last_error = str(e)
+            logger.error(f"Send error for {self.ip}: {e}")
+            self.close()
+            return False
+        except Exception as e:
+            self._last_error = str(e)
+            logger.exception(f"Unexpected send error for {self.ip}")
+            self.close()
+            return False
 
-    def query_command(self, command: str) -> Optional[bytes]:
+    def query_command(self, command: str, timeout: float = None) -> Optional[bytes]:
         """
         Send VISCA query and return response.
 
@@ -93,29 +179,46 @@ class ViscaIP:
            - Multi-nibble: 90 50 0p 0q 0r 0s FF (4 nibbles for larger values)
         4. Extract nibbles from specific positions after skipping header
 
-        Example for single nibble (position 5 after header):
-            visca_response = response_hex[16:]
-            value = int(visca_response[5], 16)
-
-        Example for 4-nibble value (positions 5,7,9,11 after header):
-            p = int(visca_response[5], 16)
-            q = int(visca_response[7], 16)
-            r = int(visca_response[9], 16)
-            s = int(visca_response[11], 16)
-            value = (p << 12) | (q << 8) | (r << 4) | s
+        Args:
+            command: VISCA command string
+            timeout: Optional timeout override in seconds
+        
+        Returns:
+            Response bytes or None on error
         """
+        old_timeout = None
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(1.0)
+            sock = self._get_socket()
+            if timeout is not None:
+                old_timeout = sock.gettimeout()
+                sock.settimeout(timeout)
+            
             packet = self._build_packet(command)
             sock.sendto(packet, (self.ip, self.port))
             response, _ = sock.recvfrom(1024)
+            logger.debug(f"Query response from {self.ip}: {response.hex()[:40]}...")
             return response
+        except socket.timeout:
+            self._last_error = "Query timeout"
+            logger.warning(f"Query timeout for {self.ip}")
+            self.close()
+            raise ViscaTimeoutError(f"Query timeout for {self.ip}") from None
+        except OSError as e:
+            self._last_error = str(e)
+            logger.error(f"Query error for {self.ip}: {e}")
+            self.close()
+            return None
         except Exception as e:
-            print(f"VISCA query error: {e}")
+            self._last_error = str(e)
+            logger.exception(f"Unexpected query error for {self.ip}")
+            self.close()
             return None
         finally:
-            sock.close()
+            if old_timeout is not None and self._socket:
+                try:
+                    self._socket.settimeout(old_timeout)
+                except:
+                    pass
 
     def _pan_speed(self, speed: float) -> str:
         """Convert 0.0-1.5+ speed to VISCA pan speed hex (01-18)"""
@@ -195,19 +298,32 @@ class ViscaIP:
     def query_exposure_mode(self) -> ExposureMode:
         """Query camera exposure mode"""
         response = self.query_command("81 09 04 39 FF")
-        if response and len(response) > 3:
-            # Response format: y0 50 0p FF where p is mode code
+        if response and len(response) > 2:
+            # Skip VISCA-over-IP header (8 bytes = 16 hex chars)
+            # Response format after header: 90 50 0p FF where p is mode code
             response_hex = response.hex().upper()
-            if len(response_hex) >= 4:
-                code = response_hex[-4:-2]
-                mode_map = {
-                    "00": ExposureMode.AUTO,
-                    "03": ExposureMode.MANUAL,
-                    "0A": ExposureMode.SHUTTER_PRIORITY,
-                    "0B": ExposureMode.IRIS_PRIORITY,
-                    "0D": ExposureMode.BRIGHT
-                }
-                return mode_map.get(code, ExposureMode.UNKNOWN)
+            logger.info(f"[{self.ip}] Raw exposure mode response: {response_hex}")
+            if len(response_hex) >= 20:
+                visca_response = response_hex[16:]  # Skip header
+                logger.info(f"[{self.ip}] Exposure VISCA response (after header): {visca_response}")
+                # Extract mode value from position 5 (second nibble of "0p" in "90 50 0p FF")
+                try:
+                    mode_value = int(visca_response[5], 16)
+                    logger.info(f"[{self.ip}] Extracted exposure mode value: {mode_value}")
+                    mode_map = {
+                        0: ExposureMode.AUTO,
+                        3: ExposureMode.MANUAL,
+                        10: ExposureMode.SHUTTER_PRIORITY,  # 0A hex = 10 decimal
+                        11: ExposureMode.IRIS_PRIORITY,     # 0B hex = 11 decimal
+                        13: ExposureMode.BRIGHT,            # 0D hex = 13 decimal (standard VISCA)
+                        15: ExposureMode.BRIGHT             # 0F hex = 15 decimal (BirdDog cameras)
+                    }
+                    result = mode_map.get(mode_value, ExposureMode.UNKNOWN)
+                    logger.info(f"[{self.ip}] Exposure mode query: {result.name} (value: {mode_value})")
+                    return result
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"[{self.ip}] Failed to parse exposure mode: {e}")
+        logger.warning(f"[{self.ip}] Exposure mode query failed - no valid response")
         return ExposureMode.UNKNOWN
 
     def query_iris(self) -> Optional[int]:
@@ -475,23 +591,33 @@ class ViscaIP:
         response = self.query_command("81 09 04 35 FF")
         if response and len(response) > 2:
             # Skip VISCA-over-IP header (8 bytes = 16 hex chars)
-            # Response format after header: 90 50 0p FF where p is mode value
+            # Response format after header: 90 50 pp pp pp pp FF (multi-byte response)
+            # The actual value is in the last byte before FF
             response_hex = response.hex().upper()
+            logger.info(f"[{self.ip}] Raw white balance mode response: {response_hex}")
             if len(response_hex) >= 20:
                 visca_response = response_hex[16:]  # Skip header
-                # Extract mode value from position 5 (second nibble of "0p")
+                logger.info(f"[{self.ip}] White balance VISCA response (after header): {visca_response}")
+                # Extract last byte before FF terminator (position -4:-2)
                 try:
-                    mode_value = int(visca_response[5], 16)
+                    value_hex = visca_response[-4:-2]
+                    mode_value = int(value_hex, 16)
+                    logger.info(f"[{self.ip}] Extracted white balance mode value: {mode_value} (hex: {value_hex})")
                     mode_map = {
                         0: WhiteBalanceMode.AUTO,
-                        1: WhiteBalanceMode.INDOOR,
-                        2: WhiteBalanceMode.OUTDOOR,
+                        1: WhiteBalanceMode.INDOOR,        # Standard VISCA
+                        2: WhiteBalanceMode.OUTDOOR,       # Standard VISCA
                         3: WhiteBalanceMode.ONE_PUSH,
-                        5: WhiteBalanceMode.MANUAL
+                        5: WhiteBalanceMode.MANUAL,        # BirdDog P200 returns 5 for MANUAL
+                        6: WhiteBalanceMode.INDOOR,        # BirdDog returns 6 for INDOOR
+                        10: WhiteBalanceMode.MANUAL        # BirdDog P400 returns 10 (0A hex) for MANUAL
                     }
-                    return mode_map.get(mode_value, WhiteBalanceMode.UNKNOWN)
-                except (ValueError, IndexError):
-                    pass
+                    result = mode_map.get(mode_value, WhiteBalanceMode.UNKNOWN)
+                    logger.info(f"[{self.ip}] White balance mode query: {result.name} (value: {mode_value})")
+                    return result
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"[{self.ip}] Failed to parse white balance mode: {e}")
+        logger.warning(f"[{self.ip}] White balance mode query failed - no valid response")
         return WhiteBalanceMode.UNKNOWN
 
     def query_red_gain(self) -> Optional[int]:
@@ -546,6 +672,30 @@ class ViscaIP:
                 except (ValueError, IndexError):
                     pass
         return None
+
+    def query_video_format(self) -> 'VideoFormat':
+        """Query current video format"""
+        response = self.query_command("81 09 06 23 FF")
+        if response and len(response) > 2:
+            response_hex = response.hex().upper()
+            if len(response_hex) >= 20:
+                visca_response = response_hex[16:]  # Skip header
+                # Response format appears to be: 90 60 pp FF (not standard 90 50 pp FF)
+                # The format code is at positions [2:4], not [4:6]
+                try:
+                    format_code = int(visca_response[2:4], 16)
+                    for fmt in VideoFormat:
+                        if fmt.value == format_code:
+                            return fmt
+                except (ValueError, IndexError):
+                    pass
+        return VideoFormat.UNKNOWN
+
+    def set_video_format(self, format: 'VideoFormat') -> bool:
+        """Set video format"""
+        if format == VideoFormat.UNKNOWN:
+            return False
+        return self.send_command(f"81 01 06 35 {format.value:02X} FF")
 
 
 # Direction constants for easier use
