@@ -9,7 +9,7 @@ numpy>=1.24.0
 
 # Optional: NDI video streaming support
 # Requires Python 3.10 (ndi-python has compatibility issues with Python 3.11+)
-# Requires NDI SDK installed from https://ndi.tv/tools/
+# Requires NDI 6 SDK installed from https://ndi.tv/tools/
 # 
 # To install:
 #   git clone --recursive https://github.com/buresu/ndi-python.git
@@ -17,4 +17,4 @@ numpy>=1.24.0
 #   pip install .
 #
 # Application gracefully falls back to IP-only mode without NDI
-# ndi-python>=5.0.0
+# ndi-python>=6.0.0

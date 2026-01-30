@@ -10,7 +10,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 block_cipher = None
 
 # NDI DLL path (update this to match your NDI installation)
-ndi_dll_path = r'C:\Program Files\NDI\NDI 5 Runtime\v5\Processing.NDI.Lib.x64.dll'
+ndi_dll_path = r'C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll'
 
 # Prepare binaries list
 binaries = []
