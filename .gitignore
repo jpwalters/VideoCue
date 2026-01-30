@@ -65,3 +65,5 @@ htmlcov/
 # Keep .github for CI/CD workflows if added later
 # .github/ - commented out to keep copilot instructions
 videocue/test/
+installer_output/
+*.zip
