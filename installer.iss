@@ -4,7 +4,7 @@
 #define MyAppName "VideoCue"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "VideoCue Contributors"
-#define MyAppURL "https://github.com/YOUR_USERNAME/VideoCue"
+#define MyAppURL "https://github.com/jpwalters/VideoCue"
 #define MyAppExeName "VideoCue.exe"
 
 [Setup]
@@ -22,7 +22,7 @@ AllowNoIcons=yes
 LicenseFile=LICENSE
 OutputDir=installer_output
 OutputBaseFilename=VideoCue-{#MyAppVersion}-Setup
-; SetupIconFile=resources\icon.ico
+SetupIconFile=resources\icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

@@ -45,6 +45,22 @@ a = Analysis(
         'PyQt6.sip',
         'pygame',
         'qdarkstyle',
+        # Comprehensive numpy imports for ndi-python compatibility
+        'numpy',
+        'numpy.core',
+        'numpy.core._methods',
+        'numpy.core._internal',
+        'numpy.core.multiarray',
+        'numpy.core._multiarray_umath',
+        'numpy.core._dtype',
+        'numpy.core.numerictypes',
+        'numpy.core.umath',
+        'numpy.lib.format',
+        'numpy.random',
+        'numpy.random._common',
+        'numpy.random._generator',
+        'numpy.linalg',
+        'numpy.fft',
     ],
     hookspath=[],
     hooksconfig={},
@@ -74,7 +90,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='resources/icon.ico' if os.path.exists('resources/icon.ico') else None,
+    icon=os.path.abspath('resources/icon.ico') if os.path.exists('resources/icon.ico') else None,
 )
 
 coll = COLLECT(
