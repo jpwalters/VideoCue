@@ -4,8 +4,13 @@ Configuration manager for JSON persistence
 import json
 import os
 import uuid
+import logging
 from pathlib import Path
 from typing import List, Optional
+from videocue.exceptions import ConfigLoadError, ConfigSaveError
+from videocue.constants import UIConstants, NetworkConstants
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -28,20 +33,29 @@ class ConfigManager:
         if self.config_path.exists():
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except (IOError, json.JSONDecodeError) as e:
-                print(f"Error loading config: {e}")
+                    config = json.load(f)
+                logger.info(f"Configuration loaded from {self.config_path}")
+                return config
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in config file: {e}")
+                raise ConfigLoadError(f"Invalid JSON: {e}") from e
+            except IOError as e:
+                logger.error(f"Error reading config file: {e}")
+                raise ConfigLoadError(f"Cannot read config: {e}") from e
 
         # Return default schema
+        logger.info("No config file found, using defaults")
         return self._default_schema()
 
-    def save(self):
+    def save(self) -> None:
         """Save configuration to JSON file"""
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
+            logger.debug(f"Configuration saved to {self.config_path}")
         except IOError as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"Error saving config: {e}")
+            raise ConfigSaveError(f"Cannot save config: {e}") from e
 
     def _default_schema(self) -> dict:
         """Return default configuration schema"""
@@ -49,7 +63,8 @@ class ConfigManager:
             "version": "1.0",
             "cameras": [],
             "preferences": {
-                "video_size_default": [512, 288],
+                "video_size_default": [UIConstants.VIDEO_DEFAULT_WIDTH, UIConstants.VIDEO_DEFAULT_HEIGHT],
+                "video_frame_skip": 6,
                 "theme": "dark",
                 "auto_discover_ndi": True
             },
@@ -73,11 +88,13 @@ class ConfigManager:
         }
 
     def add_camera(self, ndi_source_name: str, visca_ip: str,
-                   visca_port: int = 52381, video_size: List[int] = None) -> str:
+                   visca_port: int = None, video_size: List[int] = None) -> str:
         """Add camera to configuration, return camera ID"""
         camera_id = str(uuid.uuid4())
         if video_size is None:
             video_size = self.config['preferences']['video_size_default']
+        if visca_port is None:
+            visca_port = NetworkConstants.VISCA_DEFAULT_PORT
 
         camera = {
             "id": camera_id,
@@ -103,6 +120,24 @@ class ConfigManager:
         for i, cam in enumerate(self.config['cameras']):
             cam['position'] = i
         self.save()
+
+    def reorder_cameras(self, camera_ids: list) -> None:
+        """Reorder cameras based on provided list of camera IDs"""
+        # Create a mapping of camera ID to camera config
+        camera_map = {cam['id']: cam for cam in self.config['cameras']}
+        
+        # Rebuild cameras list in the new order
+        new_cameras = []
+        for camera_id in camera_ids:
+            if camera_id in camera_map:
+                new_cameras.append(camera_map[camera_id])
+        
+        # Update positions
+        for i, cam in enumerate(new_cameras):
+            cam['position'] = i
+        
+        self.config['cameras'] = new_cameras
+        self.save()  # Now consistent - always auto-save
 
     def update_camera(self, camera_id: str, **kwargs):
         """Update camera configuration"""
@@ -229,6 +264,15 @@ class ConfigManager:
     def get_default_video_size(self) -> List[int]:
         """Get default video size preference"""
         return self.config['preferences']['video_size_default']
+
+    def set_video_frame_skip(self, skip: int):
+        """Set video frame skip rate (higher = lower framerate, better performance)"""
+        self.config['preferences']['video_frame_skip'] = skip
+        self.save()
+
+    def get_video_frame_skip(self) -> int:
+        """Get video frame skip rate (default 6 = ~10 FPS from 60 FPS source)"""
+        return self.config['preferences'].get('video_frame_skip', 6)
 
     def set_usb_controller_name(self, name: str):
         """Set USB controller device name"""

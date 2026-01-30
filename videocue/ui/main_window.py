@@ -2,6 +2,7 @@
 Main application window
 """
 import os
+import logging
 from PyQt6.QtWidgets import (  # type: ignore
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QScrollArea, QMenu, QMessageBox
@@ -12,10 +13,15 @@ from PyQt6.QtGui import QAction, QActionGroup, QIcon  # type: ignore
 from videocue.models.config_manager import ConfigManager
 from videocue.models.video import VideoSize
 from videocue.controllers.usb_controller import USBController, MovementDirection
-from videocue.controllers.ndi_video import ndi_available, get_ndi_error_message
+from videocue.controllers.ndi_video import ndi_available, get_ndi_error_message, cleanup_ndi
+from videocue import __version__
 from videocue.ui.camera_widget import CameraWidget
 from videocue.ui.camera_add_dialog import CameraAddDialog
 from videocue.utils import resource_path
+from videocue.ui_strings import UIStrings
+from videocue.constants import UIConstants
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -68,10 +74,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Ok
             )
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """Initialize user interface"""
-        self.setWindowTitle("VideoCue")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowTitle(UIStrings.APP_NAME)
+        self.setGeometry(UIConstants.WINDOW_DEFAULT_X, UIConstants.WINDOW_DEFAULT_Y, 
+                         UIConstants.WINDOW_DEFAULT_WIDTH, UIConstants.WINDOW_DEFAULT_HEIGHT)
+        logger.info("Initializing main window UI")
 
         # Create menu bar
         self.create_menu_bar()
@@ -89,11 +97,7 @@ class MainWindow(QMainWindow):
 
         # Cameras tab
         self.cameras_tab = self.create_cameras_tab()
-        self.tab_widget.addTab(self.cameras_tab, "Cameras")
-
-        # Cues tab (placeholder) - Hidden for now
-        # cues_tab = QWidget()
-        # self.tab_widget.addTab(cues_tab, "Cues")
+        self.tab_widget.addTab(self.cameras_tab, UIStrings.TAB_CAMERAS)
 
     def create_menu_bar(self):
         """Create application menu bar"""
@@ -139,6 +143,40 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda checked, s=size: self.on_video_size_changed(s))
             size_group.addAction(action)
             video_size_menu.addAction(action)
+
+        # Performance submenu
+        performance_menu = QMenu("Video Performance", self)
+        view_menu.addMenu(performance_menu)
+
+        # Create radio group for frame rates
+        framerate_group = QActionGroup(self)
+        framerate_group.setExclusive(True)
+
+        current_skip = self.config.get_video_frame_skip()
+
+        # Frame skip options: (skip_value, label, description)
+        # Lower skip = more frames processed = better quality but slower
+        # Higher skip = fewer frames processed = worse quality but faster
+        framerate_options = [
+            (20, "Maximum Performance", "Fastest - ~3 FPS (skips most frames)"),
+            (8, "High Performance", "Very fast - ~7.5 FPS"),
+            (6, "Balanced", "Good balance - ~10 FPS (recommended)"),
+            (4, "Good Quality", "Better quality - ~15 FPS"),
+            (2, "Best Quality", "Highest quality - ~30 FPS (may lag)")
+        ]
+
+        for skip_value, label, tooltip in framerate_options:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setToolTip(tooltip)
+            action.setData(skip_value)
+
+            if skip_value == current_skip:
+                action.setChecked(True)
+
+            action.triggered.connect(lambda checked, skip=skip_value: self.on_frame_rate_changed(skip))
+            framerate_group.addAction(action)
+            performance_menu.addAction(action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -237,36 +275,48 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event):
         """Override showEvent to load cameras after UI is visible"""
-        super().showEvent(event)
-        
-        # Load cameras only once, after window is shown
-        if not self._cameras_loaded:
-            self._cameras_loaded = True
+        try:
+            super().showEvent(event)
             
-            # Show loading indicator immediately
-            camera_configs = self.config.get_cameras()
-            if len(camera_configs) > 0:
-                self._total_cameras_to_load = len(camera_configs)
-                self._cameras_initialized = 0
-                self._current_progress_step = 0
-                # Use 3 steps per camera for more granular progress
-                self._total_progress_steps = self._total_cameras_to_load * 3
-                self.loading_label.setText(f"Preparing to load {self._total_cameras_to_load} camera(s)...")
-                self.loading_label.setVisible(True)
-                self.loading_progress.setRange(0, self._total_progress_steps)
-                self.loading_progress.setValue(0)
-                self.loading_progress.setVisible(True)
-            
-            # Use timer to ensure UI is fully rendered before loading cameras
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, self.load_cameras)
+            # Load cameras only once, after window is shown
+            if not self._cameras_loaded:
+                self._cameras_loaded = True
+                
+                # Show loading indicator immediately
+                camera_configs = self.config.get_cameras()
+                if len(camera_configs) > 0:
+                    self._total_cameras_to_load = len(camera_configs)
+                    self._cameras_initialized = 0
+                    self._current_progress_step = 0
+                    # Use 3 steps per camera for more granular progress
+                    self._total_progress_steps = self._total_cameras_to_load * 3
+                    self.loading_label.setText(f"Preparing to load {self._total_cameras_to_load} camera(s)...")
+                    self.loading_label.setVisible(True)
+                    self.loading_progress.setRange(0, self._total_progress_steps)
+                    self.loading_progress.setValue(0)
+                    self.loading_progress.setVisible(True)
+                
+                # Use timer to ensure UI is fully rendered before loading cameras
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(100, self.load_cameras)
+        except Exception as e:
+            import traceback
+            print(f"[MainWindow] CRITICAL ERROR in showEvent: {e}")
+            traceback.print_exc()
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Startup Error", f"Error during window show:\n{str(e)}")
     
     def load_cameras(self):
         """Load cameras from configuration"""
-        camera_configs = self.config.get_cameras()
-        
-        for cam_config in camera_configs:
-            self.add_camera_from_config(cam_config)
+        try:
+            camera_configs = self.config.get_cameras()
+            
+            for i, cam_config in enumerate(camera_configs, 1):
+                self.add_camera_from_config(cam_config)
+        except Exception as e:
+            logger.exception("CRITICAL ERROR in load_cameras")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Camera Load Error", f"Error loading cameras:\n{str(e)}")
 
     def add_camera_from_config(self, cam_config: dict):
         """Add camera widget from configuration"""
@@ -285,7 +335,7 @@ class MainWindow(QMainWindow):
             )
 
             # Set video size
-            video_size = cam_config.get('video_size', [512, 288])
+            video_size = cam_config.get('video_size', [UIConstants.VIDEO_DEFAULT_WIDTH, UIConstants.VIDEO_DEFAULT_HEIGHT])
             camera.set_video_size(video_size[0], video_size[1])
 
             # Step 2: Configuring
@@ -293,6 +343,10 @@ class MainWindow(QMainWindow):
 
             # Connect delete signal
             camera.delete_requested.connect(lambda: self.remove_camera(camera))
+            
+            # Connect reorder signals (disabled - not in working version)
+            # camera.move_left_requested.connect(lambda cam=camera: self.move_camera_left(cam))
+            # camera.move_right_requested.connect(lambda cam=camera: self.move_camera_right(cam))
             
             # Connect initialization signals to track progress
             camera.connection_starting.connect(lambda: self._update_loading_progress(f"Connecting to camera {camera_num}/{self._total_cameras_to_load}..."))
@@ -307,10 +361,8 @@ class MainWindow(QMainWindow):
                 self.select_camera_at_index(0)
                 
         except Exception as e:
-            import traceback
             error_msg = f"Failed to load camera {camera_num}:\n{str(e)}"
-            print(f"\n{error_msg}")
-            traceback.print_exc()
+            logger.error(error_msg, exc_info=True)
             QMessageBox.warning(
                 self,
                 "Camera Load Error",
@@ -320,7 +372,7 @@ class MainWindow(QMainWindow):
             # Still increment initialized count so progress completes
             self.on_camera_initialized()
 
-    def _update_loading_progress(self, message: str):
+    def _update_loading_progress(self, message: str) -> None:
         """Update loading progress bar and message"""
         self._current_progress_step += 1
         self.loading_progress.setValue(self._current_progress_step)
@@ -328,27 +380,58 @@ class MainWindow(QMainWindow):
     
     def on_camera_initialized(self):
         """Handle camera initialization completion"""
-        self._cameras_initialized += 1
-        self._update_loading_progress(f"Camera {self._cameras_initialized}/{self._total_cameras_to_load} ready")
-        
-        # Hide progress when all cameras loaded
-        if self._cameras_initialized >= self._total_cameras_to_load:
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(500, self._hide_loading_indicator)
+        try:
+            self._cameras_initialized += 1
+            self._update_loading_progress(f"Camera {self._cameras_initialized}/{self._total_cameras_to_load} ready")
+            
+            # Hide progress when all cameras loaded
+            if self._cameras_initialized >= self._total_cameras_to_load:
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(500, self._hide_loading_indicator)
+        except Exception as e:
+            import traceback
+            print(f"[MainWindow] ERROR in on_camera_initialized: {e}")
+            traceback.print_exc()
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Camera Initialization Error", f"Error during camera initialization:\n{str(e)}")
     
     def _hide_loading_indicator(self):
         """Hide the loading indicator"""
-        self.loading_label.setVisible(False)
-        self.loading_progress.setVisible(False)
+        try:
+            print("[MainWindow] Hiding loading indicator...")
+            self.loading_label.setVisible(False)
+            self.loading_progress.setVisible(False)
+            print("[MainWindow] Loading indicator hidden successfully")
+        except Exception as e:
+            import traceback
+            print(f"[MainWindow] ERROR hiding loading indicator: {e}")
+            traceback.print_exc()
     
     def add_camera_dialog(self):
         """Show add camera dialog"""
-        dialog = CameraAddDialog(self)
+        # Get list of existing cameras to pass to dialog
+        existing_cameras = self.config.get_cameras()
+        dialog = CameraAddDialog(self, existing_cameras=existing_cameras)
 
         if dialog.exec():
             # Get selected cameras
             ndi_cameras = dialog.get_selected_ndi_cameras()
             ip_address = dialog.get_ip_address()
+            
+            # Count how many cameras we're adding
+            cameras_to_add = len(ndi_cameras) + (1 if ip_address else 0)
+            
+            if cameras_to_add > 0:
+                # Show loading progress bar
+                self._total_cameras_to_load = len(self.cameras) + cameras_to_add
+                self._cameras_initialized = len(self.cameras)  # Already loaded cameras
+                self._current_progress_step = len(self.cameras) * 3  # 3 steps per camera
+                self._total_progress_steps = self._total_cameras_to_load * 3
+                self.loading_label.setText(f"Adding {cameras_to_add} camera(s)...")
+                self.loading_label.setVisible(True)
+                self.loading_progress.setRange(0, self._total_progress_steps)
+                self.loading_progress.setValue(self._current_progress_step)
+                self.loading_progress.setVisible(True)
 
             # Add NDI cameras
             for ndi_name in ndi_cameras:
@@ -425,6 +508,67 @@ class MainWindow(QMainWindow):
             if len(self.cameras) > 0:
                 self.selected_camera_index = min(self.selected_camera_index, len(self.cameras) - 1)
                 self.select_camera_at_index(self.selected_camera_index)
+    
+    def move_camera_left(self, camera: 'CameraWidget'):
+        """Move camera one position to the left"""
+        if camera not in self.cameras:
+            return
+        
+        index = self.cameras.index(camera)
+        if index > 0:
+            # Swap in list
+            self.cameras[index], self.cameras[index - 1] = self.cameras[index - 1], self.cameras[index]
+            
+            # Update layout
+            self._rebuild_camera_layout()
+            
+            # Update config order
+            self._save_camera_order()
+            
+            # Update selection index if needed
+            if self.selected_camera_index == index:
+                self.selected_camera_index = index - 1
+            elif self.selected_camera_index == index - 1:
+                self.selected_camera_index = index
+    
+    def move_camera_right(self, camera: 'CameraWidget'):
+        """Move camera one position to the right"""
+        if camera not in self.cameras:
+            return
+        
+        index = self.cameras.index(camera)
+        if index < len(self.cameras) - 1:
+            # Swap in list
+            self.cameras[index], self.cameras[index + 1] = self.cameras[index + 1], self.cameras[index]
+            
+            # Update layout
+            self._rebuild_camera_layout()
+            
+            # Update config order
+            self._save_camera_order()
+            
+            # Update selection index if needed
+            if self.selected_camera_index == index:
+                self.selected_camera_index = index + 1
+            elif self.selected_camera_index == index + 1:
+                self.selected_camera_index = index
+    
+    def _rebuild_camera_layout(self):
+        """Rebuild the camera layout to reflect current order"""
+        # Remove all cameras from layout
+        for camera in self.cameras:
+            self.cameras_layout.removeWidget(camera)
+        
+        # Re-add in current order (before the stretch)
+        for i, camera in enumerate(self.cameras):
+            self.cameras_layout.insertWidget(i, camera)
+    
+    def _save_camera_order(self):
+        """Save the current camera order to config"""
+        # Reorder cameras in config to match current order
+        camera_ids = [camera.camera_id for camera in self.cameras]
+        self.config.reorder_cameras(camera_ids)
+        self.config.save()
 
     def select_camera(self, offset: int):
         """Select camera by offset from current"""
@@ -467,27 +611,23 @@ class MainWindow(QMainWindow):
                 "<span style='font-size: 10pt;'>No controller connected<br>Click for settings</span>")
 
     @pyqtSlot(str)
-    def on_usb_connected(self, name: str):
+    def on_usb_connected(self, name: str) -> None:
         """Handle USB controller connected"""
         try:
             self._update_usb_indicator(True, name)
             self.config.set_usb_controller_name(name)
-            print(f"✓ USB Controller connected: {name}")
-        except Exception as e:
-            import traceback
-            print(f"Error handling USB connection: {e}")
-            traceback.print_exc()
+            logger.info(f"USB Controller connected: {name}")
+        except Exception:
+            logger.exception("Error handling USB connection")
 
     @pyqtSlot()
-    def on_usb_disconnected(self):
+    def on_usb_disconnected(self) -> None:
         """Handle USB controller disconnected"""
         try:
             self._update_usb_indicator(False)
-            print("✗ USB Controller disconnected")
-        except Exception as e:
-            import traceback
-            print(f"Error handling USB disconnection: {e}")
-            traceback.print_exc()
+            logger.info("USB Controller disconnected")
+        except Exception:
+            logger.exception("Error handling USB disconnection")
 
     @pyqtSlot(object, float)
     def on_usb_movement(self, direction: MovementDirection, speed: float):
@@ -538,42 +678,37 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     @pyqtSlot()
-    def on_usb_brightness_increase(self):
+    def on_usb_brightness_increase(self) -> None:
         """Handle USB controller brightness increase"""
         try:
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_brightness_increase()
-        except Exception as e:
-            import traceback
-            print(f"Error handling USB brightness increase: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB brightness increase")
 
     @pyqtSlot()
-    def on_usb_brightness_decrease(self):
+    def on_usb_brightness_decrease(self) -> None:
         """Handle USB controller brightness decrease"""
         try:
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_brightness_decrease()
-        except Exception as e:
-            import traceback
-            print(f"Error handling USB brightness decrease: {e}")
-            traceback.print_exc()
-    
+        except Exception:
+            logger.exception("Error handling USB brightness decrease")
+
     @pyqtSlot()
-    def on_usb_reconnect(self):
+    @pyqtSlot()
+    def on_usb_reconnect(self) -> None:
         """Handle reconnect request from USB controller (B button)"""
         try:
             camera = self.get_selected_camera()
             if camera and not camera.is_connected:
                 camera.reconnect_camera()
-        except Exception as e:
-            import traceback
-            print(f"Error handling USB reconnect: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB reconnect")
 
-    def on_video_size_changed(self, size: VideoSize):
+    def on_video_size_changed(self, size: VideoSize) -> None:
         """Handle video size menu selection"""
         try:
             # Update default preference
@@ -582,9 +717,25 @@ class MainWindow(QMainWindow):
             # Update all cameras
             for camera in self.cameras:
                 camera.set_video_size(size.width, size.height)
+        except Exception:
+            logger.exception("Error changing video size")
+
+    def on_frame_rate_changed(self, skip_value: int) -> None:
+        """Handle video performance/frame rate menu selection"""
+        try:
+            # Update preference
+            self.config.set_video_frame_skip(skip_value)
+            
+            # Restart video on all cameras to apply new setting
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    # Update the frame skip on the running thread
+                    camera.ndi_thread.frame_skip = skip_value
+                    
+            print(f"[MainWindow] Video frame skip set to {skip_value}")
         except Exception as e:
             import traceback
-            print(f"Error handling video size change: {e}")
+            print(f"Error handling frame rate change: {e}")
             traceback.print_exc()
 
     def show_about(self):
@@ -593,9 +744,10 @@ class MainWindow(QMainWindow):
             self,
             "About VideoCue",
             "VideoCue - Multi-camera PTZ Controller\n\n"
-            "Version 1.0.0\n\n"
+            f"Version {__version__}\n\n"
             "Controls professional PTZ cameras using VISCA-over-IP protocol\n"
-            "with NDI video streaming support."
+            "with NDI video streaming support.\n\n"
+            "https://github.com/jpwalters/VideoCue"
         )
 
     def show_controller_preferences(self):
@@ -607,17 +759,40 @@ class MainWindow(QMainWindow):
             print("[USB] Controller preferences saved")
             # Config is saved in dialog, controller will read new values on next event
 
-    def closeEvent(self, event):
+    def closeEvent(self, event) -> None:
         """Handle window close event"""
+        logger.info("Closing application and cleaning up threads...")
+        
         # Save configuration
-        self.config.save()
+        try:
+            self.config.save()
+            logger.info("Configuration saved")
+        except Exception as e:
+            logger.error(f"Error saving config on close: {e}")
 
-        # Stop all cameras
+        # Stop all cameras asynchronously
+        logger.info(f"Stopping {len(self.cameras)} camera threads...")
         for camera in self.cameras:
-            camera.stop_video()
-
-        # Cleanup USB controller
+            if camera.ndi_thread:
+                camera.ndi_thread.running = False  # Signal thread to stop
+                camera.ndi_thread = None  # Release reference immediately
+            camera.stop_retry_mechanism()  # Stop any retry timers
+        
+        # Stop USB controller timers
         if self.usb_controller:
-            self.usb_controller.cleanup()
+            self.usb_controller.poll_timer.stop()
+            self.usb_controller.hotplug_timer.stop()
+            logger.info("USB controller timers stopped")
+        
+        # Cleanup NDI global resources
+        try:
+            cleanup_ndi()
+            logger.info("NDI resources cleaned up")
+        except Exception as e:
+            logger.warning(f"Error cleaning up NDI: {e}")
 
+        logger.info("Cleanup complete, exiting...")
         event.accept()
+        
+        # Let Qt handle application shutdown naturally
+        # No forced quit - just accept the close event

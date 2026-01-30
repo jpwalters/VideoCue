@@ -3,6 +3,7 @@
   "cameras": [],
   "preferences": {
     "video_size_default": [512, 288],
+    "video_frame_skip": 6,
     "theme": "dark",
     "auto_discover_ndi": true
   },

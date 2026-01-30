@@ -2,8 +2,16 @@
 USB game controller support using pygame
 """
 from enum import Enum
+import os
+import logging
+# Suppress pygame welcome message
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 import pygame
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from videocue.exceptions import USBControllerNotFoundError
+from videocue.constants import HardwareConstants
+
+logger = logging.getLogger(__name__)
 
 
 class MovementDirection(Enum):
@@ -46,12 +54,17 @@ class USBController(QObject):
 
         self.config = config
 
-        # Initialize pygame
+        # Initialize pygame with timeout protection
         try:
+            # Set environment variable to make pygame quieter
+            os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Disable audio to prevent hangs
+            os.environ['SDL_VIDEODRIVER'] = 'dummy'  # Use dummy video driver for event system
+            
             pygame.init()
             pygame.joystick.init()
+            logger.info("pygame initialized successfully")
         except Exception as e:
-            pass  # Silent failure
+            logger.error(f"pygame initialization failed: {e}")
 
         self.joystick = None
         self._axis_x = 0.0  # Left stick X (axis 0)
@@ -63,17 +76,17 @@ class USBController(QObject):
         # Event polling timer (60 Hz)
         self.poll_timer = QTimer()
         self.poll_timer.timeout.connect(self._poll_events)
-        self.poll_timer.start(16)  # ~60 FPS
+        self.poll_timer.start(HardwareConstants.USB_POLL_RATE_MS)  # ~60 FPS
 
         # Hotplug detection timer (5 seconds)
         self.hotplug_timer = QTimer()
         self.hotplug_timer.timeout.connect(self._check_hotplug)
-        self.hotplug_timer.start(5000)
+        self.hotplug_timer.start(HardwareConstants.USB_HOTPLUG_CHECK_MS)
 
         # Initial controller check
         self._check_hotplug()
 
-    def _check_hotplug(self):
+    def _check_hotplug(self) -> None:
         """Check for newly connected/disconnected controllers"""
         try:
             # Don't quit/reinit joystick module - causes event queue corruption
@@ -84,18 +97,20 @@ class USBController(QObject):
                 self.joystick = pygame.joystick.Joystick(0)
                 self.joystick.init()
                 name = self.joystick.get_name()
+                logger.info(f"USB controller connected: {name}")
                 self.connected.emit(name)
 
             elif count == 0 and self.joystick is not None:
                 # Controller disconnected
+                logger.info("USB controller disconnected")
                 self.joystick = None
                 self.disconnected.emit()
                 self._reset_state()
 
         except Exception as e:
-            pass  # Silent failure
+            logger.warning(f"Hotplug check error: {e}")
 
-    def _poll_events(self):
+    def _poll_events(self) -> None:
         """Poll pygame events and emit signals"""
         if self.joystick is None:
             return
@@ -131,20 +146,16 @@ class USBController(QObject):
                         self._handle_hat_motion(event.hat, event.value)
 
                     elif event.type == pygame.JOYDEVICEADDED:
-                        pass  # Will check on next hotplug cycle
+                        logger.debug("Joystick device added")
 
                     elif event.type == pygame.JOYDEVICEREMOVED:
-                        pass  # Will check on next hotplug cycle
+                        logger.debug("Joystick device removed")
 
                 except Exception as e:
-                    import traceback
-                    print(f"[USB] Error handling event {event}: {e}")
-                    traceback.print_exc()
+                    logger.warning(f"Error handling event {event.type}: {e}")
 
         except Exception as e:
-            import traceback
-            print(f"[USB] Error in polling loop: {e}")
-            traceback.print_exc()
+            logger.error(f"Error in polling loop: {e}")
             # Clear the event queue on error to prevent further corruption
             try:
                 pygame.event.clear()
@@ -362,12 +373,8 @@ class USBController(QObject):
         self.zoom_stop.emit()
 
     def cleanup(self):
-        """Clean up resources"""
+        """Clean up resources (non-blocking)"""
         self.poll_timer.stop()
         self.hotplug_timer.stop()
-
-        if self.joystick:
-            self.joystick.quit()
-            self.joystick = None
-
-        pygame.quit()
+        # Don't quit joystick or pygame - can cause hangs on exit
+        # Qt will clean up when process exits
