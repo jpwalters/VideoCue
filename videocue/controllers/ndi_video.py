@@ -6,7 +6,7 @@ import threading
 from typing import Optional, List, Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
-from videocue.exceptions import NDINotAvailableError, NDIConnectionError, NDISourceNotFoundError
+from videocue.exceptions import NDINotAvailableError, NDISourceNotFoundError
 from videocue.constants import NetworkConstants
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ ndi_error_message = ""
 _ndi_initialized = False
 _global_finder = None
 _ndi_lock = threading.Lock()  # Thread safety for global NDI resources
+_source_cache: dict = {}  # Cache of discovered sources {source_name: ndi.Source}
 
 try:
     import NDIlib as ndi
@@ -67,10 +68,21 @@ def _ensure_ndi_initialized() -> bool:
         return _ndi_initialized and _global_finder is not None
 
 
+def clear_source_cache() -> None:
+    """Clear the cached NDI sources (useful if sources change on network)"""
+    global _source_cache
+    with _ndi_lock:
+        _source_cache.clear()
+        logger.info("[NDI] Source cache cleared")
+
+
 def cleanup_ndi() -> None:
     """Cleanup NDI resources (call on application shutdown)"""
-    global _ndi_initialized, _global_finder
+    global _ndi_initialized, _global_finder, _source_cache
     with _ndi_lock:
+        # Clear source cache
+        _source_cache.clear()
+        
         if _global_finder:
             try:
                 ndi.find_destroy(_global_finder)
@@ -100,15 +112,17 @@ class NDIVideoThread(QThread):
     frame_ready = pyqtSignal(QImage)  # Emits latest video frame
     connected = pyqtSignal(str)  # Emits web control URL on first connection
     error = pyqtSignal(str)  # Emits error message
+    resolution_changed = pyqtSignal(int, int, float)  # Emits width, height, frame rate
 
-    def __init__(self, source_name: str):
+    def __init__(self, source_name: str, frame_skip: int = 6):
         super().__init__()
         self.source_name = source_name
+        self.frame_skip = frame_skip  # How many frames to skip between displays (higher = faster/lower quality)
         self.running = False
         self._stop_event = threading.Event()
         self._receiver = None
         self._finder = None
-        logger.debug(f"NDI thread created for source: {source_name}")
+        logger.debug(f"NDI thread created for source: {source_name}, frame_skip: {frame_skip}")
 
     def run(self) -> None:
         """Main video reception loop with comprehensive error handling"""
@@ -129,7 +143,6 @@ class NDIVideoThread(QThread):
             self.error.emit(str(e))
         except Exception as e:
             # Catch ANY unhandled exception to prevent app crash
-            import traceback
             error_msg = f"Video thread crashed: {str(e)}"
             logger.exception(f"[NDI] CRITICAL: {error_msg}")
             self.error.emit(error_msg)
@@ -142,33 +155,79 @@ class NDIVideoThread(QThread):
 
     def _run_reception_loop(self):
         """Internal reception loop (called by run() with error handling)"""
+        global _source_cache
+        
         try:
-            # Use the global finder
-            ndi.find_wait_for_sources(_global_finder, 5000)
-            sources = ndi.find_get_current_sources(_global_finder)
-
-            # Find matching source
             target_source = None
-            for source in sources:
-                source_name = source.ndi_name.decode(
-                    'utf-8') if isinstance(source.ndi_name, bytes) else str(source.ndi_name)
-                if source_name == self.source_name:
-                    target_source = source
-                    break
-
+            
+            # Check cache with lock (fast operation)
+            with _ndi_lock:
+                # First, check if we have this source cached
+                if self.source_name in _source_cache:
+                    logger.info(f"[NDI] Using cached source for '{self.source_name}'")
+                    target_source = _source_cache[self.source_name]
+            
+            # If not cached, discover WITHOUT holding the lock (allows other cameras to proceed)
             if not target_source:
-                # Try to create source manually - discovery may not work but direct connection might
-                try:
-                    target_source = ndi.Source()
-                    target_source.ndi_name = self.source_name.encode(
-                        'utf-8') if isinstance(self.source_name, str) else self.source_name
-                except (ImportError, RuntimeError, AttributeError):
-                    self.error.emit(
-                        f"NDI source '{self.source_name}' not found (found {len(sources)} sources)")
-                    return
+                # Release lock during slow discovery so other cameras aren't blocked
+                logger.info(f"[NDI] Source not cached, discovering sources for '{self.source_name}'...")
+                ndi.find_wait_for_sources(_global_finder, 1000)  # Reduced to 1s for faster reconnects
+                sources = ndi.find_get_current_sources(_global_finder)
+                
+                logger.info(f"[NDI] Found {len(sources)} sources during discovery")
 
-            # Create receiver
-            self._receiver = ndi.recv_create_v3()
+                # Find matching source
+                for source in sources:
+                    source_name = source.ndi_name.decode(
+                        'utf-8') if isinstance(source.ndi_name, bytes) else str(source.ndi_name)
+                    logger.debug(f"[NDI] Checking source: {source_name}")
+                    if source_name == self.source_name:
+                        target_source = source
+                        # Cache it for future use - acquire lock just for cache update
+                        with _ndi_lock:
+                            _source_cache[self.source_name] = source
+                        logger.info(f"[NDI] Found and cached matching source: {source_name}")
+                        break
+
+                if not target_source:
+                    # Try to create source manually - discovery may not work but direct connection might
+                    try:
+                        logger.info(f"[NDI] Attempting manual source creation for '{self.source_name}'")
+                        target_source = ndi.Source()
+                        target_source.ndi_name = self.source_name.encode(
+                            'utf-8') if isinstance(self.source_name, str) else self.source_name
+                        # Cache the manual source too - acquire lock just for cache update
+                        with _ndi_lock:
+                            _source_cache[self.source_name] = target_source
+                        logger.info("[NDI] Manual source created and cached")
+                    except (ImportError, RuntimeError, AttributeError) as e:
+                        logger.error(f"[NDI] Manual source creation failed: {e}")
+
+            # Check if we got a source (outside the lock now)
+            if not target_source:
+                logger.warning(f"[NDI] Source '{self.source_name}' not found in discovery")
+                self.error.emit(
+                    f"NDI source '{self.source_name}' not found")
+                return
+
+            # Create receiver with settings optimized for preview
+            # Note: bandwidth setting affects both quality and latency
+            # - HIGHEST: Full quality, lowest latency, but high network/CPU usage (may not work with multiple cameras)
+            # - LOWEST: Reduced quality, higher latency, but lowest network/CPU usage
+            # - None (default): Let NDI auto-negotiate based on network conditions (RECOMMENDED)
+            try:
+                recv_settings = ndi.RecvCreateV3()  # Correct class name
+                recv_settings.color_format = ndi.RECV_COLOR_FORMAT_UYVY_BGRA  # Default format
+                # Don't set bandwidth - let NDI auto-negotiate for best balance
+                # recv_settings.bandwidth = ndi.RECV_BANDWIDTH_HIGHEST  # Causes issues with multiple cameras
+                recv_settings.allow_video_fields = False  # Progressive only for simplicity
+                self._receiver = ndi.recv_create_v3(recv_settings)
+                logger.info(f"[NDI] Receiver created with auto bandwidth (default), frame_skip={self.frame_skip}")
+            except (AttributeError, TypeError) as e:
+                # If settings not supported, fall back to defaults
+                logger.warning(f"[NDI] RecvCreateV3 failed: {e}, using defaults")
+                self._receiver = ndi.recv_create_v3()
+            
             if not self._receiver:
                 self.error.emit("Failed to create NDI receiver")
                 return
@@ -183,7 +242,8 @@ class NDIVideoThread(QThread):
             frame_count = 0
             skip_count = 0
             no_frame_count = 0
-            max_no_frame_attempts = 50  # 5 seconds (50 * 100ms)
+            max_no_frame_attempts = 150  # 15 seconds (150 * 100ms) - some cameras are slow to start
+            current_resolution = None  # Track resolution to detect changes
 
             print("[NDI] Starting reception loop...")
 
@@ -206,14 +266,27 @@ class NDIVideoThread(QThread):
                                     self.connected.emit(web_url)
                                 first_frame = False
 
-                            # Skip every other frame for performance (30 FPS instead of 60)
+                            # Emit resolution info if changed
+                            resolution = (v.xres, v.yres, v.frame_rate_N / v.frame_rate_D if v.frame_rate_D > 0 else 0.0)
+                            if resolution != current_resolution:
+                                self.resolution_changed.emit(v.xres, v.yres, resolution[2])
+                                current_resolution = resolution
+
+                            # Skip frames based on preference (higher skip = lower quality/CPU but faster)
                             skip_count += 1
-                            if skip_count % 2 == 0:
+                            if skip_count % (self.frame_skip + 1) == 0:
                                 # Convert frame to QImage
                                 qimage = self._convert_frame(v)
                                 if qimage:
                                     # Emit signal - Qt will drop old frames if UI hasn't processed them
                                     self.frame_ready.emit(qimage)
+                                    
+                                    # Log every 100 processed frames to verify performance
+                                    if frame_count % 100 == 0:
+                                        logger.debug(f"[NDI] {self.source_name}: Processed {frame_count} frames, displayed ~{frame_count // (self.frame_skip + 1)} (skip={self.frame_skip})")
+                                    
+                                # Reset skip counter to prevent overflow
+                                skip_count = 0
 
                             # Free the video frame
                             ndi.recv_free_video_v2(self._receiver, v)
@@ -222,7 +295,7 @@ class NDIVideoThread(QThread):
                             # No data received, increment timeout counter
                             no_frame_count += 1
                             if no_frame_count >= max_no_frame_attempts:
-                                self.error.emit(f"NDI source '{self.source_name}' not responding after 5 seconds. Check source name and network connectivity.")
+                                self.error.emit(f"NDI source '{self.source_name}' not responding after 15 seconds. Check source name and network connectivity.")
                                 break
                         elif t == ndi.FRAME_TYPE_ERROR:
                             print("[NDI] Received error frame type")
@@ -465,6 +538,44 @@ class NDIVideoThread(QThread):
         except Exception as e:
             # Catch ANY exception during cleanup
             print(f"[NDI] Unexpected error during cleanup: {e}")
+
+
+def discover_and_cache_all_sources(timeout_ms: int = 2000) -> int:
+    """
+    Discover all NDI sources once and cache them for immediate use by camera threads.
+    This should be called once at app startup before creating camera widgets.
+    Returns the number of sources found and cached.
+    """
+    global _source_cache
+    
+    if not _ensure_ndi_initialized():
+        logger.warning("[NDI] Cannot discover sources - NDI not initialized")
+        return 0
+    
+    try:
+        with _ndi_lock:
+            logger.info(f"[NDI] Discovering all sources (timeout: {timeout_ms}ms)...")
+            ndi.find_wait_for_sources(_global_finder, timeout_ms)
+            sources = ndi.find_get_current_sources(_global_finder)
+            
+            logger.info(f"[NDI] Found {len(sources)} sources, caching them...")
+            
+            # Cache all discovered sources
+            for source in sources:
+                try:
+                    source_name = source.ndi_name.decode('utf-8') if isinstance(
+                        source.ndi_name, bytes) else str(source.ndi_name)
+                    _source_cache[source_name] = source
+                    logger.debug(f"[NDI] Cached source: {source_name}")
+                except Exception as e:
+                    logger.warning(f"[NDI] Error caching source: {e}")
+            
+            logger.info(f"[NDI] Cached {len(_source_cache)} sources")
+            return len(_source_cache)
+    
+    except Exception as e:
+        logger.exception(f"[NDI] Error during source discovery: {e}")
+        return 0
 
 
 def find_ndi_cameras(timeout_ms: int = 5000) -> List[str]:
