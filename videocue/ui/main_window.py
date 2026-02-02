@@ -311,7 +311,19 @@ class MainWindow(QMainWindow):
         try:
             camera_configs = self.config.get_cameras()
             
+            # Pre-discover all NDI sources once before creating camera widgets
+            # This prevents each camera from doing its own 2-second discovery wait
+            if camera_configs:
+                from videocue.controllers.ndi_video import discover_and_cache_all_sources, ndi_available
+                if ndi_available:
+                    logger.info("[Startup] Pre-discovering all NDI sources...")
+                    num_sources = discover_and_cache_all_sources(timeout_ms=2000)
+                    logger.info(f"[Startup] Cached {num_sources} NDI source(s)")
+            
+            # Load cameras with minimal video stagger to prevent NDI connection contention
+            # Widget loads immediately but video starts with 50ms offset per camera
             for i, cam_config in enumerate(camera_configs, 1):
+                cam_config['_init_delay'] = (i - 1) * 50  # First camera: 0ms, second: 50ms, third: 100ms, etc.
                 self.add_camera_from_config(cam_config)
         except Exception as e:
             logger.exception("CRITICAL ERROR in load_cameras")
@@ -326,17 +338,21 @@ class MainWindow(QMainWindow):
             # Step 1: Creating widget
             self._update_loading_progress(f"Creating camera {camera_num}/{self._total_cameras_to_load}...")
             
+            # Get staggered init delay (set by load_cameras)
+            init_delay = cam_config.get('_init_delay', 100)
+            
+            # Get video size from camera config
+            video_size = cam_config.get('video_size', [UIConstants.VIDEO_DEFAULT_WIDTH, UIConstants.VIDEO_DEFAULT_HEIGHT])
+            
             camera = CameraWidget(
                 camera_id=cam_config['id'],
                 ndi_source_name=cam_config.get('ndi_source_name', ''),
                 visca_ip=cam_config['visca_ip'],
                 visca_port=cam_config['visca_port'],
-                config=self.config
+                config=self.config,
+                init_delay=init_delay,
+                video_size=video_size
             )
-
-            # Set video size
-            video_size = cam_config.get('video_size', [UIConstants.VIDEO_DEFAULT_WIDTH, UIConstants.VIDEO_DEFAULT_HEIGHT])
-            camera.set_video_size(video_size[0], video_size[1])
 
             # Step 2: Configuring
             self._update_loading_progress(f"Configuring camera {camera_num}/{self._total_cameras_to_load}...")
@@ -344,9 +360,9 @@ class MainWindow(QMainWindow):
             # Connect delete signal
             camera.delete_requested.connect(lambda: self.remove_camera(camera))
             
-            # Connect reorder signals (disabled - not in working version)
-            # camera.move_left_requested.connect(lambda cam=camera: self.move_camera_left(cam))
-            # camera.move_right_requested.connect(lambda cam=camera: self.move_camera_right(cam))
+            # Connect reorder signals
+            camera.move_left_requested.connect(lambda cam=camera: self.move_camera_left(cam))
+            camera.move_right_requested.connect(lambda cam=camera: self.move_camera_right(cam))
             
             # Connect initialization signals to track progress
             camera.connection_starting.connect(lambda: self._update_loading_progress(f"Connecting to camera {camera_num}/{self._total_cameras_to_load}..."))

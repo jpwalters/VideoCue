@@ -9,7 +9,7 @@ class UIStrings:
     
     # Application
     APP_NAME = "VideoCue"
-    APP_VERSION = "0.2.1"
+    APP_VERSION = "0.3.2"
     
     # Camera Status
     STATUS_NO_VIDEO = "No Video"
