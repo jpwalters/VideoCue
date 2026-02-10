@@ -1,0 +1,12 @@
+[MASTER]
+extension-pkg-allow-list=PyQt6
+
+[MESSAGES CONTROL]
+disable=
+    import-error,
+    no-name-in-module,
+    c-extension-no-member
+
+[TYPECHECK]
+generated-members=PyQt6.*
+ignored-modules=PyQt6

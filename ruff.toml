@@ -1,0 +1,50 @@
+# Ruff configuration for VideoCue
+# https://docs.astral.sh/ruff/configuration/
+
+target-version = "py310"
+line-length = 100
+
+[lint]
+# Enable recommended rule sets
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "RET", # flake8-return
+    "PTH", # flake8-use-pathlib
+]
+
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "B008",   # Do not perform function calls in argument defaults (PyQt signals use this)
+    "N802",   # Function name should be lowercase (Qt uses camelCase)
+    "N803",   # Argument name should be lowercase (Qt uses camelCase)
+    "N806",   # Variable in function should be lowercase (Qt uses camelCase)
+    "N815",   # Variable in class scope should not be mixed case (Qt uses camelCase)
+    "RET504", # Unnecessary variable assignment before return
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+# Exclude generated files and build artifacts
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"videocue.py" = ["E402"]  # Allow imports not at top (resource path setup)
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[lint.isort]
+# Group imports by type
+known-first-party = ["videocue"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]

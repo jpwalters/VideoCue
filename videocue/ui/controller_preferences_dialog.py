@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QSlider, QCheckBox, QComboBox, QPushButton, QFormLayout, QSpinBox
 )
 from PyQt6.QtCore import Qt
+from videocue.ui_strings import UIStrings
 
 
 class ControllerPreferencesDialog(QDialog):
@@ -14,7 +15,7 @@ class ControllerPreferencesDialog(QDialog):
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.config = config
-        self.setWindowTitle("Controller Preferences")
+        self.setWindowTitle(UIStrings.DIALOG_PREFERENCES)
         self.setModal(True)
         self.setMinimumWidth(450)
 
@@ -137,6 +138,21 @@ class ControllerPreferencesDialog(QDialog):
         brightness_group.setLayout(brightness_layout)
         layout.addWidget(brightness_group)
 
+        # Camera switching group
+        switching_group = QGroupBox("Camera Switching")
+        switching_layout = QFormLayout()
+
+        self.stop_on_switch_checkbox = QCheckBox("Stop camera movement when switching cameras")
+        self.stop_on_switch_checkbox.setToolTip(
+            "When enabled, automatically sends STOP command to the previous camera\n"
+            "when switching to a different camera. Prevents cameras from continuing\n"
+            "to move after you've switched away."
+        )
+        switching_layout.addRow("", self.stop_on_switch_checkbox)
+
+        switching_group.setLayout(switching_layout)
+        layout.addWidget(switching_group)
+
         # Help text
         help_label = QLabel(
             "Dual Joystick Mode:\n"
@@ -212,6 +228,10 @@ class ControllerPreferencesDialog(QDialog):
         brightness_enabled = usb_config.get("brightness_enabled", True)
         self.brightness_enabled_checkbox.setChecked(brightness_enabled)
 
+        # Load stop on camera switch setting
+        stop_on_switch = usb_config.get("stop_on_camera_switch", True)
+        self.stop_on_switch_checkbox.setChecked(stop_on_switch)
+
         brightness_step = usb_config.get("brightness_step", 1)
         self.brightness_step_spinbox.setValue(brightness_step)
 
@@ -245,6 +265,9 @@ class ControllerPreferencesDialog(QDialog):
         usb_config["brightness_step"] = self.brightness_step_spinbox.value()
         usb_config["brightness_increase_button"] = self.brightness_increase_combo.currentData()
         usb_config["brightness_decrease_button"] = self.brightness_decrease_combo.currentData()
+
+        # Save stop on camera switch setting
+        usb_config["stop_on_camera_switch"] = self.stop_on_switch_checkbox.isChecked()
 
         self.config.save()
         self.accept()

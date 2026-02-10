@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
 from videocue.controllers.ndi_video import find_ndi_cameras, ndi_available
+from videocue.ui_strings import UIStrings
 
 
 class NDIDiscoveryThread(QThread):

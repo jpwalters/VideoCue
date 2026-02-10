@@ -1,0 +1,2 @@
+# Pyrightignore - ignore PyQt6 import false positives
+**/PyQt6/*
