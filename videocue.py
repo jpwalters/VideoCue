@@ -2,26 +2,31 @@
 """
 VideoCue - Multi-camera PTZ controller with VISCA-over-IP and NDI streaming
 """
-import sys
-import os
+
 import logging
+import sys
 import traceback
-from PyQt6.QtWidgets import QApplication, QMessageBox  # type: ignore
+from pathlib import Path
+
 from PyQt6.QtCore import Qt  # type: ignore
 from PyQt6.QtGui import QIcon  # type: ignore
+from PyQt6.QtWidgets import QApplication, QMessageBox  # type: ignore
+
+from videocue import __version__
 from videocue.exceptions import VideoCueException
 from videocue.ui_strings import UIStrings
 
 # Import qdarkstyle for dark theme
 try:
     import qdarkstyle
+
     has_dark_style = True
 except ImportError:
     has_dark_style = False
     # Logged after logging setup in main()
 
 from videocue.ui.main_window import MainWindow
-from videocue.utils import resource_path, get_app_data_dir
+from videocue.utils import get_app_data_dir, resource_path
 
 
 def setup_logging() -> None:
@@ -29,26 +34,26 @@ def setup_logging() -> None:
     log_dir = get_app_data_dir() / "logs"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "videocue.log"
-    
+
     # Configure root logger
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(log_file, mode='a', encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ]
+            logging.FileHandler(log_file, mode="a", encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
     )
-    
+
     # Set specific module levels
-    logging.getLogger('videocue.controllers.usb_controller').setLevel(logging.WARNING)
-    logging.getLogger('videocue.controllers.ndi_video').setLevel(logging.INFO)
-    
+    logging.getLogger("videocue.controllers.usb_controller").setLevel(logging.WARNING)
+    logging.getLogger("videocue.controllers.ndi_video").setLevel(logging.INFO)
+
     logger = logging.getLogger(__name__)
-    logger.info("="*60)
-    logger.info(f"VideoCue {UIStrings.APP_VERSION} starting")
+    logger.info("=" * 60)
+    logger.info(f"VideoCue {__version__} starting")
     logger.info(f"Log file: {log_file}")
-    logger.info("="*60)
+    logger.info("=" * 60)
 
 
 def exception_hook(exc_type, exc_value, exc_traceback):
@@ -57,19 +62,19 @@ def exception_hook(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-    
+
     # Log the exception
     logger = logging.getLogger(__name__)
     logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
-    
+
     # Format the exception
-    error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-    
+    error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+
     # Determine error severity
     error_title = UIStrings.ERROR_CRITICAL
     if issubclass(exc_type, VideoCueException):
         error_title = f"{type(exc_value).__name__}"
-    
+
     # Show error dialog to user
     try:
         msg_box = QMessageBox()
@@ -86,11 +91,11 @@ def exception_hook(exc_type, exc_value, exc_traceback):
 
 class ExceptionHandlingApplication(QApplication):
     """QApplication subclass that catches Qt event exceptions"""
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(__name__)
-    
+
     def notify(self, receiver, event) -> bool:
         """Override notify to catch exceptions in Qt event handlers"""
         try:
@@ -101,7 +106,7 @@ class ExceptionHandlingApplication(QApplication):
         except Exception as e:
             error_msg = f"Exception in Qt event handler: {str(e)}"
             self.logger.exception(error_msg)
-            
+
             # Show error dialog
             try:
                 msg_box = QMessageBox()
@@ -113,7 +118,7 @@ class ExceptionHandlingApplication(QApplication):
                 msg_box.exec()
             except Exception:
                 self.logger.exception("Failed to show Qt event error dialog")
-            
+
             # Don't crash, return False to indicate event wasn't handled
             return False
 
@@ -124,14 +129,14 @@ def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
     logger.info("Starting VideoCue application")
-    
+
     # Log theme availability
     if not has_dark_style:
         logger.warning("qdarkstyle not installed, using default theme")
-    
+
     # Install global exception handler
     sys.excepthook = exception_hook
-    
+
     # Enable high DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -143,13 +148,13 @@ def main() -> None:
     app.setOrganizationName(UIStrings.APP_NAME)
 
     # Set application icon
-    icon_path = resource_path('resources/icon.png')
-    if os.path.exists(icon_path):
+    icon_path = resource_path("resources/icon.png")
+    if Path(icon_path).exists():
         app.setWindowIcon(QIcon(icon_path))
 
     # Apply dark theme if available
     if has_dark_style:
-        app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt6'))
+        app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyqt6"))
 
     # Create and show main window
     try:
@@ -166,5 +171,5 @@ def main() -> None:
     return app.exec()
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    sys.exit(main())
