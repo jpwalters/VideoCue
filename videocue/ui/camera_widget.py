@@ -1,37 +1,58 @@
 """
 Camera widget displaying video and controls
 """
-import logging
-from typing import List
-from PyQt6.QtWidgets import (  # type: ignore
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QGridLayout, QSizePolicy,
-    QRadioButton, QButtonGroup, QInputDialog, QMessageBox,
-    QSlider, QCheckBox, QScrollArea, QFrame
-)
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QThread  # type: ignore
-from PyQt6.QtGui import QPixmap, QImage  # type: ignore
 
-from videocue.controllers.visca_ip import ViscaIP, FocusMode, Direction
-from videocue.controllers.visca_commands import ViscaConstants
+import logging
+
+from PyQt6.QtCore import Qt, QThread, QTime, QTimer, pyqtSignal, pyqtSlot  # type: ignore
+from PyQt6.QtGui import QImage, QPixmap  # type: ignore
+from PyQt6.QtWidgets import (  # type: ignore
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
+
+from videocue.constants import HardwareConstants
 from videocue.controllers.ndi_video import NDIVideoThread, ndi_available
 from videocue.controllers.usb_controller import MovementDirection
+from videocue.controllers.visca_commands import ViscaConstants
+from videocue.controllers.visca_ip import (
+    Direction,
+    ExposureMode,
+    FocusMode,
+    ViscaIP,
+    WhiteBalanceMode,
+)
+from videocue.exceptions import ViscaConnectionError, ViscaTimeoutError
 from videocue.models.config_manager import ConfigManager
 from videocue.models.video import CameraPreset
-from videocue.exceptions import ViscaTimeoutError, ViscaConnectionError
-from videocue.constants import HardwareConstants
+from videocue.ui_strings import UIStrings
 
 logger = logging.getLogger(__name__)
 
 
 class ViscaConnectionTestThread(QThread):
     """Background thread for testing VISCA connection without blocking UI"""
+
     test_complete = pyqtSignal(bool, str)  # success, error_message
-    
+
     def __init__(self, visca: ViscaIP):
         super().__init__()
         self.visca = visca
-    
+
     def run(self) -> None:
         """Test connection in background"""
         try:
@@ -63,9 +84,16 @@ class CameraWidget(QWidget):
     connection_starting = pyqtSignal()  # Emitted when connection attempt begins
     initialized = pyqtSignal()  # Emitted when camera initialization complete
 
-    def __init__(self, camera_id: str, ndi_source_name: str, visca_ip: str,
-                 visca_port: int, config: ConfigManager, init_delay: int = 100,
-                 video_size: List[int] = None):
+    def __init__(
+        self,
+        camera_id: str,
+        ndi_source_name: str,
+        visca_ip: str,
+        visca_port: int,
+        config: ConfigManager,
+        init_delay: int = 100,
+        video_size: list[int] | None = None,
+    ):
         super().__init__()
 
         self.camera_id = camera_id
@@ -88,13 +116,13 @@ class CameraWidget(QWidget):
 
         # Auto pan state
         self.auto_pan_active = False
-        
+
         # Connection retry state
         self._retry_count = 0
         self._max_retries = 3
         self._retry_timer = QTimer()
         self._retry_timer.timeout.connect(self._retry_connection)
-        
+
         # Cached display name to avoid repeated formatting
         self._cached_display_name: str = ""
 
@@ -165,7 +193,7 @@ class CameraWidget(QWidget):
         self._last_frame_time = None
 
         self.init_ui()
-        
+
         # Start with controls disabled until connection is established
         # (will be enabled after successful connection test)
         self.set_controls_enabled(False)
@@ -187,27 +215,29 @@ class CameraWidget(QWidget):
             else:
                 QTimer.singleShot(self.init_delay, self.initialized.emit)
 
-    def _format_camera_display_name(self, ndi_name: str = None, ip: str = None, force_refresh: bool = False) -> str:
+    def _format_camera_display_name(
+        self, ndi_name: str = None, ip: str = None, force_refresh: bool = False
+    ) -> str:
         """
         Format camera display name, avoiding redundancy.
         If NDI name and IP are the same (case-insensitive), only show one.
         Results are cached to avoid repeated formatting.
-        
+
         Args:
             ndi_name: Optional NDI source name override
             ip: Optional IP address override
             force_refresh: Force recalculation even if cached
-        
+
         Returns:
             Formatted display name string
         """
         # Use cached value if available and not forcing refresh
         if self._cached_display_name and not force_refresh:
             return self._cached_display_name
-        
+
         ndi = ndi_name or self.ndi_source_name
         addr = ip or self.visca_ip
-        
+
         if not ndi:
             # No NDI name, just show IP
             result = addr
@@ -217,12 +247,12 @@ class CameraWidget(QWidget):
         else:
             # Different, show both
             result = f"{ndi} ({addr})"
-        
+
         # Cache the result
         self._cached_display_name = result
         logger.debug(f"Formatted camera display name: {result}")
         return result
-    
+
     def init_ui(self):
         """Initialize widget UI"""
         # Don't set fixed width initially - will be set based on video size
@@ -263,12 +293,12 @@ class CameraWidget(QWidget):
         self.status_indicator.setFixedSize(12, 12)
         self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
         status_bar.addWidget(self.status_indicator)
-        
+
         # Reconnect button (shown when connection fails)
-        self.reconnect_button = QPushButton("Reconnect")
+        self.reconnect_button = QPushButton(UIStrings.BTN_RECONNECT)
         self.reconnect_button.setFixedHeight(20)
         self.reconnect_button.setStyleSheet("font-size: 10px; padding: 2px 8px;")
-        self.reconnect_button.setToolTip("Retry camera connection")
+        self.reconnect_button.setToolTip(UIStrings.TOOLTIP_RECONNECT)
         self.reconnect_button.clicked.connect(self.reconnect_camera)
         self.reconnect_button.setVisible(False)
         status_bar.addWidget(self.reconnect_button)
@@ -293,10 +323,10 @@ class CameraWidget(QWidget):
         status_bar.addStretch()
 
         # Video start/stop button
-        self.video_toggle_button = QPushButton("▶")  # Start as play icon (video not started yet)
+        self.video_toggle_button = QPushButton(UIStrings.BTN_PLAY)
         self.video_toggle_button.setFixedWidth(30)
         self.video_toggle_button.setStyleSheet("font-size: 14px;")
-        self.video_toggle_button.setToolTip("Play")
+        self.video_toggle_button.setToolTip(UIStrings.TOOLTIP_PLAY_VIDEO)
         self.video_toggle_button.clicked.connect(self.toggle_video_streaming)
         self.video_toggle_button.setEnabled(ndi_available and bool(self.ndi_source_name))
         status_bar.addWidget(self.video_toggle_button)
@@ -318,15 +348,15 @@ class CameraWidget(QWidget):
         status_bar.addWidget(move_right_button)
 
         # Web browser button (settings icon)
-        web_button = QPushButton("⚙")
+        web_button = QPushButton(UIStrings.BTN_SETTINGS)
         web_button.setFixedWidth(30)
         web_button.setStyleSheet("font-size: 14px;")
-        web_button.setToolTip("Open camera web interface")
+        web_button.setToolTip(UIStrings.TOOLTIP_OPEN_WEB)
         web_button.clicked.connect(self.open_web_browser)
         status_bar.addWidget(web_button)
 
         # Delete button
-        delete_button = QPushButton("×")
+        delete_button = QPushButton(UIStrings.BTN_DELETE)
         delete_button.setFixedWidth(30)
         delete_button.setStyleSheet("font-size: 16px;")
         delete_button.clicked.connect(self.delete_requested.emit)
@@ -383,8 +413,9 @@ class CameraWidget(QWidget):
         self.brightness_slider_vertical.setValue(21)
         self.brightness_slider_vertical.setFixedHeight(180)
         self.brightness_slider_vertical.valueChanged.connect(self.on_brightness_vertical_changed)
-        brightness_container.addWidget(self.brightness_slider_vertical,
-                                       0, Qt.AlignmentFlag.AlignCenter)
+        brightness_container.addWidget(
+            self.brightness_slider_vertical, 0, Qt.AlignmentFlag.AlignCenter
+        )
 
         self.brightness_value_vertical = QLabel("21")
         self.brightness_value_vertical.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -392,7 +423,8 @@ class CameraWidget(QWidget):
         brightness_container.addWidget(self.brightness_value_vertical)
 
         ptz_brightness_layout.addWidget(
-            self.brightness_vertical_container, 0)  # 0 stretch - don't expand
+            self.brightness_vertical_container, 0
+        )  # 0 stretch - don't expand
         ptz_brightness_layout.addStretch()  # Center PTZ grid in remaining space
 
         # PTZ button grid
@@ -455,7 +487,7 @@ class CameraWidget(QWidget):
         self.btn_zoom_out.released.connect(self.zoom_stop)
         zoom_layout.addWidget(self.btn_zoom_out)
 
-        self.btn_zoom_stop = QPushButton("Stop")
+        self.btn_zoom_stop = QPushButton(UIStrings.BTN_STOP)
         self.btn_zoom_stop.setMinimumWidth(40)
         self.btn_zoom_stop.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_zoom_stop.clicked.connect(self.zoom_stop)
@@ -541,7 +573,8 @@ class CameraWidget(QWidget):
         instructions.setWordWrap(True)
         instructions.setStyleSheet(
             "color: #aaa; font-size: 10px; padding: 5px; "
-            "background-color: #2a2a2a; border-radius: 3px;")
+            "background-color: #2a2a2a; border-radius: 3px;"
+        )
         instructions.setMinimumWidth(50)
         instructions.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout.addWidget(instructions)
@@ -560,7 +593,8 @@ class CameraWidget(QWidget):
         self.right_preset_combo = QComboBox()
         self.right_preset_combo.setMinimumWidth(50)
         self.right_preset_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.right_preset_combo.currentTextChanged.connect(self.on_auto_pan_preset_changed)
         preset_selection_layout.addWidget(self.right_preset_combo)
 
@@ -597,7 +631,8 @@ class CameraWidget(QWidget):
         self.start_auto_pan_btn.setStyleSheet("background-color: #2d5016; font-weight: bold;")
         self.start_auto_pan_btn.setMinimumWidth(50)
         self.start_auto_pan_btn.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.start_auto_pan_btn.clicked.connect(self.on_start_auto_pan)
         auto_pan_control_layout.addWidget(self.start_auto_pan_btn)
 
@@ -640,8 +675,8 @@ class CameraWidget(QWidget):
         focus_layout = QHBoxLayout()
         self.focus_group = QButtonGroup()
 
-        self.radio_autofocus = QRadioButton("Auto")
-        self.radio_manual_focus = QRadioButton("Manual")
+        self.radio_autofocus = QRadioButton(UIStrings.EXPOSURE_AUTO)
+        self.radio_manual_focus = QRadioButton(UIStrings.EXPOSURE_MANUAL)
 
         self.focus_group.addButton(self.radio_autofocus, 0)
         self.focus_group.addButton(self.radio_manual_focus, 1)
@@ -652,7 +687,7 @@ class CameraWidget(QWidget):
         focus_layout.addWidget(self.radio_manual_focus)
 
         # One Push AF button
-        self.one_push_af_btn = QPushButton("One Push")
+        self.one_push_af_btn = QPushButton(UIStrings.WB_ONE_PUSH)
         self.one_push_af_btn.setToolTip("Trigger single autofocus operation")
         self.one_push_af_btn.setMinimumWidth(60)
         self.one_push_af_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -667,7 +702,7 @@ class CameraWidget(QWidget):
         manual_focus_layout = QHBoxLayout()
         manual_focus_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.btn_focus_near = QPushButton("◄ Near")
+        self.btn_focus_near = QPushButton(f"◄ {UIStrings.FOCUS_NEAR}")
         self.btn_focus_near.setToolTip("Focus closer (hold for continuous)")
         self.btn_focus_near.setMinimumWidth(50)
         self.btn_focus_near.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -675,7 +710,7 @@ class CameraWidget(QWidget):
         self.btn_focus_near.released.connect(self.focus_stop)
         manual_focus_layout.addWidget(self.btn_focus_near)
 
-        self.btn_focus_far = QPushButton("Far ►")
+        self.btn_focus_far = QPushButton(f"{UIStrings.FOCUS_FAR} ►")
         self.btn_focus_far.setToolTip("Focus farther (hold for continuous)")
         self.btn_focus_far.setMinimumWidth(50)
         self.btn_focus_far.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -697,11 +732,11 @@ class CameraWidget(QWidget):
         layout.addWidget(exposure_label)
 
         self.exposure_combo = QComboBox()
-        self.exposure_combo.addItem("Auto", 0)
-        self.exposure_combo.addItem("Manual", 1)
-        self.exposure_combo.addItem("Shutter Priority", 2)
-        self.exposure_combo.addItem("Iris Priority", 3)
-        self.exposure_combo.addItem("Bright", 4)
+        self.exposure_combo.addItem(UIStrings.EXPOSURE_AUTO, 0)
+        self.exposure_combo.addItem(UIStrings.EXPOSURE_MANUAL, 1)
+        self.exposure_combo.addItem(UIStrings.EXPOSURE_SHUTTER_PRIORITY, 2)
+        self.exposure_combo.addItem(UIStrings.EXPOSURE_IRIS_PRIORITY, 3)
+        self.exposure_combo.addItem(UIStrings.EXPOSURE_BRIGHT, 4)
         self.exposure_combo.setMinimumWidth(5)
         self.exposure_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.exposure_combo.currentIndexChanged.connect(self.on_exposure_mode_changed)
@@ -810,7 +845,9 @@ class CameraWidget(QWidget):
 
         red_gain_layout = QHBoxLayout()
         self.red_gain_slider = QSlider(Qt.Orientation.Horizontal)
-        self.red_gain_slider.setRange(HardwareConstants.COLOR_GAIN_MIN, HardwareConstants.COLOR_GAIN_MAX)
+        self.red_gain_slider.setRange(
+            HardwareConstants.COLOR_GAIN_MIN, HardwareConstants.COLOR_GAIN_MAX
+        )
         self.red_gain_slider.setValue(128)
         self.red_gain_slider.valueChanged.connect(self.on_red_gain_changed)
         self.red_gain_value_label = QLabel("128")
@@ -826,7 +863,9 @@ class CameraWidget(QWidget):
 
         blue_gain_layout = QHBoxLayout()
         self.blue_gain_slider = QSlider(Qt.Orientation.Horizontal)
-        self.blue_gain_slider.setRange(HardwareConstants.COLOR_GAIN_MIN, HardwareConstants.COLOR_GAIN_MAX)
+        self.blue_gain_slider.setRange(
+            HardwareConstants.COLOR_GAIN_MIN, HardwareConstants.COLOR_GAIN_MAX
+        )
         self.blue_gain_slider.setValue(128)
         self.blue_gain_slider.valueChanged.connect(self.on_blue_gain_changed)
         self.blue_gain_value_label = QLabel("128")
@@ -870,7 +909,7 @@ class CameraWidget(QWidget):
             self.add_preset_item(preset)
 
         # Update auto pan preset dropdowns
-        if hasattr(self, 'left_preset_combo'):
+        if hasattr(self, "left_preset_combo"):
             self.update_auto_pan_preset_list()
 
     def add_preset_item(self, preset: CameraPreset):
@@ -884,13 +923,13 @@ class CameraWidget(QWidget):
         up_btn = QPushButton("↑")
         up_btn.setFixedSize(24, 24)
         up_btn.setToolTip("Move preset up in list")
-        up_btn.clicked.connect(lambda: self.reorder_preset(preset.name, 'up'))
+        up_btn.clicked.connect(lambda: self.reorder_preset(preset.name, "up"))
         layout.addWidget(up_btn)
 
         down_btn = QPushButton("↓")
         down_btn.setFixedSize(24, 24)
         down_btn.setToolTip("Move preset down in list")
-        down_btn.clicked.connect(lambda: self.reorder_preset(preset.name, 'down'))
+        down_btn.clicked.connect(lambda: self.reorder_preset(preset.name, "down"))
         layout.addWidget(down_btn)
 
         # Preset name label (double-click to rename)
@@ -930,15 +969,15 @@ class CameraWidget(QWidget):
     def _test_visca_connection(self):
         """Test VISCA connection for IP-only cameras using background thread"""
         print(f"[Camera] Testing VISCA connection to {self.visca_ip}...")
-        
+
         # Emit connection starting signal
         self.connection_starting.emit()
-        
+
         # Create and start background test thread
         test_thread = ViscaConnectionTestThread(self.visca)
         test_thread.test_complete.connect(self._on_visca_test_complete)
         test_thread.start()
-    
+
     def _on_visca_test_complete(self, success: bool, error_message: str):
         """Handle VISCA connection test completion (called from background thread signal)"""
         try:
@@ -964,14 +1003,14 @@ class CameraWidget(QWidget):
             self.reconnect_button.setVisible(True)
             self.set_controls_enabled(False)
             self.video_label.setText(f"Connection Error\n{str(e)[:50]}")
-        
+
         # Mark as initialized
         self.initialized.emit()
-    
+
     def try_discover_ndi_source(self):
         """Try to discover NDI source matching the VISCA IP address"""
         from videocue.controllers.ndi_video import find_ndi_cameras
-        
+
         # Emit connection starting signal
         self.connection_starting.emit()
 
@@ -998,7 +1037,7 @@ class CameraWidget(QWidget):
 
         print(f"[Camera] No NDI source found matching IP {self.visca_ip}")
         self.video_label.setText("No NDI source\n(IP control only)")
-        
+
         # Test VISCA connection for IP-only control
         self._test_visca_connection()
 
@@ -1008,27 +1047,30 @@ class CameraWidget(QWidget):
             # Mark as initialized even if we can't start video
             QTimer.singleShot(100, self.initialized.emit)
             return
-        
+
         try:
             # Emit connection starting signal
             self.connection_starting.emit()
 
             # Get frame_skip preference from config (default 6)
-            frame_skip = self.config.config.get('preferences', {}).get('video_frame_skip', 6)
-            logger.info(f"[Camera] Starting NDI video with frame_skip={frame_skip} for {self.ndi_source_name}")
+            frame_skip = self.config.config.get("preferences", {}).get("video_frame_skip", 6)
+            logger.info(
+                f"[Camera] Starting NDI video with frame_skip={frame_skip} for {self.ndi_source_name}"
+            )
             self.ndi_thread = NDIVideoThread(self.ndi_source_name, frame_skip=frame_skip)
             self.ndi_thread.frame_ready.connect(self.on_video_frame)
             self.ndi_thread.connected.connect(self.on_ndi_connected)
             self.ndi_thread.error.connect(self.on_ndi_error)
             self.ndi_thread.resolution_changed.connect(self.on_resolution_changed)
             self.ndi_thread.start()
-            
+
             # Update button state
-            if hasattr(self, 'video_toggle_button'):
-                self.video_toggle_button.setText("⏸")
-                self.video_toggle_button.setToolTip("Stop video streaming")
+            if hasattr(self, "video_toggle_button"):
+                self.video_toggle_button.setText(UIStrings.BTN_PAUSE)
+                self.video_toggle_button.setToolTip(UIStrings.TOOLTIP_PAUSE_VIDEO)
         except Exception as e:
             import traceback
+
             error_msg = f"Failed to start NDI video: {str(e)}"
             print(f"\n{error_msg}")
             traceback.print_exc()
@@ -1040,13 +1082,16 @@ class CameraWidget(QWidget):
         if self.ndi_thread:
             self.ndi_thread.stop()
             self.ndi_thread = None
-            self.video_label.setText("Video Stopped")
-            
+
+        # Clear video display and show stopped message
+        self.video_label.clear()
+        self.video_label.setText(UIStrings.STATUS_VIDEO_STOPPED)
+
         # Update button state
-        if hasattr(self, 'video_toggle_button'):
-            self.video_toggle_button.setText("▶")
-            self.video_toggle_button.setToolTip("Start video streaming")
-    
+        if hasattr(self, "video_toggle_button"):
+            self.video_toggle_button.setText(UIStrings.BTN_PLAY)
+            self.video_toggle_button.setToolTip(UIStrings.TOOLTIP_PLAY_VIDEO)
+
     def toggle_video_streaming(self):
         """Toggle video streaming on/off"""
         if self.ndi_thread:
@@ -1058,7 +1103,6 @@ class CameraWidget(QWidget):
     def on_video_frame(self, image: QImage):
         """Handle new video frame with throttling"""
         # Throttle to ~30 FPS max (33ms between frames)
-        from PyQt6.QtCore import QTime  # type: ignore
         current_time = QTime.currentTime()
 
         if self._last_frame_time is None:
@@ -1073,13 +1117,14 @@ class CameraWidget(QWidget):
         # Scale to fit video label using FAST transformation
         pixmap = QPixmap.fromImage(image)
         scaled = pixmap.scaled(
-            self.video_width, self.video_height,
+            self.video_width,
+            self.video_height,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation  # Much faster than SmoothTransformation
+            Qt.TransformationMode.FastTransformation,  # Much faster than SmoothTransformation
         )
         self.video_label.setPixmap(scaled)
 
-    @pyqtSlot(str)
+    @pyqtSlot(int, int, float)
     def on_resolution_changed(self, width: int, height: int, fps: float):
         """Update resolution display when video format changes"""
         # Format: 1920x1080@29.97
@@ -1095,25 +1140,26 @@ class CameraWidget(QWidget):
         if web_url:
             # Parse URL to extract IP
             import re
-            match = re.search(r'(\d+\.\d+\.\d+\.\d+)', web_url)
+
+            match = re.search(r"(\d+\.\d+\.\d+\.\d+)", web_url)
             if match:
                 extracted_ip = match.group(1)
                 print(f"[Camera] Extracted IP {extracted_ip} from NDI web control URL")
-                
+
                 # Update IP address if it was unknown or different
                 if self.visca_ip != extracted_ip:
                     self.visca_ip = extracted_ip
                     self.visca = ViscaIP(self.visca_ip, self.visca_port)
-                    
+
                     # Update UI label with formatted name (avoids redundancy)
                     display_text = self._format_camera_display_name()
                     self.name_label.setText(display_text)
                     print(f"[Camera] Updated UI label to: {display_text}")
-                    
+
                     # Save IP to config
                     self.config.update_camera(self.camera_id, visca_ip=self.visca_ip)
                     print(f"[Camera] Saved IP {self.visca_ip} to config")
-        
+
         # Emit initialized signal
         self.initialized.emit()
 
@@ -1131,13 +1177,13 @@ class CameraWidget(QWidget):
         """Handle NDI error"""
         logger.error(f"NDI error for {self.ndi_source_name}: {error}")
         self.video_label.setText(f"Error: {error}")
-        
+
         # Mark as disconnected and show reconnect button
         self.is_connected = False
         self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
         self.reconnect_button.setVisible(True)
         self.set_controls_enabled(False)
-        
+
         # Emit initialized signal even on error
         self.initialized.emit()
 
@@ -1153,10 +1199,7 @@ class CameraWidget(QWidget):
 
     def zoom_camera(self, direction: int):
         """Zoom camera (direction: 1=in, -1=out)"""
-        if direction > 0:
-            success = self.visca.zoom_in(0.5)
-        else:
-            success = self.visca.zoom_out(0.5)
+        success = self.visca.zoom_in(0.5) if direction > 0 else self.visca.zoom_out(0.5)
         self.update_status_indicator(success)
 
     def zoom_stop(self):
@@ -1173,7 +1216,7 @@ class CameraWidget(QWidget):
                 self,
                 "Speed Limit Reset",
                 "Camera speed limit has been reset to maximum.\n\n"
-                "Pan/tilt movements should now be at normal speed."
+                "Pan/tilt movements should now be at normal speed.",
             )
 
     def query_focus_mode(self):
@@ -1188,42 +1231,45 @@ class CameraWidget(QWidget):
     def _query_all_settings_async(self):
         """Start querying all settings in background thread to prevent UI blocking"""
         from PyQt6.QtCore import QThread
-        
+
         class QueryThread(QThread):
             """Background thread for querying camera settings"""
+
             finished = pyqtSignal(dict)  # Emits dict of all queried values
-            
+
             def __init__(self, visca, visca_ip):
                 super().__init__()
                 self.visca = visca
                 self.visca_ip = visca_ip
-            
+
             def run(self):
                 """Query all settings in background"""
-                
+
                 logger.info(f"[QueryThread] Querying all settings for camera {self.visca_ip}...")
                 results = {}
-                
+
                 try:
-                    results['focus_mode'] = self.visca.query_focus_mode()
-                    results['exposure_mode'] = self.visca.query_exposure_mode()
-                    results['iris'] = self.visca.query_iris()
-                    results['shutter'] = self.visca.query_shutter()
-                    results['gain'] = self.visca.query_gain()
-                    results['brightness'] = self.visca.query_brightness()
-                    results['wb_mode'] = self.visca.query_white_balance_mode()
-                    results['red_gain'] = self.visca.query_red_gain()
-                    results['blue_gain'] = self.visca.query_blue_gain()
-                    results['backlight'] = self.visca.query_backlight_comp()
+                    results["focus_mode"] = self.visca.query_focus_mode()
+                    results["exposure_mode"] = self.visca.query_exposure_mode()
+                    results["iris"] = self.visca.query_iris()
+                    results["shutter"] = self.visca.query_shutter()
+                    results["gain"] = self.visca.query_gain()
+                    results["brightness"] = self.visca.query_brightness()
+                    results["wb_mode"] = self.visca.query_white_balance_mode()
+                    results["red_gain"] = self.visca.query_red_gain()
+                    results["blue_gain"] = self.visca.query_blue_gain()
+                    results["backlight"] = self.visca.query_backlight_comp()
                     logger.info(f"[QueryThread] Finished querying for camera {self.visca_ip}")
                 except Exception:
-                    logger.exception(f"[QueryThread] Error querying settings for camera {self.visca_ip}")
-                
+                    logger.exception(
+                        f"[QueryThread] Error querying settings for camera {self.visca_ip}"
+                    )
+
                 self.finished.emit(results)
-        
+
         # Show loading indicator
         self.loading_label.setVisible(True)
-        
+
         # Start background thread
         self._query_thread = QueryThread(self.visca, self.visca_ip)
         self._query_thread.finished.connect(self._apply_queried_settings)
@@ -1231,70 +1277,88 @@ class CameraWidget(QWidget):
 
     def _apply_queried_settings(self, results: dict):
         """Apply queried settings to UI (called on main thread after background query)"""
-        from videocue.controllers.visca_ip import ExposureMode, WhiteBalanceMode, FocusMode
-        
         logger.info(f"Applying queried settings for camera {self.visca_ip}...")
-        
+
         # Apply focus mode
-        if 'focus_mode' in results:
-            mode = results['focus_mode']
+        if "focus_mode" in results:
+            mode = results["focus_mode"]
             if mode == FocusMode.AUTO:
                 self.radio_autofocus.setChecked(True)
             elif mode == FocusMode.MANUAL:
                 self.radio_manual_focus.setChecked(True)
             self.update_focus_controls_visibility()
-        
+
         # Apply exposure mode
-        if 'exposure_mode' in results:
-            exp_mode = results['exposure_mode']
+        if "exposure_mode" in results:
+            exp_mode = results["exposure_mode"]
             if exp_mode != ExposureMode.UNKNOWN:
                 self.exposure_combo.blockSignals(True)
                 index = self.exposure_combo.findData(exp_mode.value)
                 if index >= 0:
                     self.exposure_combo.setCurrentIndex(index)
                 self.exposure_combo.blockSignals(False)
-                self.on_exposure_mode_changed(self.exposure_combo.currentIndex(), send_command=False)
-        
+                self.on_exposure_mode_changed(
+                    self.exposure_combo.currentIndex(), send_command=False
+                )
+
         # Apply iris
-        if 'iris' in results and results['iris'] is not None:
+        if "iris" in results and results["iris"] is not None:
             self.iris_slider.blockSignals(True)
-            self.iris_slider.setValue(results['iris'])
+            self.iris_slider.setValue(results["iris"])
             self.iris_slider.blockSignals(False)
-            f_stops = ["Closed", "F16", "F14", "F11", "F9.6", "F8", "F6.8", "F5.6",
-                       "F4.8", "F4", "F3.4", "F2.8", "F2.4", "F2", "F1.8", "F1.6", "F1.4", "Open"]
-            if results['iris'] < len(f_stops):
-                self.iris_value_label.setText(f_stops[results['iris']])
-        
+            f_stops = [
+                "Closed",
+                "F16",
+                "F14",
+                "F11",
+                "F9.6",
+                "F8",
+                "F6.8",
+                "F5.6",
+                "F4.8",
+                "F4",
+                "F3.4",
+                "F2.8",
+                "F2.4",
+                "F2",
+                "F1.8",
+                "F1.6",
+                "F1.4",
+                "Open",
+            ]
+            if results["iris"] < len(f_stops):
+                self.iris_value_label.setText(f_stops[results["iris"]])
+
         # Apply shutter
-        if 'shutter' in results and results['shutter'] is not None:
+        if "shutter" in results and results["shutter"] is not None:
             self.shutter_slider.blockSignals(True)
-            self.shutter_slider.setValue(results['shutter'])
+            self.shutter_slider.setValue(results["shutter"])
             self.shutter_slider.blockSignals(False)
             speeds = ViscaConstants.SHUTTER_SPEEDS[2:]
-            if results['shutter'] < len(speeds):
-                self.shutter_value_label.setText(speeds[results['shutter']])
-        
+            if results["shutter"] < len(speeds):
+                self.shutter_value_label.setText(speeds[results["shutter"]])
+
         # Apply gain
-        if 'gain' in results and results['gain'] is not None:
+        if "gain" in results and results["gain"] is not None:
             self.gain_slider.blockSignals(True)
-            self.gain_slider.setValue(results['gain'])
+            self.gain_slider.setValue(results["gain"])
             self.gain_slider.blockSignals(False)
             self.gain_value_label.setText(f"{results['gain'] * 3} dB")
-        
+
         # Apply brightness
-        if 'brightness' in results and results['brightness'] is not None:
+        if "brightness" in results and results["brightness"] is not None:
             self.brightness_slider.blockSignals(True)
-            self.brightness_slider.setValue(results['brightness'])
+            self.brightness_slider.setValue(results["brightness"])
             self.brightness_slider.blockSignals(False)
-            self.brightness_value_label.setText(str(results['brightness']))
+            self.brightness_value_label.setText(str(results["brightness"]))
             self.brightness_slider_vertical.blockSignals(True)
-            self.brightness_slider_vertical.setValue(results['brightness'])
+            self.brightness_slider_vertical.setValue(results["brightness"])
             self.brightness_slider_vertical.blockSignals(False)
-            self.brightness_value_vertical.setText(str(results['brightness']))
-        
+            self.brightness_value_vertical.setText(str(results["brightness"]))
+
         # Apply white balance mode
-        if 'wb_mode' in results:
-            wb_mode = results['wb_mode']
+        if "wb_mode" in results:
+            wb_mode = results["wb_mode"]
             if wb_mode != WhiteBalanceMode.UNKNOWN:
                 self.wb_combo.blockSignals(True)
                 index = self.wb_combo.findData(wb_mode.value)
@@ -1302,27 +1366,27 @@ class CameraWidget(QWidget):
                     self.wb_combo.setCurrentIndex(index)
                 self.wb_combo.blockSignals(False)
                 self.on_wb_mode_changed(wb_mode.value, send_command=False)
-        
+
         # Apply red gain
-        if 'red_gain' in results and results['red_gain'] is not None:
+        if "red_gain" in results and results["red_gain"] is not None:
             self.red_gain_slider.blockSignals(True)
-            self.red_gain_slider.setValue(results['red_gain'])
+            self.red_gain_slider.setValue(results["red_gain"])
             self.red_gain_slider.blockSignals(False)
-            self.red_gain_value_label.setText(str(results['red_gain']))
-        
+            self.red_gain_value_label.setText(str(results["red_gain"]))
+
         # Apply blue gain
-        if 'blue_gain' in results and results['blue_gain'] is not None:
+        if "blue_gain" in results and results["blue_gain"] is not None:
             self.blue_gain_slider.blockSignals(True)
-            self.blue_gain_slider.setValue(results['blue_gain'])
+            self.blue_gain_slider.setValue(results["blue_gain"])
             self.blue_gain_slider.blockSignals(False)
-            self.blue_gain_value_label.setText(str(results['blue_gain']))
-        
+            self.blue_gain_value_label.setText(str(results["blue_gain"]))
+
         # Apply backlight
-        if 'backlight' in results and results['backlight'] is not None:
+        if "backlight" in results and results["backlight"] is not None:
             self.backlight_checkbox.blockSignals(True)
-            self.backlight_checkbox.setChecked(results['backlight'])
+            self.backlight_checkbox.setChecked(results["backlight"])
             self.backlight_checkbox.blockSignals(False)
-        
+
         logger.info(f"Finished applying settings for camera {self.visca_ip}")
         self.loading_label.setVisible(False)
 
@@ -1353,6 +1417,7 @@ class CameraWidget(QWidget):
 
         # Query exposure mode
         from videocue.controllers.visca_ip import ExposureMode
+
         exp_mode = self.visca.query_exposure_mode()
         logger.debug(f"Exposure mode query returned: {exp_mode}")
         if exp_mode != ExposureMode.UNKNOWN:
@@ -1363,7 +1428,9 @@ class CameraWidget(QWidget):
                 self.exposure_combo.setCurrentIndex(index)
                 logger.info(f"Set exposure combo to index {index} (mode: {exp_mode.name})")
             else:
-                logger.warning(f"Could not find combo index for exposure mode value: {exp_mode.value}")
+                logger.warning(
+                    f"Could not find combo index for exposure mode value: {exp_mode.value}"
+                )
             self.exposure_combo.blockSignals(False)
             # Manually trigger visibility update without sending command
             self.on_exposure_mode_changed(self.exposure_combo.currentIndex(), send_command=False)
@@ -1377,8 +1444,26 @@ class CameraWidget(QWidget):
             self.iris_slider.setValue(iris_value)
             self.iris_slider.blockSignals(False)
             # Update label
-            f_stops = ["Closed", "F16", "F14", "F11", "F9.6", "F8", "F6.8", "F5.6",
-                       "F4.8", "F4", "F3.4", "F2.8", "F2.4", "F2", "F1.8", "F1.6", "F1.4", "Open"]
+            f_stops = [
+                "Closed",
+                "F16",
+                "F14",
+                "F11",
+                "F9.6",
+                "F8",
+                "F6.8",
+                "F5.6",
+                "F4.8",
+                "F4",
+                "F3.4",
+                "F2.8",
+                "F2.4",
+                "F2",
+                "F1.8",
+                "F1.6",
+                "F1.4",
+                "Open",
+            ]
             if iris_value < len(f_stops):
                 self.iris_value_label.setText(f_stops[iris_value])
 
@@ -1416,6 +1501,7 @@ class CameraWidget(QWidget):
 
         # Query white balance mode
         from videocue.controllers.visca_ip import WhiteBalanceMode
+
         wb_mode = self.visca.query_white_balance_mode()
         logger.info(f"White balance mode from camera: {wb_mode}, enum value: {wb_mode.value}")
         if wb_mode != WhiteBalanceMode.UNKNOWN:
@@ -1426,7 +1512,9 @@ class CameraWidget(QWidget):
                 self.wb_combo.setCurrentIndex(index)
                 logger.info(f"Set white balance combo to index {index}")
             else:
-                logger.warning(f"Could not find combo index for white balance value: {wb_mode.value}")
+                logger.warning(
+                    f"Could not find combo index for white balance value: {wb_mode.value}"
+                )
             self.wb_combo.blockSignals(False)
             # Manually trigger visibility update without sending command
             self.on_wb_mode_changed(wb_mode.value, send_command=False)
@@ -1492,7 +1580,7 @@ class CameraWidget(QWidget):
     def update_auto_pan_preset_list(self):
         """Update the preset dropdown lists for auto pan"""
         # Check if auto pan widgets have been created yet
-        if not hasattr(self, 'left_preset_combo') or not hasattr(self, 'right_preset_combo'):
+        if not hasattr(self, "left_preset_combo") or not hasattr(self, "right_preset_combo"):
             return
         if self.left_preset_combo is None or self.right_preset_combo is None:
             return
@@ -1501,8 +1589,8 @@ class CameraWidget(QWidget):
 
         # Get saved selections from config (not from current dropdown text)
         camera_config = self.config.get_camera(self.camera_id)
-        left_saved = camera_config.get('auto_pan_left_preset', '')
-        right_saved = camera_config.get('auto_pan_right_preset', '')
+        left_saved = camera_config.get("auto_pan_left_preset", "")
+        right_saved = camera_config.get("auto_pan_right_preset", "")
 
         # Block signals while updating to prevent saving during initialization
         self.left_preset_combo.blockSignals(True)
@@ -1517,7 +1605,7 @@ class CameraWidget(QWidget):
             self.right_preset_combo.addItem("(No presets available)")
             self.left_preset_combo.setEnabled(False)
             self.right_preset_combo.setEnabled(False)
-            if hasattr(self, 'start_auto_pan_btn') and self.start_auto_pan_btn is not None:
+            if hasattr(self, "start_auto_pan_btn") and self.start_auto_pan_btn is not None:
                 self.start_auto_pan_btn.setEnabled(False)
         else:
             for preset_data in presets:
@@ -1527,7 +1615,7 @@ class CameraWidget(QWidget):
 
             self.left_preset_combo.setEnabled(True)
             self.right_preset_combo.setEnabled(True)
-            if hasattr(self, 'start_auto_pan_btn') and self.start_auto_pan_btn is not None:
+            if hasattr(self, "start_auto_pan_btn") and self.start_auto_pan_btn is not None:
                 self.start_auto_pan_btn.setEnabled(True)
 
             # Restore selections from config file
@@ -1552,7 +1640,7 @@ class CameraWidget(QWidget):
 
     def on_auto_pan_preset_changed(self):
         """Save auto pan preset selections to config when changed"""
-        if not hasattr(self, 'left_preset_combo') or not hasattr(self, 'right_preset_combo'):
+        if not hasattr(self, "left_preset_combo") or not hasattr(self, "right_preset_combo"):
             return
 
         left_preset = self.left_preset_combo.currentText()
@@ -1563,9 +1651,9 @@ class CameraWidget(QWidget):
             return
 
         # Save to config
-        self.config.update_camera(self.camera_id,
-                                  auto_pan_left_preset=left_preset,
-                                  auto_pan_right_preset=right_preset)
+        self.config.update_camera(
+            self.camera_id, auto_pan_left_preset=left_preset, auto_pan_right_preset=right_preset
+        )
         print(f"[AUTO PAN] Saved preset selections: Left='{left_preset}', Right='{right_preset}'")
 
     def on_start_auto_pan(self):
@@ -1575,17 +1663,13 @@ class CameraWidget(QWidget):
 
         if not left_preset or not right_preset or left_preset == "(No presets available)":
             QMessageBox.warning(
-                self,
-                "No Presets",
-                "Please create presets before starting auto pan."
+                self, "No Presets", "Please create presets before starting auto pan."
             )
             return
 
         if left_preset == right_preset:
             QMessageBox.warning(
-                self,
-                "Same Preset",
-                "Please select different presets for left and right positions."
+                self, "Same Preset", "Please select different presets for left and right positions."
             )
             return
 
@@ -1599,7 +1683,8 @@ class CameraWidget(QWidget):
         self.stop_auto_pan_btn.setEnabled(True)
         self.auto_pan_status_label.setText("Status: Running")
         self.auto_pan_status_label.setStyleSheet(
-            "color: #00ff00; font-style: italic; font-weight: bold;")
+            "color: #00ff00; font-style: italic; font-weight: bold;"
+        )
 
         # Immediately go to first position
         self.auto_pan_tick()
@@ -1649,6 +1734,7 @@ class CameraWidget(QWidget):
         """Handle exposure mode change"""
         _ = index  # Unused - value read from combo box directly
         from videocue.controllers.visca_ip import ExposureMode
+
         mode = ExposureMode(self.exposure_combo.currentData())
 
         # Only send command if not loading from camera
@@ -1685,8 +1771,26 @@ class CameraWidget(QWidget):
         """Handle iris slider change"""
         # Iris values: 0=closed, 17=fully open
         # Display as F-stop approximation
-        f_stops = ["Closed", "F16", "F14", "F11", "F9.6", "F8", "F6.8", "F5.6",
-                   "F4.8", "F4", "F3.4", "F2.8", "F2.4", "F2", "F1.8", "F1.6", "F1.4", "Open"]
+        f_stops = [
+            "Closed",
+            "F16",
+            "F14",
+            "F11",
+            "F9.6",
+            "F8",
+            "F6.8",
+            "F5.6",
+            "F4.8",
+            "F4",
+            "F3.4",
+            "F2.8",
+            "F2.4",
+            "F2",
+            "F1.8",
+            "F1.6",
+            "F1.4",
+            "Open",
+        ]
         self.iris_value_label.setText(f_stops[value])
         success = self.visca.set_iris(value)
         self.update_status_indicator(success)
@@ -1757,6 +1861,7 @@ class CameraWidget(QWidget):
         """Handle white balance mode change"""
         _ = index  # Unused - value read from combo box directly
         from videocue.controllers.visca_ip import WhiteBalanceMode
+
         mode = WhiteBalanceMode(self.wb_combo.currentData())
 
         # Only send command if not loading from camera
@@ -1796,11 +1901,11 @@ class CameraWidget(QWidget):
         """Update status indicator based on command success"""
         color = "green" if success else "red"
         self.status_indicator.setStyleSheet(f"background-color: {color}; border-radius: 6px;")
-        
+
         # Update connection state
         was_connected = self.is_connected
         self.is_connected = success
-        
+
         # Show reconnect button and disable controls if connection failed
         if not success and was_connected:
             self.reconnect_button.setVisible(True)
@@ -1827,11 +1932,11 @@ class CameraWidget(QWidget):
         # Account for layout margins (5px left + 5px right = 10px)
         # and video border (2px left + 2px right = 4px)
         self.setFixedWidth(width + 14)
-    
+
     def set_controls_enabled(self, enabled: bool):
         """Enable or disable camera controls"""
         # Disable/enable all control widgets in the controls container
-        if hasattr(self, 'controls_container'):
+        if hasattr(self, "controls_container"):
             for widget in self.controls_container.findChildren(QPushButton):
                 widget.setEnabled(enabled)
             for widget in self.controls_container.findChildren(QSlider):
@@ -1842,26 +1947,27 @@ class CameraWidget(QWidget):
                 widget.setEnabled(enabled)
             for widget in self.controls_container.findChildren(QCheckBox):
                 widget.setEnabled(enabled)
-    
+
     def reconnect_camera(self):
         """Attempt to reconnect to camera (non-blocking)"""
         try:
             print(f"[Camera] Attempting to reconnect to {self.visca_ip}...")
-            
+
             # Hide reconnect button and show loading indicator
             self.reconnect_button.setVisible(False)
             self.loading_label.setVisible(True)
-            
+
             # Reconnect immediately on next event loop iteration
             QTimer.singleShot(50, self._cleanup_and_reconnect)
         except Exception as e:
             import traceback
+
             print(f"[Camera] Error in reconnect_camera: {e}")
             traceback.print_exc()
             self.loading_label.setVisible(False)
             self.reconnect_button.setVisible(True)
             self.video_label.setText(f"Reconnect Error:\\n{str(e)[:50]}")
-    
+
     def _wait_for_thread_stop(self):
         """Poll for thread to finish without blocking UI"""
         if self.ndi_thread and self.ndi_thread.isRunning():
@@ -1872,13 +1978,16 @@ class CameraWidget(QWidget):
             # Thread stopped, proceed with reconnection
             print("[Camera] Thread stopped, proceeding with reconnection")
             self._cleanup_and_reconnect()
-    
+
     def _cleanup_and_reconnect(self):
+        # Stop video stream and clean up resources
+        self.stop_video()
+
         """Clean up old thread and attempt reconnection"""
         # Ensure thread is fully stopped
         if self.ndi_thread:
             self.ndi_thread = None
-        
+
         # Try to reconnect
         if self.ndi_source_name and ndi_available:
             # For NDI cameras, refresh cache in background then reconnect
@@ -1886,14 +1995,15 @@ class CameraWidget(QWidget):
         else:
             # Just test VISCA connection
             self._attempt_visca_reconnect()
-    
+
     def _refresh_cache_and_reconnect(self):
         """Refresh NDI cache in background thread, then reconnect"""
         try:
             # Import here to avoid circular dependency
-            from videocue.controllers.ndi_video import discover_and_cache_all_sources
             from PyQt6.QtCore import QThread
-            
+
+            from videocue.controllers.ndi_video import discover_and_cache_all_sources
+
             # Create a worker thread to refresh the cache
             class CacheRefreshThread(QThread):
                 def run(self):
@@ -1901,17 +2011,18 @@ class CameraWidget(QWidget):
                         discover_and_cache_all_sources()
                     except Exception as e:
                         print(f"[Camera] Cache refresh error: {e}")
-            
+
             self.cache_refresh_thread = CacheRefreshThread()
             self.cache_refresh_thread.finished.connect(self._attempt_video_reconnect)
             self.cache_refresh_thread.start()
         except Exception as e:
             import traceback
+
             print(f"[Camera] Error starting cache refresh: {e}")
             traceback.print_exc()
             # Fall back to direct reconnect
             self._attempt_video_reconnect()
-    
+
     def _attempt_video_reconnect(self):
         """Attempt to reconnect video stream"""
         try:
@@ -1919,11 +2030,12 @@ class CameraWidget(QWidget):
             self.start_video()
         except Exception as e:
             import traceback
+
             print(f"[Camera] Error in video reconnect: {e}")
             traceback.print_exc()
             self.reconnect_button.setVisible(True)
             self.video_label.setText(f"Video Reconnect Failed:\\n{str(e)[:50]}")
-    
+
     def _attempt_visca_reconnect(self):
         """Attempt to reconnect VISCA control"""
         try:
@@ -1933,17 +2045,18 @@ class CameraWidget(QWidget):
             self.connection_test_thread.start()
         except Exception as e:
             import traceback
+
             print(f"[Camera] Error starting VISCA reconnect: {e}")
             traceback.print_exc()
             self.loading_label.setVisible(False)
             self.reconnect_button.setVisible(True)
             self.video_label.setText(f"VISCA Reconnect Failed:\n{str(e)[:50]}")
-    
+
     def _on_visca_reconnect_complete(self, success: bool, error_message: str):
         """Handle VISCA reconnection test result"""
         try:
             self.loading_label.setVisible(False)
-            
+
             if success:
                 self.is_connected = True
                 self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
@@ -1957,38 +2070,41 @@ class CameraWidget(QWidget):
                 self.video_label.setText("Reconnection failed\nClick Reconnect to retry")
         except Exception as e:
             import traceback
+
             print(f"[Camera] Error handling VISCA reconnect result: {e}")
             traceback.print_exc()
             self.reconnect_button.setVisible(True)
-    
+
     def _retry_connection(self) -> None:
         """Retry connection with exponential backoff"""
         self._retry_timer.stop()
-        
+
         if self._retry_count >= self._max_retries:
             logger.warning(f"Max retries ({self._max_retries}) reached for {self.visca_ip}")
             self._retry_count = 0
             self.reconnect_button.setVisible(True)
             return
-        
+
         self._retry_count += 1
-        delay_seconds = 2 ** self._retry_count  # Exponential backoff: 2, 4, 8 seconds
-        
-        logger.info(f"Retrying connection to {self.visca_ip} (attempt {self._retry_count}/{self._max_retries}) in {delay_seconds}s")
+        delay_seconds = 2**self._retry_count  # Exponential backoff: 2, 4, 8 seconds
+
+        logger.info(
+            f"Retrying connection to {self.visca_ip} (attempt {self._retry_count}/{self._max_retries}) in {delay_seconds}s"
+        )
         self._retry_timer.start(delay_seconds * 1000)
-        
+
         # Attempt reconnection
         QTimer.singleShot(100, self.reconnect_camera)
-    
+
     def start_retry_mechanism(self) -> None:
         """Start automatic retry mechanism for failed connections"""
         if self.is_connected:
             return
-        
+
         self._retry_count = 0
         logger.info(f"Starting retry mechanism for {self.visca_ip}")
         QTimer.singleShot(2000, self._retry_connection)  # Start after 2 seconds
-    
+
     def stop_retry_mechanism(self) -> None:
         """Stop automatic retry mechanism"""
         self._retry_timer.stop()
@@ -1997,16 +2113,13 @@ class CameraWidget(QWidget):
     def open_web_browser(self):
         """Open camera web interface"""
         import webbrowser
+
         url = f"http://{self.visca_ip}/"
         webbrowser.open(url)
 
     def store_preset_dialog(self):
         """Show dialog to store current position as preset"""
-        name, ok = QInputDialog.getText(
-            self,
-            "Store Preset",
-            "Enter preset name:"
-        )
+        name, ok = QInputDialog.getText(self, "Store Preset", "Enter preset name:")
 
         if ok and name:
             # Get next preset number (use index in list)
@@ -2026,14 +2139,13 @@ class CameraWidget(QWidget):
                     "Preset Stored",
                     f"Preset '{name}' has been stored to camera memory.\n\n"
                     f"Preset number: {preset_number}\n\n"
-                    "The camera will recall this exact position when selected."
+                    "The camera will recall this exact position when selected.",
                 )
             else:
                 QMessageBox.warning(
                     self,
                     "Preset Storage Failed",
-                    "Failed to store preset in camera memory.\n\n"
-                    "Please check camera connection."
+                    "Failed to store preset in camera memory.\n\nPlease check camera connection.",
                 )
 
     def recall_preset(self, preset: CameraPreset):
@@ -2056,7 +2168,7 @@ class CameraWidget(QWidget):
                     self,
                     "Recall Failed",
                     f"Failed to recall preset '{preset.name}'.\n\n"
-                    "The preset may not be stored in camera memory."
+                    "The preset may not be stored in camera memory.",
                 )
 
     def delete_preset(self, name: str):
@@ -2067,7 +2179,7 @@ class CameraWidget(QWidget):
             f"Delete preset '{name}'?\n\n"
             "Note: This removes the preset from the app, but the \n"
             "position remains stored in camera memory.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
@@ -2077,10 +2189,7 @@ class CameraWidget(QWidget):
     def rename_preset_dialog(self, old_name: str):
         """Show dialog to rename a preset"""
         new_name, ok = QInputDialog.getText(
-            self,
-            "Rename Preset",
-            "Enter new preset name:",
-            text=old_name
+            self, "Rename Preset", "Enter new preset name:", text=old_name
         )
 
         if ok and new_name and new_name != old_name:
@@ -2093,7 +2202,7 @@ class CameraWidget(QWidget):
                     self,
                     "Name Exists",
                     f"A preset named '{new_name}' already exists.\n\n"
-                    "Please choose a different name."
+                    "Please choose a different name.",
                 )
                 return
 
@@ -2103,11 +2212,7 @@ class CameraWidget(QWidget):
             if success:
                 self.update_presets_widget()
             else:
-                QMessageBox.warning(
-                    self,
-                    "Rename Failed",
-                    f"Failed to rename preset '{old_name}'."
-                )
+                QMessageBox.warning(self, "Rename Failed", f"Failed to rename preset '{old_name}'.")
 
     def update_preset(self, name: str):
         """Update preset to current camera position"""
@@ -2133,14 +2238,14 @@ class CameraWidget(QWidget):
                     self,
                     "Preset Updated",
                     f"Preset '{name}' has been updated to the current camera position.\n\n"
-                    f"Preset slot: {preset_index}"
+                    f"Preset slot: {preset_index}",
                 )
             else:
                 QMessageBox.warning(
                     self,
                     "Update Failed",
                     f"Failed to update preset '{name}' in camera memory.\n\n"
-                    "Please check camera connection."
+                    "Please check camera connection.",
                 )
 
     def reorder_preset(self, name: str, direction: str):
@@ -2160,7 +2265,7 @@ class CameraWidget(QWidget):
                 "in camera memory need to be updated.\n\n"
                 "Would you like to re-store all presets to camera memory now?\n\n"
                 "(You'll need to position the camera at each preset location)",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
             if reply == QMessageBox.StandardButton.Yes:
@@ -2168,14 +2273,10 @@ class CameraWidget(QWidget):
                 preset_names = [CameraPreset.from_dict(p).name for p in presets]
                 msg = "Please re-store each preset in order:\n\n"
                 for i, pname in enumerate(preset_names):
-                    msg += f"{i+1}. {pname}\n"
+                    msg += f"{i + 1}. {pname}\n"
                 msg += "\nPosition the camera and click 'Update' for each preset."
 
-                QMessageBox.information(
-                    self,
-                    "Re-store Instructions",
-                    msg
-                )
+                QMessageBox.information(self, "Re-store Instructions", msg)
 
             # Refresh the widget to show new order
             self.update_presets_widget()
@@ -2222,6 +2323,12 @@ class CameraWidget(QWidget):
             return
         self.zoom_stop()
 
+    def handle_usb_stop(self):
+        """Handle USB stop movement"""
+        if not self.is_selected:
+            return
+        self.stop_camera()
+
     def handle_usb_brightness_increase(self):
         """Handle USB brightness increase (only in Bright mode)"""
         if not self.is_selected:
@@ -2229,6 +2336,7 @@ class CameraWidget(QWidget):
 
         # Only work in Bright mode
         from videocue.controllers.visca_ip import ExposureMode
+
         current_mode = ExposureMode(self.exposure_combo.currentData())
         if current_mode != ExposureMode.BRIGHT:
             return
@@ -2250,6 +2358,7 @@ class CameraWidget(QWidget):
 
         # Only work in Bright mode
         from videocue.controllers.visca_ip import ExposureMode
+
         current_mode = ExposureMode(self.exposure_combo.currentData())
         if current_mode != ExposureMode.BRIGHT:
             return

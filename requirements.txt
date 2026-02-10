@@ -2,6 +2,7 @@ PyQt6>=6.5.0
 pygame>=2.5.0
 qdarkstyle>=3.1
 numpy>=1.24.0
+ruff>=0.1.0
 
 # Alternative controller library for better compatibility
 # Try: pip install inputs

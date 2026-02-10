@@ -6,19 +6,19 @@ Centralizes all user-facing strings for consistency and future i18n support
 
 class UIStrings:
     """User interface text constants"""
-    
+
     # Application
     APP_NAME = "VideoCue"
-    APP_VERSION = "0.3.2"
-    
+
     # Camera Status
     STATUS_NO_VIDEO = "No Video"
+    STATUS_VIDEO_STOPPED = "Video Stopped"
     STATUS_CONNECTING = "Connecting..."
     STATUS_CONNECTED = "Connected"
     STATUS_DISCONNECTED = "Disconnected"
     STATUS_ERROR = "Error"
     STATUS_LOADING = "⟳"
-    
+
     # Buttons
     BTN_RECONNECT = "Reconnect"
     BTN_DELETE = "×"
@@ -31,7 +31,7 @@ class UIStrings:
     BTN_CANCEL = "Cancel"
     BTN_OK = "OK"
     BTN_CLOSE = "Close"
-    
+
     # Tooltips
     TOOLTIP_RECONNECT = "Retry camera connection"
     TOOLTIP_OPEN_WEB = "Open camera web interface"
@@ -41,7 +41,7 @@ class UIStrings:
     TOOLTIP_USB_DISCONNECTED = "No USB Controller"
     TOOLTIP_BRIGHTNESS_INCREASE = "Increase Brightness"
     TOOLTIP_BRIGHTNESS_DECREASE = "Decrease Brightness"
-    
+
     # Camera Controls
     CTRL_PTZ_CONTROLS = "<b>Camera Controls</b>"
     CTRL_EXPOSURE = "Exposure"
@@ -55,28 +55,28 @@ class UIStrings:
     CTRL_RED_GAIN = "Red"
     CTRL_BLUE_GAIN = "Blue"
     CTRL_BACKLIGHT = "Backlight"
-    
+
     # Exposure Modes
     EXPOSURE_AUTO = "Auto"
     EXPOSURE_MANUAL = "Manual"
     EXPOSURE_SHUTTER_PRIORITY = "Shutter Priority"
     EXPOSURE_IRIS_PRIORITY = "Iris Priority"
     EXPOSURE_BRIGHT = "Bright"
-    
+
     # White Balance Modes
     WB_AUTO = "Auto"
     WB_INDOOR = "Indoor"
     WB_OUTDOOR = "Outdoor"
     WB_ONE_PUSH = "One Push"
     WB_MANUAL = "Manual"
-    
+
     # Focus Modes
     FOCUS_AUTO = "Auto Focus"
     FOCUS_MANUAL = "Manual Focus"
     FOCUS_ONE_PUSH = "One Push AF"
     FOCUS_NEAR = "Near"
     FOCUS_FAR = "Far"
-    
+
     # Menu Items
     MENU_FILE = "&File"
     MENU_EXIT = "E&xit"
@@ -87,7 +87,7 @@ class UIStrings:
     MENU_PERFORMANCE = "Video Performance"
     MENU_HELP = "&Help"
     MENU_ABOUT = "&About"
-    
+
     # Error Messages
     ERROR_CRITICAL = "Critical Error"
     ERROR_GENERIC = "An unexpected error occurred. The application will attempt to continue."
@@ -99,7 +99,7 @@ class UIStrings:
     ERROR_CONFIG_LOAD = "Error loading configuration"
     ERROR_CONFIG_SAVE = "Error saving configuration"
     ERROR_USB_INIT = "USB controller initialization failed"
-    
+
     # Warnings
     WARN_NDI_MESSAGE = (
         "NDI library not available. Please install NDI Runtime:\n\n"
@@ -107,13 +107,13 @@ class UIStrings:
         "The application will continue without NDI video streaming support.\n"
         "You can still control cameras using IP addresses."
     )
-    
+
     # Info Messages
     INFO_CAMERA_ADDED = "Camera added successfully"
     INFO_CAMERA_REMOVED = "Camera removed"
     INFO_PRESET_SAVED = "Preset saved"
     INFO_PRESET_RECALLED = "Preset recalled"
-    
+
     # Performance Options
     PERF_MAX = "Maximum Performance"
     PERF_MAX_DESC = "Fastest - ~3 FPS (skips most frames)"
@@ -125,11 +125,11 @@ class UIStrings:
     PERF_GOOD_DESC = "Better quality - ~15 FPS"
     PERF_BEST = "Best Quality"
     PERF_BEST_DESC = "Highest quality - ~30 FPS (may lag)"
-    
+
     # Tabs
     TAB_CAMERAS = "Cameras"
     TAB_CUES = "Cues"
-    
+
     # Dialog Titles
     DIALOG_ADD_CAMERA = "Add Camera"
     DIALOG_PREFERENCES = "Controller Preferences"

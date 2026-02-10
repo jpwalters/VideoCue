@@ -43,6 +43,7 @@ class USBController(QObject):
     zoom_in = pyqtSignal(float)  # Speed (0.0 to 1.0)
     zoom_out = pyqtSignal(float)
     zoom_stop = pyqtSignal()
+    stop_movement = pyqtSignal()  # X button for stop
     reconnect_requested = pyqtSignal()  # B button for reconnect
     prev_camera = pyqtSignal()
     next_camera = pyqtSignal()
@@ -189,6 +190,10 @@ class USBController(QObject):
         # Button 1 = B button (reconnect when camera disconnected)
         if button == 1:
             self.reconnect_requested.emit()
+
+        # Button 2 = X button (stop movement)
+        elif button == 2:
+            self.stop_movement.emit()
 
         # Button 4 = LB/L1 (prev camera)
         elif button == 4:
