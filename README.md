@@ -31,11 +31,14 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 ### USB Game Controller Support
 - **Pan/Tilt**: Analog stick or D-pad control
 - **Zoom**: Trigger-based variable speed
-- **Camera Switching**: Shoulder buttons (L1/R1)
+- **Camera Switching**: Shoulder buttons (L1/R1) with auto-stop safety
+- **Stop Movement**: X button to immediately halt camera movement
 - **Brightness Control**: Y/A buttons (configurable, Bright mode only)
+- **Reconnect Camera**: B button to reconnect failed cameras
 - **Configurable Mappings**: Customize all button/axis assignments
 - **Speed Adjustment**: Independent speed settings for pan/tilt/zoom
 - **Dual Joystick Mode**: Separate left/right stick control
+- **Safe Camera Switching**: Optionally stops previous camera when switching (enabled by default)
 - **Hotplug Detection**: Automatic controller connect/disconnect
 
 ### User Interface
@@ -110,12 +113,33 @@ The application will:
 
 ## Building Executable
 
-### Windows
+### Windows (Automated)
+Use the PowerShell build script for a complete build with installer:
+```powershell
+.\build.ps1 -Version "0.4.1"
+```
+
+This creates:
+- Executable in `dist/VideoCue/` (~100-120MB with NDI Runtime)
+- Inno Setup installer in `installer_output/VideoCue-{version}-Setup.exe`
+- Portable ZIP in `installer_output/VideoCue-{version}-portable.zip`
+
+### Manual Build
 ```bash
 pyinstaller VideoCue.spec
 ```
 
-The executable will be in `dist/VideoCue/` folder (~100-120MB with NDI Runtime).
+### Build Options
+```powershell
+# Update version and build everything
+.\build.ps1 -Version "0.4.1"
+
+# Skip PyInstaller (use existing dist/)
+.\build.ps1 -SkipBuild
+
+# Skip Inno Setup installer
+.\build.ps1 -SkipInstaller
+```
 
 ### Configuration
 Edit `VideoCue.spec` to update:
@@ -148,6 +172,7 @@ Edit `VideoCue.spec` to update:
 - **Direction Settings**: Invert vertical axis if needed
 - **Joystick Mode**: Single stick (combined) or dual stick (separate pan/tilt)
 - **Brightness Control**: Enable/disable and configure increase/decrease buttons
+- **Camera Switching**: Stop previous camera when switching (prevents runaway cameras)
 
 ### Default Controller Mapping
 - **Left Stick** (Axis 0/1): Pan/Tilt (analog)
@@ -156,6 +181,7 @@ Edit `VideoCue.spec` to update:
 - **Left Trigger** (Axis 4): Zoom out
 - **L1/LB** (Button 4): Previous camera
 - **R1/RB** (Button 5): Next camera
+- **X/Square** (Button 2): **Stop camera movement** (emergency stop)
 - **B/Circle** (Button 1): Reconnect disconnected camera
 - **Y/Triangle** (Button 3): Brightness increase (Bright mode)
 - **A/Cross** (Button 0): Brightness decrease (Bright mode)
@@ -198,7 +224,8 @@ Edit `VideoCue.spec` to update:
     "zoom_speed": 0.7,
     "brightness_enabled": true,
     "brightness_increase_button": 3,
-    "brightness_decrease_button": 0
+    "brightness_decrease_button": 0,
+    "stop_on_camera_switch": true
   }
 }
 ```
@@ -296,6 +323,7 @@ All camera settings are queried on load to synchronize UI with camera state:
 ```
 videocue/
 ├── constants.py              # Application constants (NetworkConstants, UIConstants, etc.)
+├── ui_strings.py             # Centralized UI text constants (buttons, tooltips, errors)
 ├── controllers/
 │   ├── visca_ip.py          # VISCA protocol implementation with BirdDog support
 │   ├── visca_commands.py    # VISCA command definitions and constants
@@ -314,9 +342,13 @@ videocue/
 resources/
 └── icon.png                  # Application icon (if present)
 
+build.ps1                     # Automated PowerShell build script
 config_schema.json            # Default configuration template
 VideoCue.spec                 # PyInstaller build specification
 requirements.txt              # Python dependencies including ruff for linting
+ruff.toml                     # Ruff linter configuration
+.pylintrc                     # Pylint configuration
+.pyrightignore                # Pyright type checker ignore patterns
 ```
 
 ### Key Architectural Features
@@ -327,6 +359,8 @@ requirements.txt              # Python dependencies including ruff for linting
 - **Progress Tracking**: Signals between widgets and main window for loading feedback
 - **Thread Safety**: NDI threads use Qt signals for cross-thread communication
 - **Constants Module**: Centralized configuration (NetworkConstants, UIConstants, HardwareConstants, ViscaConstants)
+- **UI Strings Centralization**: All user-facing text in `ui_strings.py` for consistency and future i18n
+- **Camera Switch Safety**: Configurable auto-stop prevents runaway cameras when switching
 - **Comprehensive Logging**: Python logging framework with file output to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
 - **Query-based Sync**: All camera settings queried after connection to sync UI with camera state
 

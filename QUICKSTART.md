@@ -31,44 +31,71 @@ python/
 ├── videocue/
 │   ├── __init__.py
 │   ├── constants.py         # Application constants (NetworkConstants, UIConstants, etc.)
+│   ├── ui_strings.py        # Centralized UI text constants (all user-facing strings)
 │   ├── utils.py             # Resource loading utilities
 │   ├── controllers/
 │   │   ├── visca_ip.py      # VISCA-over-IP protocol with BirdDog support
 │   │   ├── visca_commands.py # VISCA command definitions
 │   │   ├── ndi_video.py     # NDI video streaming with comprehensive error handling
-│   │   └── usb_controller.py # USB game controller
+│   │   └── usb_controller.py # USB game controller with stop button support
 │   ├── models/
 │   │   ├── video.py         # Video size and preset models
 │   │   └── config_manager.py # JSON configuration persistence
 │   └── ui/
 │       ├── main_window.py    # Main application window with deferred loading
 │       ├── camera_widget.py  # Camera control widget with query-based sync
-│       └── camera_add_dialog.py # Camera discovery dialog
+│       ├── camera_add_dialog.py # Camera discovery dialog
+│       └── controller_preferences_dialog.py # USB controller settings
 ├── requirements.txt
+├── build.ps1               # Automated PowerShell build script
 ├── config_schema.json
 ├── VideoCue.spec           # PyInstaller build configuration
+├── ruff.toml               # Ruff linter configuration
+├── .pylintrc               # Pylint configuration
+├── .pyrightignore          # Pyright type checker ignore patterns
 └── README.md
 ```
 
 ## Building Executable (Windows)
 
-### 1. Update NDI DLL Path
-Edit `VideoCue.spec` and update the NDI DLL path if needed:
-```python
-ndi_dll_path = r'C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll'
+### Automated Build (Recommended)
+Use the PowerShell build script:
+```powershell
+.\build.ps1 -Version "0.4.1"
 ```
 
-### 2. Build
-```bash
-pyinstaller VideoCue.spec
+This creates:
+- Executable in `dist/VideoCue/` (~100-120 MB)
+- Inno Setup installer in `installer_output/VideoCue-{version}-Setup.exe`
+- Portable ZIP in `installer_output/VideoCue-{version}-portable.zip`
+
+### Build Options
+```powershell
+# Update version and build everything
+.\build.ps1 -Version "0.4.1"
+
+# Skip PyInstaller (use existing dist/)
+.\build.ps1 -SkipBuild
+
+# Skip Inno Setup installer
+.\build.ps1 -SkipInstaller
 ```
 
-The executable will be in `dist/VideoCue/VideoCue.exe` (~100-120 MB)
+### Manual Build
+1. Update NDI DLL Path in `VideoCue.spec` if needed:
+   ```python
+   ndi_dll_path = r'C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll'
+   ```
 
-### 3. Test
-```bash
-dist\VideoCue\VideoCue.exe
-```
+2. Build:
+   ```bash
+   pyinstaller VideoCue.spec
+   ```
+
+3. Test:
+   ```bash
+   dist\VideoCue\VideoCue.exe
+   ```
 
 ## Configuration
 
@@ -105,8 +132,10 @@ The configuration includes:
 - Triggers for variable zoom
 - D-pad for discrete movements
 - Camera selection (L1/R1 buttons)
+- **X button for emergency stop** (immediately halts camera movement)
 - B button to reconnect disconnected cameras
 - Brightness control (Y/A buttons in Bright mode)
+- **Safe camera switching** (auto-stop previous camera, configurable)
 
 ✅ Multi-camera management
 - Add cameras via NDI discovery or manual IP
@@ -129,7 +158,7 @@ The configuration includes:
 - Auto-save on changes
 - Camera-specific presets
 - Video size preferences
-- USB controller settings
+- USB controller settings (including stop-on-switch safety option)
 
 ✅ Comprehensive error handling
 - Global exception handler prevents crashes
@@ -138,6 +167,12 @@ The configuration includes:
 - Comprehensive logging to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
 - Console logging with full tracebacks
 - Graceful degradation on failures
+
+✅ Code quality & development tools
+- Centralized UI strings in `ui_strings.py` (consistency and future i18n)
+- Ruff linter configuration for fast, accurate linting
+- Type checking with Pyright
+- Automated build script with version management
 
 ✅ Dark theme UI (qdarkstyle)
 
@@ -168,12 +203,15 @@ The configuration includes:
 ### USB Controller
 - [ ] Test USB controller (Xbox/PlayStation)
 - [ ] Test camera selection via controller (L1/R1)
+- [ ] **Test X button emergency stop** (stops camera movement immediately)
+- [ ] **Test auto-stop on camera switch** (previous camera stops when switching)
 - [ ] Test PTZ movement via buttons (D-pad)
 - [ ] Test PTZ movement via analog stick
 - [ ] Test zoom via triggers
 - [ ] Test B button reconnect on disconnected camera
 - [ ] Test brightness control (Y/A buttons in Bright mode)
 - [ ] Test controller hotplug (disconnect/reconnect)
+- [ ] Test camera switch safety preference (enable/disable in settings)
 
 ### Camera Controls
 - [ ] Test focus mode switching (Auto/Manual/One-Push)
@@ -262,7 +300,9 @@ The configuration includes:
 2. **Implement PTZ Position Query**: Add VISCA commands to query absolute positions for presets
 3. **Verify NDI Metadata**: Test web control URL extraction from NDI metadata
 4. **Add Keyboard Shortcuts**: Implement hotkeys for common actions (camera switching, PTZ)
-5. **Enhanced Logging**: Add optional file-based logging for troubleshooting
+5. **Internationalization (i18n)**: Leverage `ui_strings.py` to add multi-language support
 6. **Camera Nicknames**: Add user-friendly camera naming separate from NDI source names
 7. **Preset Thumbnails**: Consider adding thumbnail images to preset buttons
 8. **Multi-Camera Sync**: Explore synchronized PTZ movements across multiple cameras
+9. **Auto-Pan Enhancement**: Add configurable dwell time and transition speed
+10. **Installer Distribution**: Test and refine Inno Setup installer for production releases
