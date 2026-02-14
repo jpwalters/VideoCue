@@ -107,6 +107,7 @@ class CameraWidget(QWidget):
         self.is_connected = False  # Track connection state
         self.visca = ViscaIP(visca_ip, visca_port)
         self.ndi_thread = None
+        self.visca_test_thread = None  # Track VISCA connection test thread
 
         # Use provided video size or get from config
         if video_size is None:
@@ -974,9 +975,9 @@ class CameraWidget(QWidget):
         self.connection_starting.emit()
 
         # Create and start background test thread
-        test_thread = ViscaConnectionTestThread(self.visca)
-        test_thread.test_complete.connect(self._on_visca_test_complete)
-        test_thread.start()
+        self.visca_test_thread = ViscaConnectionTestThread(self.visca)
+        self.visca_test_thread.test_complete.connect(self._on_visca_test_complete)
+        self.visca_test_thread.start()
 
     def _on_visca_test_complete(self, success: bool, error_message: str):
         """Handle VISCA connection test completion (called from background thread signal)"""
@@ -1005,11 +1006,47 @@ class CameraWidget(QWidget):
             self.video_label.setText(f"Connection Error\n{str(e)[:50]}")
 
         # Mark as initialized
-        self.initialized.emit()
+        QTimer.singleShot(100, self.initialized.emit)
+
+    def _cleanup_threads(self) -> None:
+        """Clean up background threads when widget is destroyed"""
+        # Stop NDI thread
+        if self.ndi_thread:
+            try:
+                self.ndi_thread.running = False
+                self.ndi_thread.wait(timeout=1000)  # Wait up to 1 second for thread to finish
+            except Exception as e:
+                logger.warning(f"Error stopping NDI thread: {e}")
+            finally:
+                self.ndi_thread = None
+
+        # Stop VISCA test thread
+        if self.visca_test_thread:
+            try:
+                self.visca_test_thread.wait(timeout=1000)  # Wait up to 1 second for thread to finish
+            except Exception as e:
+                logger.warning(f"Error stopping VISCA test thread: {e}")
+            finally:
+                self.visca_test_thread = None
+
+    def __del__(self):
+        """Cleanup threads when widget is destroyed"""
+        try:
+            self._cleanup_threads()
+        except Exception as e:
+            logger.warning(f"Error in __del__: {e}")
 
     def try_discover_ndi_source(self):
         """Try to discover NDI source matching the VISCA IP address"""
         from videocue.controllers.ndi_video import find_ndi_cameras
+
+        # Skip discovery if NDI video is disabled or NDI not available
+        if not ndi_available or not self.config.get_ndi_video_enabled():
+            print(f"[Camera] Skipping NDI discovery (NDI available: {ndi_available}, NDI video enabled: {self.config.get_ndi_video_enabled()})")
+            self.video_label.setText("NDI disabled\n(IP control only)")
+            # Test VISCA connection for IP-only control
+            self._test_visca_connection()
+            return
 
         # Emit connection starting signal
         self.connection_starting.emit()
@@ -1043,7 +1080,7 @@ class CameraWidget(QWidget):
 
     def start_video(self):
         """Start NDI video reception"""
-        if self.ndi_thread or not self.ndi_source_name or not ndi_available:
+        if self.ndi_thread or not self.ndi_source_name or not ndi_available or not self.config.get_ndi_video_enabled():
             # Mark as initialized even if we can't start video
             QTimer.singleShot(100, self.initialized.emit)
             return

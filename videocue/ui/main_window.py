@@ -5,7 +5,7 @@ Main application window
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSlot  # type: ignore
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot  # type: ignore
 from PyQt6.QtGui import QAction, QActionGroup, QIcon  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QHBoxLayout,
@@ -59,6 +59,8 @@ class MainWindow(QMainWindow):
         self.cameras_layout = None
         self.loading_label = None
         self.loading_progress = None
+        self.preferences_dialog = None
+        self._preferences_dialog_open = False
         self._total_cameras_to_load = 0
         self._cameras_initialized = 0
         self._current_progress_step = 0
@@ -73,8 +75,8 @@ class MainWindow(QMainWindow):
         # Defer camera loading until after window is shown
         self._cameras_loaded = False
 
-        # Show NDI error if library not available
-        if not ndi_available:
+        # Show NDI error if library not available and user hasn't disabled NDI video in preferences
+        if not ndi_available and self.config.get_ndi_video_enabled():
             QMessageBox.warning(
                 self, "NDI Not Available", get_ndi_error_message(), QMessageBox.StandardButton.Ok
             )
@@ -277,7 +279,8 @@ class MainWindow(QMainWindow):
             self.usb_controller.stop_movement.connect(self.on_usb_stop_movement)
             self.usb_controller.brightness_increase.connect(self.on_usb_brightness_increase)
             self.usb_controller.brightness_decrease.connect(self.on_usb_brightness_decrease)
-            self.usb_controller.reconnect_requested.connect(self.on_usb_reconnect)
+            self.usb_controller.focus_one_push.connect(self.on_usb_focus_one_push)
+            self.usb_controller.menu_button_pressed.connect(self.show_controller_preferences)
 
             # Update UI to reflect current connection state
             if self.usb_controller.joystick is not None:
@@ -788,13 +791,23 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     @pyqtSlot()
     def on_usb_reconnect(self) -> None:
-        """Handle reconnect request from USB controller (B button)"""
+        """Handle reconnect request from USB controller"""
         try:
             camera = self.get_selected_camera()
             if camera and not camera.is_connected:
                 camera.reconnect_camera()
         except Exception:
             logger.exception("Error handling USB reconnect")
+
+    @pyqtSlot()
+    def on_usb_focus_one_push(self) -> None:
+        """Handle one-push autofocus from USB controller (B button)"""
+        try:
+            camera = self.get_selected_camera()
+            if camera and camera.is_connected:
+                camera.on_one_push_af()
+        except Exception:
+            logger.exception("Error handling USB one-push autofocus")
 
     def on_video_size_changed(self, size: VideoSize) -> None:
         """Handle video size menu selection"""
@@ -840,13 +853,32 @@ class MainWindow(QMainWindow):
         )
 
     def show_controller_preferences(self):
-        """Show controller preferences dialog"""
+        """Show controller preferences dialog (singleton instance)"""
         from videocue.ui.controller_preferences_dialog import ControllerPreferencesDialog
 
-        dialog = ControllerPreferencesDialog(self.config, self)
-        if dialog.exec():
-            print("[USB] Controller preferences saved")
-            # Config is saved in dialog, controller will read new values on next event
+        print(f"[DEBUG] show_controller_preferences called. dialog_open={self._preferences_dialog_open}")
+
+        # If dialog is already open, ignore this menu button press (prevents queued signals)
+        if self._preferences_dialog_open:
+            print("[DEBUG] Dialog already open, ignoring menu press")
+            return
+
+        # Mark dialog as open
+        self._preferences_dialog_open = True
+        print("[DEBUG] Opening preferences dialog")
+        
+        try:
+            # Always create fresh dialog
+            self.preferences_dialog = ControllerPreferencesDialog(self.config, self)
+            print("[DEBUG] Dialog created, calling exec()")
+            if self.preferences_dialog.exec():
+                print("[USB] Controller preferences saved")
+                # Config is saved in dialog, controller will read new values on next event
+        finally:
+            # Delay resetting flag to allow queued signals to be detected as "dialog open"
+            # Use QTimer to schedule reset after event loop processes queued signals
+            QTimer.singleShot(100, lambda: setattr(self, '_preferences_dialog_open', False))
+            print("[DEBUG] Dialog closed, flag will reset after 100ms")
 
     def closeEvent(self, event) -> None:
         """Handle window close event"""
@@ -862,9 +894,7 @@ class MainWindow(QMainWindow):
         # Stop all cameras asynchronously
         logger.info(f"Stopping {len(self.cameras)} camera threads...")
         for camera in self.cameras:
-            if camera.ndi_thread:
-                camera.ndi_thread.running = False  # Signal thread to stop
-                camera.ndi_thread = None  # Release reference immediately
+            camera._cleanup_threads()  # Stop all camera threads
             camera.stop_retry_mechanism()  # Stop any retry timers
 
         # Stop USB controller timers

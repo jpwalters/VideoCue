@@ -133,7 +133,8 @@ The configuration includes:
 - D-pad for discrete movements
 - Camera selection (L1/R1 buttons)
 - **X button for emergency stop** (immediately halts camera movement)
-- B button to reconnect disconnected cameras
+- **B button for one-push autofocus** (trigger quick AF on selected camera)
+- **Menu/Start button to open controller preferences dialog**
 - Brightness control (Y/A buttons in Bright mode)
 - **Safe camera switching** (auto-stop previous camera, configurable)
 

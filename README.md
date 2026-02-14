@@ -28,13 +28,14 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Manual Focus** mode
 - **One Push AF**: Single autofocus operation
 
-### USB Game Controller Support
+- **USB Game Controller Support**
 - **Pan/Tilt**: Analog stick or D-pad control
 - **Zoom**: Trigger-based variable speed
 - **Camera Switching**: Shoulder buttons (L1/R1) with auto-stop safety
 - **Stop Movement**: X button to immediately halt camera movement
+- **One-Push Autofocus**: B button to trigger autofocus on demand
 - **Brightness Control**: Y/A buttons (configurable, Bright mode only)
-- **Reconnect Camera**: B button to reconnect failed cameras
+- **Controller Settings**: Menu/Start button to open controller preferences dialog
 - **Configurable Mappings**: Customize all button/axis assignments
 - **Speed Adjustment**: Independent speed settings for pan/tilt/zoom
 - **Dual Joystick Mode**: Separate left/right stick control
@@ -182,9 +183,10 @@ Edit `VideoCue.spec` to update:
 - **L1/LB** (Button 4): Previous camera
 - **R1/RB** (Button 5): Next camera
 - **X/Square** (Button 2): **Stop camera movement** (emergency stop)
-- **B/Circle** (Button 1): Reconnect disconnected camera
+- **B/Circle** (Button 1): **One-push autofocus** (trigger quick autofocus)
 - **Y/Triangle** (Button 3): Brightness increase (Bright mode)
 - **A/Cross** (Button 0): Brightness decrease (Bright mode)
+- **Menu/Start** (Button 7): Open controller preferences dialog
 
 ### Supported Controllers
 - Xbox controllers (wired/wireless)
@@ -287,7 +289,7 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Status indicator turns red on communication failure
 - **Reconnect Options**:
   - Click the Reconnect button that appears when status is red
-  - Press B button on USB controller to reconnect selected camera
+  - Use the controller preferences dialog to configure reconnect strategy
   - Camera controls automatically disable until connection restored
 
 ### Application Loading

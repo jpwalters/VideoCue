@@ -138,6 +138,22 @@ class ControllerPreferencesDialog(QDialog):
         brightness_group.setLayout(brightness_layout)
         layout.addWidget(brightness_group)
 
+        # Video Streaming Group
+        video_group = QGroupBox("Video Streaming")
+        video_layout = QFormLayout()
+
+        self.ndi_video_enabled_checkbox = QCheckBox("Enable NDI video streaming (requires NDI Runtime)")
+        self.ndi_video_enabled_checkbox.setToolTip(
+            "Enable or disable NDI video streaming globally.\n"
+            "When disabled, cameras will operate in IP control mode only.\n"
+            "Disabling can improve performance on systems with limited resources.\n"
+            "Requires NDI Runtime to be installed."
+        )
+        video_layout.addRow("", self.ndi_video_enabled_checkbox)
+
+        video_group.setLayout(video_layout)
+        layout.addWidget(video_group)
+
         # Camera switching group
         switching_group = QGroupBox("Camera Switching")
         switching_layout = QFormLayout()
@@ -245,6 +261,10 @@ class ControllerPreferencesDialog(QDialog):
         if index >= 0:
             self.brightness_decrease_combo.setCurrentIndex(index)
 
+        # Load NDI video enabled setting
+        ndi_video_enabled = self.config.get_ndi_video_enabled()
+        self.ndi_video_enabled_checkbox.setChecked(ndi_video_enabled)
+
     def save_preferences(self):
         """Save preferences to config"""
         usb_config = self.config.get_usb_controller_config()
@@ -268,6 +288,9 @@ class ControllerPreferencesDialog(QDialog):
 
         # Save stop on camera switch setting
         usb_config["stop_on_camera_switch"] = self.stop_on_switch_checkbox.isChecked()
+
+        # Save NDI video enabled setting
+        self.config.set_ndi_video_enabled(self.ndi_video_enabled_checkbox.isChecked())
 
         self.config.save()
         self.accept()

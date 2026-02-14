@@ -12,7 +12,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
 - **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, UYVY422→RGB, frame dropping), **5-second timeout**, **comprehensive error handling**
-- **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for reconnect**
+- **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens controller preferences**
 - **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix)
 - **models/video.py**: Video size and camera preset data models
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
@@ -57,11 +57,12 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - Hotplug detection every 5 seconds
 - **Button Mappings**:
   - Button 0 (A): Brightness decrease (configurable, can be disabled)
-  - Button 1 (B): Reconnect camera
+  - Button 1 (B): One-push autofocus (quick AF trigger on selected camera)
   - **Button 2 (X): Stop camera movement** (sends VISCA stop command)
   - Button 3 (Y): Brightness increase (configurable, can be disabled)
   - Button 4 (L1/LB): Previous camera
   - Button 5 (R1/RB): Next camera
+  - Button 7 (Menu/Start): Open controller preferences dialog
 - **Axis Mappings**: Axis 0/1 (left stick → PTZ), Axis 4/5 (triggers → zoom)
 - **Stop on Camera Switch**: Configurable option (enabled by default) automatically sends stop command to previous camera when switching
 - **Connection Awareness**: All USB handlers check `camera.is_connected` before sending commands
@@ -95,8 +96,8 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - IP-only cameras: `_test_visca_connection()` uses `query_focus_mode()` (requires response)
   - NDI cameras: Connection verified when first frame received
 - **Reconnect Functionality**:
-  - Reconnect button appears when status is red
-  - B button on USB controller triggers reconnect for selected camera
+  - Reconnect button appears when status is red when status is red
+  - Reconnect button and menu dialog available for manual reconnection
   - `reconnect_camera()` method: stops video thread, waits 500ms, attempts reconnection
 - **USB Controller Protection**: All USB handlers check `camera.is_connected` before sending commands
 

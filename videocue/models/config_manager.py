@@ -71,6 +71,7 @@ class ConfigManager:
                 "video_frame_skip": 6,
                 "theme": "dark",
                 "auto_discover_ndi": True,
+                "ndi_video_enabled": True,
             },
             "usb_controller": {
                 "enabled": True,
@@ -272,6 +273,15 @@ class ConfigManager:
     def get_video_frame_skip(self) -> int:
         """Get video frame skip rate (default 6 = ~10 FPS from 60 FPS source)"""
         return self.config["preferences"].get("video_frame_skip", 6)
+
+    def set_ndi_video_enabled(self, enabled: bool):
+        """Set NDI video enabled/disabled globally"""
+        self.config["preferences"]["ndi_video_enabled"] = enabled
+        self.save()
+
+    def get_ndi_video_enabled(self) -> bool:
+        """Get NDI video enabled/disabled preference (default True)"""
+        return self.config["preferences"].get("ndi_video_enabled", True)
 
     def set_usb_controller_name(self, name: str):
         """Set USB controller device name"""

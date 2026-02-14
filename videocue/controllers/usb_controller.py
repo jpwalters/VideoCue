@@ -44,11 +44,12 @@ class USBController(QObject):
     zoom_out = pyqtSignal(float)
     zoom_stop = pyqtSignal()
     stop_movement = pyqtSignal()  # X button for stop
-    reconnect_requested = pyqtSignal()  # B button for reconnect
+    focus_one_push = pyqtSignal()  # B button for one-push auto focus
     prev_camera = pyqtSignal()
     next_camera = pyqtSignal()
     brightness_increase = pyqtSignal()
     brightness_decrease = pyqtSignal()
+    menu_button_pressed = pyqtSignal()  # Menu/Start button for controller preferences
 
     def __init__(self, config=None):
         super().__init__()
@@ -187,9 +188,9 @@ class USBController(QObject):
                 self.brightness_decrease.emit()
                 return  # Don't process other button actions
         
-        # Button 1 = B button (reconnect when camera disconnected)
+        # Button 1 = B button (one-push auto focus)
         if button == 1:
-            self.reconnect_requested.emit()
+            self.focus_one_push.emit()
 
         # Button 2 = X button (stop movement)
         elif button == 2:
@@ -202,6 +203,10 @@ class USBController(QObject):
         # Button 5 = RB/R1 (next camera)
         elif button == 5:
             self.next_camera.emit()
+
+        # Button 7 = Menu/Start (controller preferences)
+        elif button == 7:
+            self.menu_button_pressed.emit()
 
     def _handle_button_up(self, button: int):
         """Handle button release"""
