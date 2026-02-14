@@ -853,32 +853,42 @@ class MainWindow(QMainWindow):
         )
 
     def show_controller_preferences(self):
-        """Show controller preferences dialog (singleton instance)"""
+        """Show controller preferences dialog (non-modal, stays open)"""
         from videocue.ui.controller_preferences_dialog import ControllerPreferencesDialog
 
-        print(f"[DEBUG] show_controller_preferences called. dialog_open={self._preferences_dialog_open}")
+        print(f"[MainWindow] show_controller_preferences called. dialog_open={self._preferences_dialog_open}")
+        logger.info(f"[MainWindow] show_controller_preferences called. dialog_open={self._preferences_dialog_open}")
 
-        # If dialog is already open, ignore this menu button press (prevents queued signals)
+        # If dialog is already open, ignore this menu button press (prevents multiple windows)
         if self._preferences_dialog_open:
-            print("[DEBUG] Dialog already open, ignoring menu press")
+            print("[MainWindow] Dialog already open, ignoring menu press")
+            logger.info("[MainWindow] Dialog already open, ignoring menu press")
             return
 
         # Mark dialog as open
         self._preferences_dialog_open = True
-        print("[DEBUG] Opening preferences dialog")
+        print("[MainWindow] Opening preferences dialog")
+        logger.info("[MainWindow] Opening preferences dialog")
         
-        try:
-            # Always create fresh dialog
-            self.preferences_dialog = ControllerPreferencesDialog(self.config, self)
-            print("[DEBUG] Dialog created, calling exec()")
-            if self.preferences_dialog.exec():
-                print("[USB] Controller preferences saved")
-                # Config is saved in dialog, controller will read new values on next event
-        finally:
-            # Delay resetting flag to allow queued signals to be detected as "dialog open"
-            # Use QTimer to schedule reset after event loop processes queued signals
-            QTimer.singleShot(100, lambda: setattr(self, '_preferences_dialog_open', False))
-            print("[DEBUG] Dialog closed, flag will reset after 100ms")
+        # Always create fresh dialog
+        print(f"[MainWindow] Creating dialog with usb_controller={self.usb_controller}")
+        logger.info(f"[MainWindow] Creating dialog with usb_controller={self.usb_controller}")
+        self.preferences_dialog = ControllerPreferencesDialog(self.config, self, self.usb_controller)
+        
+        # Connect finished signal to reset flag when dialog closes
+        self.preferences_dialog.finished.connect(self._on_preferences_dialog_closed)
+        
+        print("[MainWindow] Dialog created, calling show() - DIALOG WILL REMAIN OPEN AND RESPONSIVE")
+        logger.info("[MainWindow] Dialog created, calling show() - DIALOG WILL REMAIN OPEN AND RESPONSIVE")
+        
+        # Use show() instead of exec() so signals are processed while dialog is visible
+        self.preferences_dialog.show()
+    
+    def _on_preferences_dialog_closed(self):
+        """Called when preferences dialog is closed - reset flag"""
+        print("[MainWindow] Preferences dialog closed, flag reset")
+        logger.info("[MainWindow] Preferences dialog closed, flag reset")
+        self._preferences_dialog_open = False
 
     def closeEvent(self, event) -> None:
         """Handle window close event"""

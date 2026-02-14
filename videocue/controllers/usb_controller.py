@@ -132,6 +132,9 @@ class USBController(QObject):
             ]
 
             events = pygame.event.get(event_types)
+            
+            if events and len(events) > 0:
+                print(f"[USB._poll_events] Polling found {len(events)} events")
 
             for event in events:
                 try:
@@ -166,6 +169,8 @@ class USBController(QObject):
 
     def _handle_button_down(self, button: int):
         """Handle button press"""
+        print(f"[USB] Button {button} pressed")
+        logger.debug(f"[USB] Button {button} pressed")
         self.button_pressed.emit(button)
 
         # Get brightness settings from config
@@ -182,30 +187,44 @@ class USBController(QObject):
         # Brightness control (only if enabled)
         if brightness_enabled:
             if button == brightness_increase_button:
+                print(f"[USB] Emitting brightness_increase signal")
+                logger.info(f"[USB] Emitting brightness_increase signal")
                 self.brightness_increase.emit()
                 return  # Don't process other button actions
             elif button == brightness_decrease_button:
+                print(f"[USB] Emitting brightness_decrease signal")
+                logger.info(f"[USB] Emitting brightness_decrease signal")
                 self.brightness_decrease.emit()
                 return  # Don't process other button actions
         
         # Button 1 = B button (one-push auto focus)
         if button == 1:
+            print(f"[USB] Emitting focus_one_push signal (B button)")
+            logger.info(f"[USB] Emitting focus_one_push signal (B button)")
             self.focus_one_push.emit()
 
         # Button 2 = X button (stop movement)
         elif button == 2:
+            print(f"[USB] Emitting stop_movement signal (X button)")
+            logger.info(f"[USB] Emitting stop_movement signal (X button)")
             self.stop_movement.emit()
 
         # Button 4 = LB/L1 (prev camera)
         elif button == 4:
+            print(f"[USB] Emitting prev_camera signal (LB button)")
+            logger.info(f"[USB] Emitting prev_camera signal (LB button)")
             self.prev_camera.emit()
 
         # Button 5 = RB/R1 (next camera)
         elif button == 5:
+            print(f"[USB] Emitting next_camera signal (RB button)")
+            logger.info(f"[USB] Emitting next_camera signal (RB button)")
             self.next_camera.emit()
 
         # Button 7 = Menu/Start (controller preferences)
         elif button == 7:
+            print(f"[USB] Emitting menu_button_pressed signal (Menu button)")
+            logger.info(f"[USB] Emitting menu_button_pressed signal (Menu button)")
             self.menu_button_pressed.emit()
 
     def _handle_button_up(self, button: int):
