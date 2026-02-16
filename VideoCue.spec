@@ -78,7 +78,6 @@ a = Analysis(  # noqa: F821
         "numpy.linalg",
         "numpy.fft",
     ]
-    + ndi_hiddenimports,  # Add NDI submodules dynamically
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
