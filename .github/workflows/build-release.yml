@@ -27,6 +27,9 @@ jobs:
       
       - name: Download and extract NDI SDK
         run: |
+          # Disable progress bar to prevent hang in CI/CD
+          $ProgressPreference = 'SilentlyContinue'
+          
           # Create libs directory
           New-Item -ItemType Directory -Force libs
           
@@ -35,7 +38,13 @@ jobs:
           $ndiInstaller = "ndi_sdk.exe"
           
           Write-Host "Downloading NDI SDK..."
-          Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstaller
+          try {
+            Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstaller -TimeoutSec 300 -ErrorAction Stop
+            Write-Host "Download completed successfully"
+          } catch {
+            Write-Host "ERROR: Failed to download NDI SDK: $_"
+            exit 1
+          }
           
           # Run silent install
           Start-Process -FilePath $ndiInstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
