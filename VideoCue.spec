@@ -77,7 +77,7 @@ a = Analysis(  # noqa: F821
         "numpy.random._generator",
         "numpy.linalg",
         "numpy.fft",
-    ]
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
