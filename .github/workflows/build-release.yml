@@ -41,13 +41,127 @@ jobs:
           try {
             Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstaller -TimeoutSec 300 -ErrorAction Stop
             Write-Host "Download completed successfully"
+            Write-Host "Installer file size: $((Get-Item $ndiInstaller).Length) bytes"
           } catch {
             Write-Host "ERROR: Failed to download NDI SDK: $_"
             exit 1
           }
           
-          # Run silent install
-          Start-Process -FilePath $ndiInstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
+          # Detect installer type
+          Write-Host "`nDetecting installer type..."
+          $fileInfo = Get-Item $ndiInstaller
+          $fileSignature = Get-Content $ndiInstaller -Encoding Byte -TotalCount 2000 -Raw
+          $stringContent = [System.Text.Encoding]::ASCII.GetString($fileSignature)
+          
+          if ($stringContent -match "Inno Setup") {
+            Write-Host "Detected: Inno Setup installer"
+            $installerType = "InnoSetup"
+          } elseif ($stringContent -match "Nullsoft") {
+            Write-Host "Detected: NSIS installer"
+            $installerType = "NSIS"
+          } elseif ($fileInfo.Extension -eq '.msi') {
+            Write-Host "Detected: MSI installer"
+            $installerType = "MSI"
+          } else {
+            Write-Host "WARNING: Unknown installer type, will try common parameters"
+            $installerType = "Unknown"
+          }
+          
+          # Try to get installer help/parameters
+          Write-Host "`nChecking installer parameters..."
+          try {
+            $helpOutput = & $ndiInstaller /? 2>&1
+            if ($helpOutput) {
+              Write-Host "Installer help output:"
+              Write-Host $helpOutput
+            }
+          } catch {
+            Write-Host "No help output available"
+          }
+          
+          # Set appropriate silent install parameters based on type
+          switch ($installerType) {
+            "InnoSetup" {
+              # Inno Setup parameters with extra non-interactive flags
+              $installArgs = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /DIR=`"C:\NDI`" /LOG=`"ndi_install.log`""
+              Write-Host "Using Inno Setup parameters: $installArgs"
+            }
+            "NSIS" {
+              $installArgs = "/S /D=C:\NDI"
+              Write-Host "Using NSIS parameters: $installArgs"
+            }
+            "MSI" {
+              $installArgs = "/quiet /qn /norestart /l*v `"ndi_install.log`" INSTALLDIR=`"C:\NDI`""
+              Write-Host "Using MSI parameters: $installArgs"
+            }
+            default {
+              # Try Inno Setup first (most common for NDI)
+              $installArgs = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /DIR=`"C:\NDI`" /LOG=`"ndi_install.log`""
+              Write-Host "Using default (Inno Setup) parameters: $installArgs"
+            }
+          }
+          
+          # Run silent install with timeout and logging
+          Write-Host "`nStarting NDI SDK installation..."
+          $logFile = "ndi_install.log"
+          $process = Start-Process -FilePath $ndiInstaller -ArgumentList $installArgs -PassThru -NoNewWindow
+          Write-Host "Installer process started (PID: $($process.Id))"
+          
+          # Wait for installation with 5 minute timeout
+          $timeout = 300
+          Write-Host "Waiting for installation to complete (timeout: $timeout seconds)..."
+          
+          # Poll and show progress
+          $elapsed = 0
+          $interval = 10
+          while (-not $process.HasExited -and $elapsed -lt $timeout) {
+            Start-Sleep -Seconds $interval
+            $elapsed += $interval
+            Write-Host "  ... still running ($elapsed/$timeout seconds elapsed)"
+            
+            # Show any NDI-related processes
+            $ndiProcesses = Get-Process | Where-Object { $_.ProcessName -like "*ndi*" -or $_.ProcessName -like "*setup*" }
+            if ($ndiProcesses) {
+              Write-Host "  Active processes: $($ndiProcesses.ProcessName -join ', ')"
+            }
+          }
+          
+          if (-not $process.HasExited) {
+            Write-Host "ERROR: Installation timed out after $timeout seconds"
+            Write-Host "Installer process still running - killing process..."
+            $process.Kill()
+            
+            # Show log file if it exists
+            if (Test-Path $logFile) {
+              Write-Host "`n===== Installation Log (last 50 lines) ====="
+              Get-Content $logFile -Tail 50
+              Write-Host "============================================`n"
+            }
+            
+            exit 1
+          }
+          
+          if ($process.ExitCode -ne 0) {
+            Write-Host "ERROR: Installation failed with exit code $($process.ExitCode)"
+            
+            # Show log file if it exists
+            if (Test-Path $logFile) {
+              Write-Host "`n===== Installation Log (last 50 lines) ====="
+              Get-Content $logFile -Tail 50
+              Write-Host "============================================`n"
+            }
+            
+            exit 1
+          }
+          
+          Write-Host "Installation completed successfully (exit code: 0)"
+          
+          # Show what was installed
+          $ndiPath = "C:\Program Files\NDI"
+          if (Test-Path $ndiPath) {
+            Write-Host "`nInstalled NDI files:"
+            Get-ChildItem -Path $ndiPath -Recurse -File | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.FullName)" }
+          }
           
           # Copy DLL to libs folder for PyInstaller
           $ndiDll = "C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll"
