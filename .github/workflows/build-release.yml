@@ -50,7 +50,7 @@ jobs:
           # Detect installer type
           Write-Host "`nDetecting installer type..."
           $fileInfo = Get-Item $ndiInstaller
-          $fileSignature = Get-Content $ndiInstaller -Encoding Byte -TotalCount 2000 -Raw
+          $fileSignature = Get-Content $ndiInstaller -AsByteStream -TotalCount 2000
           $stringContent = [System.Text.Encoding]::ASCII.GetString($fileSignature)
           
           if ($stringContent -match "Inno Setup") {
