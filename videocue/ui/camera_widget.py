@@ -205,13 +205,18 @@ class CameraWidget(QWidget):
         # Defer video initialization to avoid blocking UI startup
         # NDI sources should already be cached by main_window.load_cameras()
         # Use staggered delays to prevent all cameras from starting simultaneously
-        if ndi_source_name and ndi_available:
+        if ndi_source_name and ndi_available and self.config.get_ndi_video_enabled():
             QTimer.singleShot(self.init_delay, self.start_video)
-        elif visca_ip and ndi_available and not ndi_source_name:
+        elif (
+            visca_ip
+            and ndi_available
+            and not ndi_source_name
+            and self.config.get_ndi_video_enabled()
+        ):
             QTimer.singleShot(self.init_delay, self.try_discover_ndi_source)
         else:
             # No video initialization needed, but test VISCA connection for IP-only cameras
-            if not ndi_available or not ndi_source_name:
+            if not ndi_available or not ndi_source_name or not self.config.get_ndi_video_enabled():
                 QTimer.singleShot(self.init_delay, self._test_visca_connection)
             else:
                 QTimer.singleShot(self.init_delay, self.initialized.emit)
@@ -1090,8 +1095,15 @@ class CameraWidget(QWidget):
             or not ndi_available
             or not self.config.get_ndi_video_enabled()
         ):
-            # Mark as initialized even if we can't start video
-            QTimer.singleShot(100, self.initialized.emit)
+            # If NDI is disabled but we have a VISCA IP, test the connection for IP-only control
+            if self.visca_ip and not self.config.get_ndi_video_enabled():
+                logger.info(
+                    f"NDI video disabled, testing VISCA connection for IP-only control: {self.visca_ip}"
+                )
+                self._test_visca_connection()
+            else:
+                # Mark as initialized even if we can't start video
+                QTimer.singleShot(100, self.initialized.emit)
             return
 
         try:

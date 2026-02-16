@@ -232,6 +232,8 @@ The configuration includes:
 - [ ] Test video size changes (View → Video Size)
 - [ ] Test camera controls disabled when disconnected
 - [ ] Test USB controller blocked when camera disconnected
+- [ ] Test Help menu's Check for Updates (GitHub releases API)
+- [ ] Test About dialog (Help → About)
 
 ### Configuration & Error Handling
 - [ ] Test configuration persistence across restarts

@@ -88,6 +88,7 @@ class UIStrings:
     MENU_VIDEO_SIZE = "Video Size"
     MENU_PERFORMANCE = "Video Performance"
     MENU_HELP = "&Help"
+    MENU_CHECK_UPDATES = "Check for &Updates..."
     MENU_ABOUT = "&About"
     # Controller Button Configuration
     GROUP_FOCUS_BUTTON = "One-Push Auto Focus"
@@ -142,5 +143,16 @@ class UIStrings:
     DIALOG_ADD_CAMERA = "Add Camera"
     DIALOG_PREFERENCES = "Controller Preferences"
     DIALOG_ABOUT = "About VideoCue"
+    DIALOG_CHECK_UPDATES = "Check for Updates"
     DIALOG_CONFIRM_DELETE = "Confirm Delete"
     DIALOG_CONFIRM_DELETE_MSG = "Are you sure you want to remove this camera?"
+
+    # Update Messages
+    UPDATE_CHECKING = "Checking for updates..."
+    UPDATE_AVAILABLE = "Update Available"
+    UPDATE_AVAILABLE_MSG = "A new version of VideoCue is available!\n\nCurrent version: {current}\nLatest version: {latest}\n\nWould you like to download it now?"
+    UPDATE_NOT_AVAILABLE = "You are using the latest version of VideoCue ({version})."
+    UPDATE_ERROR = (
+        "Unable to check for updates. Please check your internet connection and try again."
+    )
+    UPDATE_ERROR_TITLE = "Update Check Failed"

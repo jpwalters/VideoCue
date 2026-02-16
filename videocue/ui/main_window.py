@@ -2,11 +2,13 @@
 Main application window
 """
 
+import json
 import logging
+import urllib.request
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSlot  # type: ignore
-from PyQt6.QtGui import QAction, QActionGroup, QIcon  # type: ignore
+from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal, pyqtSlot  # type: ignore
+from PyQt6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QHBoxLayout,
     QMainWindow,
@@ -30,6 +32,35 @@ from videocue.ui_strings import UIStrings
 from videocue.utils import resource_path
 
 logger = logging.getLogger(__name__)
+
+
+class UpdateCheckThread(QThread):
+    """Background thread for checking GitHub releases without blocking UI"""
+
+    update_result = pyqtSignal(bool, object)  # success: bool, data: dict or error_msg: str
+
+    def __init__(self, current_version: str):
+        super().__init__()
+        self.current_version = current_version
+
+    def run(self) -> None:
+        """Check GitHub API in background"""
+        try:
+            url = "https://api.github.com/repos/jpwalters/VideoCue/releases/latest"
+            req = urllib.request.Request(url)
+            req.add_header("Accept", "application/vnd.github+json")
+            req.add_header("X-GitHub-Api-Version", "2022-11-28")
+
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode())
+                logger.debug(f"GitHub API returned: {data.get('tag_name', 'Unknown')}")
+                self.update_result.emit(True, data)
+        except Exception as e:
+            logger.error(f"Update check failed: {e}")
+            import traceback
+
+            traceback.print_exc()
+            self.update_result.emit(False, str(e))
 
 
 class MainWindow(QMainWindow):
@@ -68,6 +99,10 @@ class MainWindow(QMainWindow):
 
         # USB controller signal handlers (stored for connect/disconnect)
         self._usb_signal_handlers = {}
+
+        # Update check thread (stored to prevent garbage collection)
+        self._update_check_thread = None
+        self._update_progress_dialog = None
 
         # Setup UI
         self.init_ui()
@@ -196,6 +231,12 @@ class MainWindow(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
+
+        check_updates_action = QAction(UIStrings.MENU_CHECK_UPDATES, self)
+        check_updates_action.triggered.connect(self.check_for_updates)
+        help_menu.addAction(check_updates_action)
+
+        help_menu.addSeparator()
 
         about_action = QAction("&About", self)
         about_action.triggered.connect(self.show_about)
@@ -848,6 +889,169 @@ class MainWindow(QMainWindow):
             "with NDI video streaming support.\n\n"
             "https://github.com/jpwalters/VideoCue",
         )
+
+    def check_for_updates(self):
+        """Check for updates on GitHub"""
+        try:
+            logger.info("Starting update check")
+
+            # Prevent multiple simultaneous checks
+            if self._update_check_thread is not None:
+                try:
+                    if self._update_check_thread.isRunning():
+                        logger.warning("Update check already in progress")
+                        return
+                except RuntimeError:
+                    # Thread object was deleted, clear reference
+                    logger.debug("Clearing stale thread reference")
+                    self._update_check_thread = None
+
+            # Show checking message with Cancel button
+            self._update_progress_dialog = QMessageBox(self)
+            self._update_progress_dialog.setWindowTitle(UIStrings.DIALOG_CHECK_UPDATES)
+            self._update_progress_dialog.setText(UIStrings.UPDATE_CHECKING)
+            self._update_progress_dialog.setStandardButtons(QMessageBox.StandardButton.Cancel)
+            self._update_progress_dialog.setModal(False)  # Non-modal so it doesn't block UI
+
+            # Handle cancel button
+            cancel_btn = self._update_progress_dialog.button(QMessageBox.StandardButton.Cancel)
+            cancel_btn.clicked.connect(self._cancel_update_check)
+
+            self._update_progress_dialog.show()
+
+            # Create and start worker thread
+            self._update_check_thread = UpdateCheckThread(__version__)
+            self._update_check_thread.update_result.connect(self._on_update_check_complete)
+            self._update_check_thread.finished.connect(self._on_update_thread_finished)
+            self._update_check_thread.start()
+
+            logger.debug("Update check thread started")
+
+        except Exception as e:
+            logger.exception(f"Failed to start update check: {e}")
+            import traceback
+
+            traceback.print_exc()
+
+            # Close progress dialog if it was created
+            if self._update_progress_dialog:
+                self._update_progress_dialog.close()
+                self._update_progress_dialog = None
+
+            QMessageBox.critical(
+                self,
+                UIStrings.UPDATE_ERROR_TITLE,
+                f"Failed to check for updates: {str(e)}",
+                QMessageBox.StandardButton.Ok,
+            )
+
+    def _cancel_update_check(self):
+        """Cancel the update check (user clicked Cancel button)"""
+        logger.info("User cancelled update check")
+
+        # Close dialog
+        if self._update_progress_dialog:
+            self._update_progress_dialog.close()
+            self._update_progress_dialog = None
+
+        # Stop thread if running
+        if self._update_check_thread:
+            try:
+                if self._update_check_thread.isRunning():
+                    logger.debug("Stopping update check thread")
+                    self._update_check_thread.terminate()  # Force stop the thread
+                    self._update_check_thread.wait(1000)  # Wait up to 1 second for thread to stop
+            except RuntimeError:
+                # Thread object was already deleted
+                logger.debug("Thread already deleted during cancel")
+            finally:
+                self._update_check_thread = None
+
+    def _on_update_thread_finished(self):
+        """Handle update check thread completion (cleanup)"""
+        logger.debug("Update check thread finished")
+        if self._update_check_thread:
+            self._update_check_thread.deleteLater()
+            self._update_check_thread = None
+
+    def _on_update_check_complete(self, success: bool, data):
+        """Handle update check completion (slot for UpdateCheckThread signal)"""
+        try:
+            # Close progress dialog (only if still open)
+            if self._update_progress_dialog:
+                self._update_progress_dialog.close()
+                self._update_progress_dialog = None
+
+            if not success:
+                logger.warning(f"Update check failed: {data}")
+                QMessageBox.warning(
+                    self,
+                    UIStrings.UPDATE_ERROR_TITLE,
+                    UIStrings.UPDATE_ERROR,
+                    QMessageBox.StandardButton.Ok,
+                )
+                return
+
+            # Parse version from tag_name (e.g., "v0.5.1" -> "0.5.1")
+            latest_version = data.get("tag_name", "").lstrip("v")
+            current_version = __version__
+
+            logger.info(
+                f"Update check complete. Current: {current_version}, Latest: {latest_version}"
+            )
+
+            if self._is_newer_version(latest_version, current_version):
+                # Show update available dialog
+                reply = QMessageBox.question(
+                    self,
+                    UIStrings.UPDATE_AVAILABLE,
+                    UIStrings.UPDATE_AVAILABLE_MSG.format(
+                        current=current_version, latest=latest_version
+                    ),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    # Open releases page in browser
+                    url = data.get("html_url", "https://github.com/jpwalters/VideoCue/releases")
+                    logger.info(f"Opening release URL: {url}")
+                    QDesktopServices.openUrl(QUrl(url))
+            else:
+                # Already on latest version
+                QMessageBox.information(
+                    self,
+                    UIStrings.DIALOG_CHECK_UPDATES,
+                    UIStrings.UPDATE_NOT_AVAILABLE.format(version=current_version),
+                    QMessageBox.StandardButton.Ok,
+                )
+
+        except Exception as e:
+            logger.exception(f"Error handling update check result: {e}")
+            import traceback
+
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                UIStrings.UPDATE_ERROR_TITLE,
+                f"Error processing update information: {str(e)}",
+                QMessageBox.StandardButton.Ok,
+            )
+
+    def _is_newer_version(self, latest: str, current: str) -> bool:
+        """Compare version strings (e.g., '0.5.1' vs '0.4.1')"""
+        try:
+            latest_parts = [int(x) for x in latest.split(".")]
+            current_parts = [int(x) for x in current.split(".")]
+
+            # Pad shorter version with zeros
+            max_len = max(len(latest_parts), len(current_parts))
+            latest_parts += [0] * (max_len - len(latest_parts))
+            current_parts += [0] * (max_len - len(current_parts))
+
+            return latest_parts > current_parts
+        except (ValueError, AttributeError):
+            return False
 
     def show_controller_preferences(self):
         """Show controller preferences dialog (non-modal, stays open)"""
