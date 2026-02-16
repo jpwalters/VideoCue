@@ -1,0 +1,85 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.4.2
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Download and extract NDI SDK
+        run: |
+          # Create libs directory
+          New-Item -ItemType Directory -Force libs
+          
+          # Download NDI Runtime (contains the DLL)
+          $ndiUrl = "https://downloads.ndi.tv/SDK/NDI_SDK/NDI%206%20SDK.exe"
+          $ndiInstaller = "ndi_sdk.exe"
+          
+          Write-Host "Downloading NDI SDK..."
+          Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstaller
+          
+          # Run silent install
+          Start-Process -FilePath $ndiInstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
+          
+          # Copy DLL to libs folder for PyInstaller
+          $ndiDll = "C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll"
+          if (Test-Path $ndiDll) {
+            Copy-Item $ndiDll libs\
+            Write-Host "NDI DLL copied successfully"
+          } else {
+            Write-Host "ERROR: NDI DLL not found after installation"
+            exit 1
+          }
+      
+      - name: Extract version from tag
+        id: version
+        run: |
+          $tag = "${{ github.ref }}".Split('/')[-1]
+          $version = $tag -replace '^v', ''
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+      
+      - name: Run build script
+        run: |
+          .\build.ps1 -Version "${{ steps.version.outputs.version }}"
+      
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            installer_output/VideoCue-${{ steps.version.outputs.version }}-Setup.exe
+            installer_output/VideoCue-${{ steps.version.outputs.version }}-portable.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload build artifacts (for debugging)
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: build-artifacts
+          path: |
+            dist/VideoCue/
+            installer_output/
+          retention-days: 30

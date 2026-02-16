@@ -1,66 +1,78 @@
-# -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller spec file for VideoCue
 Build with: pyinstaller VideoCue.spec
 """
 
 import os
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 block_cipher = None
 
-# NDI DLL path (update this to match your NDI installation)
-ndi_dll_path = r'C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll'
+# NDI DLL path (checks multiple locations for local and CI builds)
+ndi_dll_paths = [
+    r"libs\Processing.NDI.Lib.x64.dll",  # CI build or repository copy
+    r"C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll",  # Local install
+    os.path.join(os.getcwd(), "libs", "Processing.NDI.Lib.x64.dll"),  # Relative path
+]
 
 # Prepare binaries list
 binaries = []
-if os.path.exists(ndi_dll_path):
-    binaries.append((ndi_dll_path, '.'))
-else:
-    print(f"WARNING: NDI DLL not found at {ndi_dll_path}")
+ndi_dll_found = False
+for ndi_dll_path in ndi_dll_paths:
+    if os.path.exists(ndi_dll_path):
+        binaries.append((ndi_dll_path, "."))
+        ndi_dll_found = True
+        print(f"✓ NDI DLL found at: {ndi_dll_path}")
+        break
+
+if not ndi_dll_found:
+    print("WARNING: NDI DLL not found at any of these locations:")
+    for path in ndi_dll_paths:
+        print(f"  - {path}")
     print("NDI features will not work in the built executable.")
 
 # Collect PyQt6 and pygame dynamic libraries
-binaries += collect_dynamic_libs('PyQt6')
-binaries += collect_dynamic_libs('pygame')
+binaries += collect_dynamic_libs("PyQt6")
+binaries += collect_dynamic_libs("pygame")
 
 # Prepare data files
 datas = [
-    ('config_schema.json', '.'),
+    ("config_schema.json", "."),
 ]
 
 # Add resources if they exist
-if os.path.exists('resources'):
-    datas.append(('resources', 'resources'))
+if os.path.exists("resources"):
+    datas.append(("resources", "resources"))
 
 a = Analysis(
-    ['videocue.py'],
+    ["videocue.py"],
     pathex=[],
     binaries=binaries,
     datas=datas,
     hiddenimports=[
-        'PyQt6.QtCore',
-        'PyQt6.QtGui',
-        'PyQt6.QtWidgets',
-        'PyQt6.sip',
-        'pygame',
-        'qdarkstyle',
+        "PyQt6.QtCore",
+        "PyQt6.QtGui",
+        "PyQt6.QtWidgets",
+        "PyQt6.sip",
+        "pygame",
+        "qdarkstyle",
         # Comprehensive numpy imports for ndi-python compatibility
-        'numpy',
-        'numpy.core',
-        'numpy.core._methods',
-        'numpy.core._internal',
-        'numpy.core.multiarray',
-        'numpy.core._multiarray_umath',
-        'numpy.core._dtype',
-        'numpy.core.numerictypes',
-        'numpy.core.umath',
-        'numpy.lib.format',
-        'numpy.random',
-        'numpy.random._common',
-        'numpy.random._generator',
-        'numpy.linalg',
-        'numpy.fft',
+        "numpy",
+        "numpy.core",
+        "numpy.core._methods",
+        "numpy.core._internal",
+        "numpy.core.multiarray",
+        "numpy.core._multiarray_umath",
+        "numpy.core._dtype",
+        "numpy.core.numerictypes",
+        "numpy.core.umath",
+        "numpy.lib.format",
+        "numpy.random",
+        "numpy.random._common",
+        "numpy.random._generator",
+        "numpy.linalg",
+        "numpy.fft",
     ],
     hookspath=[],
     hooksconfig={},
@@ -79,7 +91,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='VideoCue',
+    name="VideoCue",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -90,7 +102,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.abspath('resources/icon.ico') if os.path.exists('resources/icon.ico') else None,
+    icon=os.path.abspath("resources/icon.ico") if os.path.exists("resources/icon.ico") else None,
 )
 
 coll = COLLECT(
@@ -101,5 +113,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='VideoCue',
+    name="VideoCue",
 )
