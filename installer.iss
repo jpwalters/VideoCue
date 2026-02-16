@@ -2,7 +2,7 @@
 ; Compile with Inno Setup 6.x: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "VideoCue"
-#define MyAppVersion "0.5.2"
+#define MyAppVersion "0.0.0-dev"
 #define MyAppPublisher "VideoCue Contributors"
 #define MyAppURL "https://github.com/jpwalters/VideoCue"
 #define MyAppExeName "VideoCue.exe"
