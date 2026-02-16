@@ -50,7 +50,7 @@ datas = [
 if Path("resources").exists():
     datas.append(("resources", "resources"))
 
-a = Analysis(
+a = Analysis(  # noqa: F821
     ["videocue.py"],
     pathex=[],
     binaries=binaries,
@@ -133,9 +133,9 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)  # noqa: F821
 
-exe = EXE(
+exe = EXE(  # noqa: F821
     pyz,
     a.scripts,
     [],
@@ -154,7 +154,7 @@ exe = EXE(
     icon=str(Path("resources/icon.ico").resolve()) if Path("resources/icon.ico").exists() else None,
 )
 
-coll = COLLECT(
+coll = COLLECT(  # noqa: F821
     exe,
     a.binaries,
     a.zipfiles,
