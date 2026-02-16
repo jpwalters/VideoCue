@@ -1,0 +1,10 @@
+# NDI Runtime DLL - Downloaded at build time
+Processing.NDI.Lib.x64.dll
+Processing.NDI.Lib.x64.so
+libProcessing.NDI.Lib.so*
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib

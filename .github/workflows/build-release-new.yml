@@ -1,0 +1,92 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.4.2
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Verify NDI bindings are bundled
+        run: |
+          Write-Host "Checking for bundled NDI bindings..."
+          
+          # Check for NDI wrapper module
+          if (Test-Path "videocue\ndi_wrapper\__init__.py") {
+            Write-Host "✓ NDI wrapper module found"
+          } else {
+            Write-Host "✗ ERROR: NDI wrapper module not found!"
+            exit 1
+          }
+          
+          # Check for NDI bindings (.pyd file for current Python version)
+          if (Test-Path "videocue\ndi_wrapper\NDIlib.cp310-win_amd64.pyd") {
+            Write-Host "✓ NDI bindings (Python 3.10) found"
+          } elseif (Test-Path "videocue\ndi_wrapper\NDIlib.cp312-win_amd64.pyd") {
+            Write-Host "✓ NDI bindings (Python 3.12) found"
+          } else {
+            Write-Host "⚠ No NDI .pyd bindings found - NDI features will be disabled"
+          }
+          
+          # Check for NDI Runtime DLL
+          if (Test-Path "videocue\ndi_wrapper\Processing.NDI.Lib.x64.dll") {
+            Write-Host "✓ NDI Runtime DLL found"
+          } else {
+            Write-Host "⚠ Warning: NDI Runtime DLL not found in ndi_wrapper"
+            Write-Host "  Will attempt to locate in system PATH"
+          }
+      
+      - name: Extract version from tag
+        id: version
+        run: |
+          $tag = "${{ github.ref }}".Split('/')[-1]
+          $version = $tag -replace '^v', ''
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+      
+      - name: Run build script
+        run: |
+          .\build.ps1 -Version "${{ steps.version.outputs.version }}"
+      
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            installer_output/VideoCue-${{ steps.version.outputs.version }}-Setup.exe
+            installer_output/VideoCue-${{ steps.version.outputs.version }}-portable.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload build artifacts (for debugging)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-artifacts
+          path: |
+            dist/VideoCue/
+            installer_output/
+          retention-days: 30

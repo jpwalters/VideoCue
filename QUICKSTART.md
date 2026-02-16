@@ -13,10 +13,13 @@ pip install -r requirements.txt
 pip install ruff  # Recommended for development
 ```
 
-### 2. Install NDI Runtime
+### 2. Install NDI Runtime (Optional)
 Download and install NDI Runtime from https://ndi.tv/tools/
-- Windows: Use the installer, NDI DLL will be at `C:\Program Files\NDI\NDI 6 SDK\Bin\x64\`
-- The application will work without NDI but video streaming features will be disabled
+- Windows: NDI DLL will be automatically found at:
+  - `C:\Program Files\NDI\NDI 6 Runtime\v6\Processing.NDI.Lib.x64.dll` (recommended)
+  - `C:\Program Files\NDI\NDI 6 SDK\Lib\x64\Processing.NDI.Lib.x64.dll`
+  - Or bundled in `videocue/ndi_wrapper/` directory
+- **Optional**: App will work without NDI but video streaming features will be disabled
 
 ### 3. Run the Application
 ```bash
@@ -68,6 +71,7 @@ This creates:
 - Executable in `dist/VideoCue/` (~100-120 MB)
 - Inno Setup installer in `installer_output/VideoCue-{version}-Setup.exe`
 - Portable ZIP in `installer_output/VideoCue-{version}-portable.zip`
+- NDI DLL detection is automatic - no manual configuration needed
 
 ### Build Options
 ```powershell
@@ -82,17 +86,14 @@ This creates:
 ```
 
 ### Manual Build
-1. Update NDI DLL Path in `VideoCue.spec` if needed:
-   ```python
-   ndi_dll_path = r'C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll'
-   ```
+To build without automated script:
 
-2. Build:
-   ```bash
-   pyinstaller VideoCue.spec
-   ```
+```bash
+# Build executable
+pyinstaller VideoCue.spec --clean
 
-3. Test:
+# NDI DLL detection is automatic - no manual configuration needed
+```
    ```bash
    dist\VideoCue\VideoCue.exe
    ```
@@ -186,11 +187,9 @@ The configuration includes:
 
 2. **BirdDog White Balance Firmware**: BirdDog P200/P400 cameras return identical values for OUTDOOR and MANUAL white balance modes (P200=5, P400=10). This is a camera firmware limitation. The app defaults to showing MANUAL for these values since precise control is typically preferred.
 
-3. **NDI Web Control URL**: The `ndi-python` library's API for extracting web control URLs needs verification. Currently returns None - may need metadata parsing.
+3. **Frame Dropping**: PyQt6 signals with QueuedConnection don't have explicit queue size limits. Frame dropping relies on Qt's internal handling. If UI lag occurs, may need manual implementation.
 
-4. **Frame Dropping**: PyQt6 signals with QueuedConnection don't have explicit queue size limits. Frame dropping relies on Qt's internal handling. If UI lag occurs, may need manual implementation.
-
-5. **Connection State**: Connection verification uses query commands (not fire-and-forget) for reliability, but doesn't implement full state machine with automatic retry logic.
+4. **Connection State**: Connection verification uses query commands (not fire-and-forget) for reliability, but doesn't implement full state machine with automatic retry logic.
 
 ## Testing Checklist
 

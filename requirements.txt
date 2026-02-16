@@ -9,13 +9,8 @@ ruff>=0.1.0
 # inputs>=0.5
 
 # Optional: NDI video streaming support
-# Requires Python 3.10 (ndi-python has compatibility issues with Python 3.11+)
-# Requires NDI 6 SDK installed from https://ndi.tv/tools/
-# 
-# To install:
-#   git clone --recursive https://github.com/buresu/ndi-python.git
-#   cd ndi-python
-#   pip install .
+# NDI bindings are now bundled with VideoCue (videocue/ndi_wrapper/)
+# Based on ndi-python by Naoto Kondo - see videocue/ndi_wrapper/LICENSE.md for attribution
 #
-# Application gracefully falls back to IP-only mode without NDI
-# ndi-python>=6.0.0
+# Requires NDI Runtime installed from https://ndi.tv/tools/
+# Application gracefully falls back to IP-only mode without NDI installed

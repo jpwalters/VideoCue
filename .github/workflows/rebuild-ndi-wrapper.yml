@@ -1,0 +1,128 @@
+name: Rebuild NDI Wrapper (Auto)
+
+on:
+  push:
+    paths:
+      - 'videocue/ndi_wrapper/src/**'
+      - 'videocue/ndi_wrapper/CMakeLists.txt'
+      - '.github/workflows/rebuild-ndi-wrapper.yml'
+    branches:
+      - main
+      - develop
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebuild-ndi:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install CMake
+        run: |
+          choco install cmake -y
+      
+      - name: Download NDI SDK
+        run: |
+          # Download NDI SDK (you may need to handle this differently based on NDI licensing)
+          # Option 1: If you have a self-hosted runner with NDI SDK pre-installed, skip this
+          # Option 2: If NDI SDK is hosted in your private storage, download from there
+          # Option 3: Use NDI installer if available
+          
+          Write-Host "Note: NDI SDK download would happen here"
+          Write-Host "For now, using pre-installed NDI SDK or skip if not available"
+          
+          # Check if NDI SDK exists (on self-hosted runner)
+          if (Test-Path "C:\Program Files\NDI\NDI 6 SDK") {
+              Write-Host "[OK] NDI SDK found at C:\Program Files\NDI\NDI 6 SDK"
+              $env:NDI_PATH = "C:\Program Files\NDI\NDI 6 SDK"
+          } elseif (Test-Path "C:\NDI SDK 6") {
+              Write-Host "[OK] NDI SDK found at C:\NDI SDK 6"
+              $env:NDI_PATH = "C:\NDI SDK 6"
+          } elseif (Test-Path "C:\Program Files\NDI SDK") {
+              Write-Host "[OK] NDI SDK found at C:\Program Files\NDI SDK"
+              $env:NDI_PATH = "C:\Program Files\NDI SDK"
+          } else {
+              Write-Host "[WARNING] NDI SDK not found - cannot rebuild"
+              exit 1
+          }
+      
+      - name: Install pybind11
+        run: |
+          python3.10 -m pip install pybind11
+          python3.12 -m pip install pybind11
+      
+      - name: Build NDI wrapper (Python 3.10)
+        run: |
+          $env:Path = "C:\Program Files\CMake\bin;$env:Path"
+          .\build_ndi_wrapper.ps1 -PythonVersion 3.10 -Verbose
+      
+      - name: Build NDI wrapper (Python 3.12)
+        run: |
+          $env:Path = "C:\Program Files\CMake\bin;$env:Path"
+          .\build_ndi_wrapper.ps1 -PythonVersion 3.12 -Verbose
+      
+      - name: Check for changes
+        id: check
+        run: |
+          git add videocue/ndi_wrapper/*.pyd || true
+          
+          if (git diff --cached --quiet) {
+              Write-Host "No changes to .pyd files"
+              echo "has_changes=false" >> $env:GITHUB_OUTPUT
+          } else {
+              Write-Host "Changes detected in .pyd files"
+              echo "has_changes=true" >> $env:GITHUB_OUTPUT
+              git diff --cached
+          }
+      
+      - name: Commit and push changes
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add videocue/ndi_wrapper/*.pyd
+          git commit -m "chore: rebuild NDI wrapper bindings" -m "" -m "Rebuilt from C++ source in videocue/ndi_wrapper/src/main.cpp" -m "Updated bindings for Python 3.10 and 3.12" -m "Triggered by ${{ github.event_name }} on ${{ github.ref }}"
+          git push
+      
+      - name: Create Pull Request (if on develop)
+        if: |
+          steps.check.outputs.has_changes == 'true' &&
+          github.ref == 'refs/heads/develop'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          commit-message: "chore: rebuild NDI wrapper bindings"
+          title: "Automated: Update NDI wrapper bindings"
+          body: |
+            ## Automated NDI Wrapper Rebuild
+            
+            C++ source changes detected. NDI Python bindings rebuilt from source.
+            
+            **Changes:**
+            - `videocue/ndi_wrapper/src/main.cpp` updated
+            - `.pyd` files regenerated for Python 3.10 and 3.12
+            
+            **Files changed:**
+            - `videocue/ndi_wrapper/NDIlib.cp310-win_amd64.pyd`
+            - `videocue/ndi_wrapper/NDIlib.cp312-win_amd64.pyd`
+            
+            This PR should be reviewed and merged to main before release.
+          branch: automated/update-ndi-bindings
+          delete-branch: true
+          labels: "automation, ndi-wrapper"

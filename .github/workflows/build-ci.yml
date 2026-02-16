@@ -29,30 +29,13 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
       
-      - name: Download and extract NDI SDK
+      - name: Verify NDI bindings are bundled
         run: |
-          # Create libs directory
-          # New-Item -ItemType Directory -Force libs
-          
-          # Download NDI Runtime (contains the DLL)
-          # $ndiUrl = "https://downloads.ndi.tv/SDK/NDI_SDK/NDI%206%20SDK.exe"
-          # $ndiInstaller = "ndi_sdk.exe"
-          
-          # Write-Host "Downloading NDI SDK..."
-          # Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstaller
-          
-          # Run silent install
-          # Start-Process -FilePath $ndiInstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
-          
-          # Copy DLL to libs folder for PyInstaller
-          # $ndiDll = "C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll"
-          # if (Test-Path $ndiDll) {
-            # Copy-Item $ndiDll libs\
-            # Write-Host "NDI DLL copied successfully"
-          # } else {
-            # Write-Host "ERROR: NDI DLL not found after installation"
-            # exit 1
-          # }
+          if (Test-Path "videocue\ndi_wrapper\NDIlib.cp310-win_amd64.pyd") {
+            Write-Host "✓ NDI bindings found"
+          } else {
+            Write-Host "✗ WARNING: NDI bindings not found. NDI features disabled in build."
+          }
       
       - name: Lint with ruff
         run: |

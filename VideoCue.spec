@@ -3,18 +3,18 @@ PyInstaller spec file for VideoCue
 Build with: pyinstaller VideoCue.spec
 """
 
-import contextlib
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 block_cipher = None
 
-# NDI DLL path (checks multiple locations for local and CI builds)
+# NDI DLL path (bundled in videocue/ndi_wrapper or in libs directory for CI builds)
 ndi_dll_paths = [
-    r"libs\Processing.NDI.Lib.x64.dll",  # CI build or repository copy
-    r"C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll",  # Local install
-    str(Path.cwd() / "libs" / "Processing.NDI.Lib.x64.dll"),  # Relative path
+    r"videocue\ndi_wrapper\Processing.NDI.Lib.x64.dll",  # Bundled with VideoCue
+    r"libs\Processing.NDI.Lib.x64.dll",  # CI build or repository copy (fallback)
+    r"C:\Program Files\NDI\NDI 6 Runtime\v6\Processing.NDI.Lib.x64.dll",  # Local install
+    str(Path.cwd() / "videocue" / "ndi_wrapper" / "Processing.NDI.Lib.x64.dll"),  # Relative path
 ]
 
 # Prepare binaries list
@@ -22,31 +22,26 @@ binaries = []
 ndi_dll_found = False
 for ndi_dll_path in ndi_dll_paths:
     if Path(ndi_dll_path).exists():
-        binaries.append((ndi_dll_path, "."))
+        binaries.append((ndi_dll_path, "videocue/ndi_wrapper"))
         ndi_dll_found = True
         print(f"[OK] NDI DLL found at: {ndi_dll_path}")
         break
 
 if not ndi_dll_found:
-    print("WARNING: NDI DLL not found at any of these locations:")
-    for path in ndi_dll_paths:
-        print(f"  - {path}")
-    print("NDI features will not work in the built executable.")
+    print("WARNING: NDI DLL not found. Checking if NDI Runtime is installed on system...")
+    # Don't fail the build - NDI is optional
 
 # Collect PyQt6 and pygame dynamic libraries
 binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
-# Collect NDI Python module if available
-ndi_hiddenimports = []
-with contextlib.suppress(Exception):
-    binaries += collect_dynamic_libs("NDIlib")
-    ndi_hiddenimports = collect_submodules("NDIlib")
-    print(f"[OK] NDI Python module found, added {len(ndi_hiddenimports)} submodules")
+# Collect NDI Python module bindings (bundled in videocue/ndi_wrapper)
+# The .pyd files are included automatically via datas below
 
 # Prepare data files
 datas = [
     ("config_schema.json", "."),
+    ("videocue/ndi_wrapper", "videocue/ndi_wrapper"),  # Include NDI wrapper with bindings
 ]
 
 # Add resources if they exist
@@ -65,7 +60,7 @@ a = Analysis(  # noqa: F821
         "PyQt6.sip",
         "pygame",
         "qdarkstyle",
-        "NDIlib",  # NDI Python module
+        "videocue.ndi_wrapper",  # Local NDI wrapper module (bundled)
         # Comprehensive numpy imports for ndi-python compatibility
         "numpy",
         "numpy.core",

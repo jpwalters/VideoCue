@@ -14,7 +14,9 @@ from videocue.exceptions import NDINotAvailableError, NDISourceNotFoundError
 
 logger = logging.getLogger(__name__)
 
-# Try to import NDI library
+# Try to import NDI library (bundled with VideoCue)
+# NDI wrapper is based on ndi-python by Naoto Kondo (MIT License)
+# See videocue/ndi_wrapper/LICENSE.md for full attribution
 ndi: Any = None  # Type annotation for ndi module (conditionally imported)
 ndi_available = False
 ndi_error_message = ""
@@ -24,7 +26,7 @@ _ndi_lock = threading.Lock()  # Thread safety for global NDI resources
 _source_cache: dict = {}  # Cache of discovered sources {source_name: ndi.Source}
 
 try:
-    import NDIlib as ndi  # noqa: N813
+    from videocue import ndi_wrapper as ndi  # noqa: N813
 
     ndi_available = True
 except ImportError as e:

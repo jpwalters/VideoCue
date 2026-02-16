@@ -98,7 +98,7 @@ pip install -r requirements.txt
 
 ### Dependencies
 - **PyQt6**: Modern Qt6 framework for Python
-- **ndi-python**: NDI SDK Python bindings (optional)
+- **NDI Bindings**: Bundled in `videocue/ndi_wrapper/` (compiled .pyd files)
 - **pygame**: USB game controller support
 - **qdarkstyle**: Dark theme stylesheet
 - **ruff** (recommended): Fast Python linter with better accuracy than Pylint

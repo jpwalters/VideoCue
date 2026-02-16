@@ -1,0 +1,140 @@
+name: Rebuild NDI Wrapper (Manual)
+
+# Manual trigger - useful when:
+# - You want to rebuild without committing C++ changes
+# - You need to support a new Python version
+# - You want to test changes before merging to main
+on:
+  workflow_dispatch:
+    inputs:
+      python_versions:
+        type: choice
+        description: Which Python versions to build
+        options:
+          - "3.10"
+          - "3.12"
+          - "all"
+        default: "all"
+      commit_changes:
+        type: boolean
+        description: Commit updated .pyd files to current branch
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      
+      - name: Install build tools
+        run: |
+          choco install cmake -y
+          python3.10 -m pip install pybind11
+          python3.12 -m pip install pybind11
+      
+      - name: Locate NDI SDK
+        run: |
+          Write-Host "Searching for NDI SDK..."
+          
+          $ndiPaths = @(
+              "C:\Program Files\NDI\NDI 6 SDK",
+              "C:\NDI SDK 6",
+              "C:\Program Files\NDI\NDI 6",
+              "C:\Program Files\NDI SDK",
+              "C:\Program Files\NewTek\NDI SDK"
+          )
+          
+          $found = $false
+          foreach ($path in $ndiPaths) {
+              if (Test-Path "$path\Include\Processing.NDI.Lib.h") {
+                  Write-Host "[OK] NDI SDK found: $path"
+                  $env:NDI_PATH = $path
+                  $found = $true
+                  break
+              }
+          }
+          
+          if (-not $found) {
+              Write-Host "[ERROR] NDI SDK not found in:"
+              $ndiPaths | ForEach-Object { Write-Host "  - $_" }
+              Write-Host ""
+              Write-Host "Please install NDI SDK from https://ndi.tv/tools/"
+              Write-Host "Choose: Self-hosted runner or skip this workflow"
+              exit 1
+          }
+      
+      - name: Build NDI wrapper (Python 3.10)
+        if: ${{ inputs.python_versions == '3.10' || inputs.python_versions == 'all' }}
+        run: |
+          Write-Host "Building for Python 3.10..."
+          .\build_ndi_wrapper.ps1 -PythonVersion 3.10
+      
+      - name: Build NDI wrapper (Python 3.12)
+        if: ${{ inputs.python_versions == '3.12' || inputs.python_versions == 'all' }}
+        run: |
+          Write-Host "Building for Python 3.12..."
+          .\build_ndi_wrapper.ps1 -PythonVersion 3.12
+      
+      - name: List compiled bindings
+        run: |
+          Write-Host "Compiled bindings:"
+          ls videocue/ndi_wrapper/*.pyd | Select-Object Name, @{Label="Size (KB)"; Expression={[math]::Round($_.Length/1KB)}}
+      
+      - name: Commit changes
+        if: inputs.commit_changes == true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add videocue/ndi_wrapper/*.pyd
+          
+          if (git diff --cached --quiet) {
+              Write-Host "No changes to commit"
+          } else {
+              git commit -m "chore: rebuild NDI wrapper for Python ${{ inputs.python_versions }}" -m "" -m "Python version: ${{ inputs.python_versions }}" -m "Compiled from: videocue/ndi_wrapper/src/main.cpp" -m "Triggered: manual dispatch via GitHub Actions"
+              git push
+              Write-Host "[SUCCESS] Changes committed and pushed"
+          }
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ndi-bindings-${{ inputs.python_versions }}-${{ github.run_number }}
+          path: videocue/ndi_wrapper/NDIlib*.pyd
+          retention-days: 30
+          if-no-files-found: warn
+      
+      - name: Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "Build Summary" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "Python versions: ${{ inputs.python_versions }}" -ForegroundColor Green
+          Write-Host "Changes committed: ${{ inputs.commit_changes }}" -ForegroundColor Green
+          Write-Host "Artifacts available in: Artifacts tab" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "Next steps:" -ForegroundColor Yellow
+          if ('${{ inputs.commit_changes }}' -eq 'true') {
+              Write-Host "  1. Push was automatic"
+              Write-Host "  2. Create PR to review .pyd changes"
+              Write-Host "  3. Merge when CI passes"
+          } else {
+              Write-Host "  1. Download artifacts from Actions"
+              Write-Host "  2. Or re-run with 'Commit changes' enabled"
+          }

@@ -40,7 +40,13 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **Limitation**: Position queries not implemented, presets store placeholder (0,0,0) values
 
 ### NDI Video Streaming
-- Uses `ndi-python` library (wrapper for NDI SDK) - **optional dependency**, graceful fallback
+- Uses **bundled ndi_wrapper module** (in `videocue/ndi_wrapper/`), based on ndi-python by Naoto Kondo (MIT License)
+- **Optional dependency**: Graceful fallback if NDI Runtime not available (app continues in IP-only mode)
+- **Automatic NDI Runtime Detection**: `__init__.py` searches system for:
+  - `C:\Program Files\NDI\NDI 6 Runtime\v6` (primary)
+  - `C:\Program Files\NDI\NDI 5 Runtime\v5`
+  - Bundled DLL in ndi_wrapper directory
+  - Windows Registry entries for custom installations
 - **Network Requirements**: NDI uses mDNS (port 5353) for discovery - requires proper firewall configuration
   - **Firewall Workaround**: Manual NDI source name entry field available in camera add dialog
   - Users can enter exact NDI source name (e.g., "BIRDDOG-12345 (Channel 1)") to bypass discovery
@@ -50,7 +56,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - UYVY422 → RGB conversion using ITU-R BT.601 coefficients (CPU-intensive)
 - Frame dropping via PyQt signal queuing (Qt auto-drops old queued frames)
 - **Graceful degradation**: App continues in IP-only mode if NDI unavailable (no crash)
-- Requires NDI Runtime installed from https://ndi.tv/tools/ and `ndi-python` package (v5.1.1.1+)
+- Requires NDI Runtime installed from https://ndi.tv/tools/ on end-user system
 
 ### USB Controller
 - pygame joystick API with 16ms polling (60 Hz)

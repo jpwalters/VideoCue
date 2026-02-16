@@ -30,7 +30,7 @@ The PyInstaller build completed successfully!
 ### Build Output
 - **Location**: `dist/VideoCue/`
 - **Executable**: `dist/VideoCue/VideoCue.exe`
-- **Size**: ~120-150 MB (includes PyQt6, pygame, NDI DLL)
+- **Size**: ~120-150 MB (includes PyQt6, pygame, NDI wrapper module)
 - **Warnings**: Minor Qt6 plugin warnings (non-critical, 3D/WebView features not used)
 
 ### Testing the Build
@@ -156,7 +156,9 @@ Compress-Archive -Path "$staging\*" -DestinationPath "VideoCue-0.4.1-portable.zi
 
 ### VideoCue.spec
 PyInstaller build specification:
-- **NDI DLL Path**: Line 13 - Update if NDI installed in non-standard location
+- **NDI DLL Search**: Automatically configured via `videocue/ndi_wrapper/__init__.py`
+  - No manual configuration needed
+  - Searches system NDI Runtime installations automatically
 - **Icon**: `resources/icon.png` (if present)
 - **Console**: Set to `False` for production (no console window)
 - **UPX**: Disabled (breaks PyQt6 libraries)
@@ -167,7 +169,8 @@ PyInstaller build specification:
 - ✅ pygame libraries (~15 MB)
 - ✅ qdarkstyle theme
 - ✅ numpy libraries (~20 MB)
-- ✅ NDI DLL (~5 MB, if found at build time)
+- ✅ NDI wrapper module with .pyd bindings (~5 MB)
+- ✅ Bundled `Processing.NDI.Lib.x64.dll` (fallback)
 - ✅ config_schema.json
 - ✅ Application resources (icons, etc.)
 
@@ -274,8 +277,10 @@ Start-Process "https://jrsoftware.org/isinfo.php"
 - **Version update fails**: Check file permissions on `videocue/__init__.py` and `installer.iss`
 
 ### Build Issues
-- **Missing NDI DLL**: Edit `VideoCue.spec` line 13 with correct path
-- **Import errors**: Make sure all dependencies in requirements.txt
+- **Missing NDI DLL**: The build automatically searches for NDI Runtime in standard locations
+  - If not found, bundled DLL in `videocue/ndi_wrapper/` is used
+  - No manual configuration needed
+- **Import errors**: Make sure all dependencies in requirements.txt are installed
 - **Build too large**: Normal for PyQt6 apps (100MB+ is expected)
 
 ### Runtime Issues

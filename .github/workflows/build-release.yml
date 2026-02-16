@@ -166,15 +166,49 @@ jobs:
             Get-ChildItem -Path $ndiPath -Recurse -File | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.FullName)" }
           }
           
-          # Copy DLL to libs folder for PyInstaller
+          # Copy DLL to videocue/ndi_wrapper folder for bundling
           $ndiDll = "C:\Program Files\NDI\NDI 6 Runtime\v6\Processing.NDI.Lib.x64.dll"
+          $wrapperDir = "videocue\ndi_wrapper"
+          
           if (Test-Path $ndiDll) {
-            Copy-Item $ndiDll libs\
-            Write-Host "NDI DLL copied successfully"
+            Copy-Item $ndiDll $wrapperDir\
+            Write-Host "✓ NDI DLL copied to $wrapperDir"
           } else {
             Write-Host "ERROR: NDI DLL not found at: $ndiDll"
             Write-Host "Searching for NDI DLL in all locations..."
             Get-ChildItem -Path "C:\Program Files\NDI" -Recurse -Filter "Processing.NDI.Lib.x64.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+            exit 1
+          }
+      
+      - name: Verify NDI bindings are bundled
+        run: |
+          Write-Host "Checking for bundled NDI bindings and DLLs...`n"
+          
+          # Check for NDI wrapper module
+          if (Test-Path "videocue\ndi_wrapper\__init__.py") {
+            Write-Host "✓ NDI wrapper module found"
+          } else {
+            Write-Host "✗ ERROR: NDI wrapper module not found!"
+            exit 1
+          }
+          
+          # Check for NDI bindings (.pyd file for current Python version)
+          if (Test-Path "videocue\ndi_wrapper\NDIlib.cp310-win_amd64.pyd") {
+            Write-Host "✓ NDI bindings (Python 3.10) found"
+          } elseif (Test-Path "videocue\ndi_wrapper\NDIlib.cp312-win_amd64.pyd") {
+            Write-Host "✓ NDI bindings (Python 3.12) found"
+          } else {
+            Write-Host "✗ ERROR: No NDI .pyd bindings found!"
+            exit 1
+          }
+          
+          # Check for NDI Runtime DLL
+          if (Test-Path "videocue\ndi_wrapper\Processing.NDI.Lib.x64.dll") {
+            Write-Host "✓ NDI Runtime DLL found"
+            $dllSize = (Get-Item "videocue\ndi_wrapper\Processing.NDI.Lib.x64.dll").Length / 1MB
+            Write-Host "  Size: $([math]::Round($dllSize, 2)) MB`n"
+          } else {
+            Write-Host "✗ ERROR: NDI Runtime DLL not found in ndi_wrapper!"
             exit 1
           }
       
