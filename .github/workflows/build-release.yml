@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'  # Trigger on version tags like v0.4.2
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
