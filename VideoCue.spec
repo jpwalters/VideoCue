@@ -23,7 +23,7 @@ for ndi_dll_path in ndi_dll_paths:
     if os.path.exists(ndi_dll_path):
         binaries.append((ndi_dll_path, "."))
         ndi_dll_found = True
-        print(f"✓ NDI DLL found at: {ndi_dll_path}")
+        print(f"[OK] NDI DLL found at: {ndi_dll_path}")
         break
 
 if not ndi_dll_found:
