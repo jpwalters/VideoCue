@@ -36,6 +36,12 @@ if not ndi_dll_found:
 binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
+# Collect NDI Python module if available
+try:
+    binaries += collect_dynamic_libs("NDIlib")
+except Exception:
+    pass  # NDI not installed, skip
+
 # Prepare data files
 datas = [
     ("config_schema.json", "."),
