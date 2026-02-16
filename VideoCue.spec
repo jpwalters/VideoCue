@@ -38,8 +38,11 @@ binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
 # Collect NDI Python module if available
+ndi_hiddenimports = []
 with contextlib.suppress(Exception):
     binaries += collect_dynamic_libs("NDIlib")
+    ndi_hiddenimports = collect_submodules("NDIlib")
+    print(f"[OK] NDI Python module found, added {len(ndi_hiddenimports)} submodules")
 
 # Prepare data files
 datas = [
@@ -62,6 +65,7 @@ a = Analysis(  # noqa: F821
         "PyQt6.sip",
         "pygame",
         "qdarkstyle",
+        "NDIlib",  # NDI Python module
         # Comprehensive numpy imports for ndi-python compatibility
         "numpy",
         "numpy.core",
@@ -78,7 +82,8 @@ a = Analysis(  # noqa: F821
         "numpy.random._generator",
         "numpy.linalg",
         "numpy.fft",
-    ],
+    ]
+    + ndi_hiddenimports,  # Add NDI submodules dynamically
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
