@@ -35,8 +35,11 @@ if not ndi_dll_found:
 binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
-# Collect NDI Python module bindings (bundled in videocue/ndi_wrapper)
-# The .pyd files are included automatically via datas below
+# Collect NDI Python module bindings (.pyd files) - MUST be in binaries not datas!
+ndi_wrapper_dir = Path("videocue/ndi_wrapper")
+for pyd_file in ndi_wrapper_dir.glob("*.pyd"):
+    binaries.append((str(pyd_file), "videocue/ndi_wrapper"))
+    print(f"[OK] NDI .pyd file added: {pyd_file.name}")
 
 # Prepare data files
 datas = [

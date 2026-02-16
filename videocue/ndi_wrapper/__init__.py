@@ -21,10 +21,11 @@ from pathlib import Path
 if os.name == "nt" and sys.version_info >= (3, 8):
     dll_paths = []
 
-    # Add wrapper directory (for any bundled DLLs)
-    dll_paths.append(Path(__file__).parent)
+    # 1. Add wrapper directory first (for bundled DLLs in portable/executable)
+    wrapper_dir = Path(__file__).parent
+    dll_paths.append(wrapper_dir)
 
-    # Add NDI Runtime library directory (where actual DLLs are)
+    # 2. Add NDI Runtime library directory (system installation - primary)
     ndi_runtime_paths = [
         Path("C:/Program Files/NDI/NDI 6 Runtime/v6"),
         Path("C:/Program Files/NDI/NDI 5 Runtime/v5"),
@@ -35,7 +36,7 @@ if os.name == "nt" and sys.version_info >= (3, 8):
         if ndi_path.exists():
             dll_paths.append(ndi_path)
 
-    # Add NDI SDK library directory if it exists (fallback)
+    # 3. Add NDI SDK library directory if it exists (fallback)
     ndi_sdk_paths = [
         Path("C:/Program Files/NDI/NDI 6 SDK/Lib/x64"),
         Path("C:/Program Files (x86)/NDI SDK/Lib/x64"),
@@ -46,7 +47,7 @@ if os.name == "nt" and sys.version_info >= (3, 8):
         if ndi_path.exists():
             dll_paths.append(ndi_path)
 
-    # Also check registry for NDI installation
+    # 4. Also check registry for NDI installation
     if not any(p.exists() for p in ndi_sdk_paths + ndi_runtime_paths):
         try:
             import winreg
