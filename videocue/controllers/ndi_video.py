@@ -24,7 +24,7 @@ _ndi_lock = threading.Lock()  # Thread safety for global NDI resources
 _source_cache: dict = {}  # Cache of discovered sources {source_name: ndi.Source}
 
 try:
-    import NDIlib as ndi
+    import NDIlib as ndi  # noqa: N813
 
     ndi_available = True
 except ImportError as e:
@@ -641,10 +641,7 @@ def find_ndi_cameras(timeout_ms: int = 5000) -> list[str]:
                 try:
                     if hasattr(source, "ndi_name"):
                         name = source.ndi_name
-                        if isinstance(name, bytes):
-                            name = name.decode("utf-8")
-                        else:
-                            name = str(name)
+                        name = name.decode("utf-8") if isinstance(name, bytes) else str(name)
                         camera_names.append(name)
                 except (AttributeError, UnicodeDecodeError, ValueError) as e:
                     logger.warning(f"NDI Discovery - Error processing source {i}: {e}")

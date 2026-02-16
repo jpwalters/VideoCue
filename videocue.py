@@ -13,7 +13,7 @@ from PyQt6.QtGui import QIcon  # type: ignore
 from PyQt6.QtWidgets import QApplication, QMessageBox  # type: ignore
 
 from videocue import __version__
-from videocue.exceptions import VideoCueException
+from videocue.exceptions import VideoCueError
 from videocue.ui_strings import UIStrings
 
 # Import qdarkstyle for dark theme
@@ -72,7 +72,7 @@ def exception_hook(exc_type, exc_value, exc_traceback):
 
     # Determine error severity
     error_title = UIStrings.ERROR_CRITICAL
-    if issubclass(exc_type, VideoCueException):
+    if issubclass(exc_type, VideoCueError):
         error_title = f"{type(exc_value).__name__}"
 
     # Show error dialog to user

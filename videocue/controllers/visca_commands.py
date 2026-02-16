@@ -6,7 +6,7 @@ All commands documented with their function and expected responses
 # Camera Control Commands
 class ViscaCommands:
     """VISCA command string constants"""
-    
+
     # PTZ Movement Commands
     PAN_TILT_STOP = "81 01 06 01 {pan_speed} {tilt_speed} 03 03 FF"
     PAN_TILT_UP = "81 01 06 01 {pan_speed} {tilt_speed} 03 01 FF"
@@ -17,12 +17,12 @@ class ViscaCommands:
     PAN_TILT_UP_RIGHT = "81 01 06 01 {pan_speed} {tilt_speed} 02 01 FF"
     PAN_TILT_DOWN_LEFT = "81 01 06 01 {pan_speed} {tilt_speed} 01 02 FF"
     PAN_TILT_DOWN_RIGHT = "81 01 06 01 {pan_speed} {tilt_speed} 02 02 FF"
-    
+
     # Zoom Commands
     ZOOM_STOP = "81 01 04 07 00 FF"
     ZOOM_TELE = "81 01 04 07 2{speed} FF"  # speed: 0-7
     ZOOM_WIDE = "81 01 04 07 3{speed} FF"  # speed: 0-7
-    
+
     # Focus Commands
     FOCUS_AUTO = "81 01 04 38 02 FF"
     FOCUS_MANUAL = "81 01 04 38 03 FF"
@@ -30,7 +30,7 @@ class ViscaCommands:
     FOCUS_NEAR = "81 01 04 08 3{speed} FF"  # speed: 0-7
     FOCUS_FAR = "81 01 04 08 2{speed} FF"   # speed: 0-7
     FOCUS_STOP = "81 01 04 08 00 FF"
-    
+
     # Exposure Commands
     EXPOSURE_MODE = "81 01 04 39 {mode} FF"  # mode: 00=Auto, 03=Manual, 0A=Shutter, 0B=Iris, 0D=Bright
     IRIS_UP = "81 01 04 0B 02 FF"
@@ -47,7 +47,7 @@ class ViscaCommands:
     BRIGHTNESS_DIRECT = "81 01 04 4D {value} FF"  # value: 0-41
     BACKLIGHT_ON = "81 01 04 33 02 FF"
     BACKLIGHT_OFF = "81 01 04 33 03 FF"
-    
+
     # White Balance Commands
     WHITE_BALANCE_MODE = "81 01 04 35 {mode} FF"  # mode: 00=Auto, 01=Indoor, 02=Outdoor, 03=OnePush, 05=Manual
     WHITE_BALANCE_ONE_PUSH = "81 01 04 10 05 FF"
@@ -57,15 +57,15 @@ class ViscaCommands:
     BLUE_GAIN_UP = "81 01 04 04 02 FF"
     BLUE_GAIN_DOWN = "81 01 04 04 03 FF"
     BLUE_GAIN_DIRECT = "81 01 04 44 00 00 {p} {q} FF"  # 0-255: split into nibbles
-    
+
     # Preset Commands
     PRESET_RECALL = "81 01 04 3F 02 {preset} FF"  # preset: 0-254
     PRESET_SAVE = "81 01 04 3F 01 {preset} FF"
     PRESET_SPEED = "81 01 06 01 {pan_speed} {tilt_speed} FF"
-    
+
     # Video Format Commands
     VIDEO_FORMAT_SET = "81 01 06 35 00 {format} FF"  # format: see VideoFormat enum
-    
+
     # Query Commands
     QUERY_FOCUS_MODE = "81 09 04 38 FF"  # Response: 90 50 0p FF (p: 2=Auto, 3=Manual)
     QUERY_EXPOSURE_MODE = "81 09 04 39 FF"  # Response: 90 50 0p FF
@@ -87,7 +87,7 @@ class ViscaLimits:
     TILT_SPEED_MAX = 0x14  # 20 decimal
     ZOOM_SPEED_MAX = 7
     FOCUS_SPEED_MAX = 7
-    
+
     IRIS_MIN = 0
     IRIS_MAX = 17
     SHUTTER_MIN = 0
@@ -98,7 +98,7 @@ class ViscaLimits:
     BRIGHTNESS_MAX = 41
     PRESET_MIN = 0
     PRESET_MAX = 254
-    
+
     # Timeout settings
     COMMAND_TIMEOUT = 1.0  # seconds
     QUERY_TIMEOUT = 1.0
@@ -108,15 +108,15 @@ class ViscaLimits:
 # Response parsing helpers
 class ViscaResponse:
     """VISCA response parsing utilities"""
-    
+
     HEADER_LENGTH = 16  # VISCA-over-IP header in hex chars (8 bytes)
-    
+
     @staticmethod
     def extract_single_nibble(response_hex: str, position: int = 5) -> int:
         """Extract single nibble from VISCA response after header"""
         visca_response = response_hex[ViscaResponse.HEADER_LENGTH:]
         return int(visca_response[position], 16)
-    
+
     @staticmethod
     def extract_four_nibbles(response_hex: str) -> int:
         """Extract 4-nibble value from VISCA response (positions 5,7,9,11)"""

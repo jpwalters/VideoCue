@@ -207,7 +207,7 @@ class CameraAddDialog(QDialog):
                 # Stop when we hit the manual IP section (spacing before it)
                 if item and item.spacerItem():
                     break
-                if widget and (isinstance(widget, QCheckBox) or isinstance(widget, QLabel)):
+                if widget and (isinstance(widget, (QCheckBox, QLabel))):
                     items_to_remove.append(widget)
 
             # Delete widgets immediately to prevent accumulation

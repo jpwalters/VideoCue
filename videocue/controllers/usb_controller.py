@@ -172,7 +172,7 @@ class USBController(QObject):
 
     def _load_button_map(self) -> dict:
         """Load button mapping configuration with defaults.
-        
+
         Returns:
             Dictionary mapping button functions to their button numbers
         """
