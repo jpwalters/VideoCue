@@ -16,7 +16,8 @@
 param(
     [string]$Version,  # Version number to set (e.g., "0.3.3")
     [switch]$SkipBuild,  # Skip PyInstaller build (use existing dist/)
-    [switch]$SkipInstaller  # Skip Inno Setup installer creation
+    [switch]$SkipInstaller,  # Skip Inno Setup installer creation
+    [switch]$Debug  # Enable console window for debugging
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,11 +96,27 @@ if (-not $SkipBuild) {
         "pyinstaller"  # Use global installation
     }
     
+    # Enable console output for debug builds
+    $SpecFileModified = $false
+    if ($Debug) {
+        Write-Host "Debug mode: Enabling console output..." -ForegroundColor Cyan
+        $SpecPath = "$ScriptDir\VideoCue.spec"
+        $SpecContent = Get-Content $SpecPath -Raw
+        $SpecBackup = $SpecContent
+        $SpecContent = $SpecContent -replace 'console=False,(\s+# No console window)', 'console=True,$1'
+        Set-Content -Path $SpecPath -Value $SpecContent -NoNewline
+        $SpecFileModified = $true
+    }
+    
     try {
         & $PyInstallerCmd VideoCue.spec --clean --noconfirm
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host "`nERROR: PyInstaller failed with exit code $LASTEXITCODE" -ForegroundColor Red
+            # Restore spec file before exiting
+            if ($SpecFileModified) {
+                Set-Content -Path $SpecPath -Value $SpecBackup -NoNewline
+            }
             exit 1
         }
         
@@ -121,6 +138,12 @@ if (-not $SkipBuild) {
     } catch {
         Write-Host "`nERROR: PyInstaller exception: $_" -ForegroundColor Red
         exit 1
+    } finally {
+        # Restore spec file if it was modified
+        if ($SpecFileModified) {
+            Write-Host "Restoring VideoCue.spec..." -ForegroundColor Gray
+            Set-Content -Path $SpecPath -Value $SpecBackup -NoNewline
+        }
     }
 } else {
     Write-Host "[1/2] Skipping PyInstaller (using existing dist/)...`n" -ForegroundColor Yellow

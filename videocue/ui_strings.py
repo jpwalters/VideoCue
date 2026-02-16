@@ -83,17 +83,18 @@ class UIStrings:
     MENU_FILE = "&File"
     MENU_EXIT = "E&xit"
     MENU_EDIT = "&Edit"
-    MENU_PREFERENCES = "Controller &Preferences..."
+    MENU_PREFERENCES = "Preferences..."
     MENU_VIEW = "&View"
     MENU_VIDEO_SIZE = "Video Size"
     MENU_PERFORMANCE = "Video Performance"
+    MENU_FILE_LOGGING = "Enable File Logging"
     MENU_HELP = "&Help"
     MENU_CHECK_UPDATES = "Check for &Updates..."
     MENU_ABOUT = "&About"
     # Controller Button Configuration
     GROUP_FOCUS_BUTTON = "One-Push Auto Focus"
     GROUP_STOP_BUTTON = "Stop Camera Movement"
-    GROUP_MENU_BUTTON = "Controller Preferences Menu"
+    GROUP_MENU_BUTTON = "Preferences Menu"
     LBL_FOCUS_BUTTON_MAPPING = "Button Trigger:"
     LBL_STOP_BUTTON_MAPPING = "Button Trigger:"
     LBL_MENU_BUTTON_MAPPING = "Button Trigger:"
@@ -141,11 +142,20 @@ class UIStrings:
 
     # Dialog Titles
     DIALOG_ADD_CAMERA = "Add Camera"
-    DIALOG_PREFERENCES = "Controller Preferences"
+    DIALOG_PREFERENCES = "Preferences"
     DIALOG_ABOUT = "About VideoCue"
     DIALOG_CHECK_UPDATES = "Check for Updates"
     DIALOG_CONFIRM_DELETE = "Confirm Delete"
     DIALOG_CONFIRM_DELETE_MSG = "Are you sure you want to remove this camera?"
+    DIALOG_RESTART_REQUIRED = "Restart Required"
+
+    # Logging Messages
+    LOGGING_ENABLED_MSG = (
+        "File logging has been enabled.\n\nPlease restart VideoCue for this change to take effect."
+    )
+    LOGGING_DISABLED_MSG = (
+        "File logging has been disabled.\n\nPlease restart VideoCue for this change to take effect."
+    )
 
     # Update Messages
     UPDATE_CHECKING = "Checking for updates..."

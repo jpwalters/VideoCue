@@ -29,20 +29,26 @@ from videocue.ui.main_window import MainWindow
 from videocue.utils import get_app_data_dir, resource_path
 
 
-def setup_logging() -> None:
-    """Configure application logging"""
+def setup_logging(file_logging_enabled: bool = False) -> None:
+    """Configure application logging
+
+    Args:
+        file_logging_enabled: If True, logs to file in addition to console
+    """
     log_dir = get_app_data_dir() / "logs"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "videocue.log"
+
+    # Build handlers list based on preference
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if file_logging_enabled:
+        handlers.append(logging.FileHandler(log_file, mode="a", encoding="utf-8"))
 
     # Configure root logger
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, mode="a", encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
+        handlers=handlers,
     )
 
     # Set specific module levels
@@ -52,7 +58,10 @@ def setup_logging() -> None:
     logger = logging.getLogger(__name__)
     logger.info("=" * 60)
     logger.info(f"VideoCue {__version__} starting")
-    logger.info(f"Log file: {log_file}")
+    if file_logging_enabled:
+        logger.info(f"Log file: {log_file}")
+    else:
+        logger.info("File logging disabled (console only)")
     logger.info("=" * 60)
 
 
@@ -125,8 +134,14 @@ class ExceptionHandlingApplication(QApplication):
 
 def main() -> None:
     """Main application entry point"""
-    # Setup logging first
-    setup_logging()
+    # Load config first to get logging preference
+    from videocue.models.config_manager import ConfigManager
+
+    config = ConfigManager()
+    file_logging_enabled = config.config.get("preferences", {}).get("file_logging_enabled", False)
+
+    # Setup logging with preference
+    setup_logging(file_logging_enabled)
     logger = logging.getLogger(__name__)
     logger.info("Starting VideoCue application")
 

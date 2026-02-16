@@ -6,7 +6,7 @@ Build with: pyinstaller VideoCue.spec
 import contextlib
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 
 block_cipher = None
 

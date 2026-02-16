@@ -72,6 +72,7 @@ class ConfigManager:
                 "theme": "dark",
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
+                "file_logging_enabled": False,
             },
             "usb_controller": {
                 "enabled": True,

@@ -2,12 +2,10 @@
 Main application window
 """
 
-import json
 import logging
-import urllib.request
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal, pyqtSlot  # type: ignore
+from PyQt6.QtCore import Qt, QUrl, pyqtSlot  # type: ignore
 from PyQt6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QHBoxLayout,
@@ -26,41 +24,14 @@ from videocue.controllers.ndi_video import cleanup_ndi, get_ndi_error_message, n
 from videocue.controllers.usb_controller import MovementDirection, USBController
 from videocue.models.config_manager import ConfigManager
 from videocue.models.video import VideoSize
+from videocue.ui.about_dialog import AboutDialog
 from videocue.ui.camera_add_dialog import CameraAddDialog
 from videocue.ui.camera_widget import CameraWidget
+from videocue.ui.update_check_thread import UpdateCheckThread
 from videocue.ui_strings import UIStrings
 from videocue.utils import resource_path
 
 logger = logging.getLogger(__name__)
-
-
-class UpdateCheckThread(QThread):
-    """Background thread for checking GitHub releases without blocking UI"""
-
-    update_result = pyqtSignal(bool, object)  # success: bool, data: dict or error_msg: str
-
-    def __init__(self, current_version: str):
-        super().__init__()
-        self.current_version = current_version
-
-    def run(self) -> None:
-        """Check GitHub API in background"""
-        try:
-            url = "https://api.github.com/repos/jpwalters/VideoCue/releases/latest"
-            req = urllib.request.Request(url)
-            req.add_header("Accept", "application/vnd.github+json")
-            req.add_header("X-GitHub-Api-Version", "2022-11-28")
-
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode())
-                logger.debug(f"GitHub API returned: {data.get('tag_name', 'Unknown')}")
-                self.update_result.emit(True, data)
-        except Exception as e:
-            logger.error(f"Update check failed: {e}")
-            import traceback
-
-            traceback.print_exc()
-            self.update_result.emit(False, str(e))
 
 
 class MainWindow(QMainWindow):
@@ -163,9 +134,19 @@ class MainWindow(QMainWindow):
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
 
-        preferences_action = QAction("Controller &Preferences...", self)
+        preferences_action = QAction("Preferences", self)
         preferences_action.triggered.connect(self.show_controller_preferences)
         edit_menu.addAction(preferences_action)
+
+        # Logging preferences
+        edit_menu.addSeparator()
+        file_logging_action = QAction(UIStrings.MENU_FILE_LOGGING, self)
+        file_logging_action.setCheckable(True)
+        file_logging_action.setChecked(
+            self.config.config.get("preferences", {}).get("file_logging_enabled", False)
+        )
+        file_logging_action.triggered.connect(self.on_file_logging_toggled)
+        edit_menu.addAction(file_logging_action)
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -878,17 +859,30 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("Error handling frame rate change")
 
+    def on_file_logging_toggled(self, checked: bool) -> None:
+        """Handle file logging preference toggle"""
+        try:
+            # Update preference
+            if "preferences" not in self.config.config:
+                self.config.config["preferences"] = {}
+            self.config.config["preferences"]["file_logging_enabled"] = checked
+            self.config.save()
+
+            # Inform user that restart is required
+            message = UIStrings.LOGGING_ENABLED_MSG if checked else UIStrings.LOGGING_DISABLED_MSG
+            QMessageBox.information(
+                self,
+                UIStrings.DIALOG_RESTART_REQUIRED,
+                message,
+            )
+            logger.info(f"File logging preference set to {checked} (restart required)")
+        except Exception:
+            logger.exception("Error toggling file logging preference")
+
     def show_about(self):
-        """Show about dialog"""
-        QMessageBox.about(
-            self,
-            "About VideoCue",
-            "VideoCue - Multi-camera PTZ Controller\n\n"
-            f"Version {__version__}\n\n"
-            "Controls professional PTZ cameras using VISCA-over-IP protocol\n"
-            "with NDI video streaming support.\n\n"
-            "https://github.com/jpwalters/VideoCue",
-        )
+        """Show about dialog with open source components"""
+        dialog = AboutDialog(self)
+        dialog.exec()
 
     def check_for_updates(self):
         """Check for updates on GitHub"""
