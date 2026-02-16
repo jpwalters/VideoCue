@@ -3,7 +3,8 @@ PyInstaller spec file for VideoCue
 Build with: pyinstaller VideoCue.spec
 """
 
-import os
+import contextlib
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
@@ -13,14 +14,14 @@ block_cipher = None
 ndi_dll_paths = [
     r"libs\Processing.NDI.Lib.x64.dll",  # CI build or repository copy
     r"C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll",  # Local install
-    os.path.join(os.getcwd(), "libs", "Processing.NDI.Lib.x64.dll"),  # Relative path
+    str(Path.cwd() / "libs" / "Processing.NDI.Lib.x64.dll"),  # Relative path
 ]
 
 # Prepare binaries list
 binaries = []
 ndi_dll_found = False
 for ndi_dll_path in ndi_dll_paths:
-    if os.path.exists(ndi_dll_path):
+    if Path(ndi_dll_path).exists():
         binaries.append((ndi_dll_path, "."))
         ndi_dll_found = True
         print(f"[OK] NDI DLL found at: {ndi_dll_path}")
@@ -37,10 +38,8 @@ binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
 # Collect NDI Python module if available
-try:
+with contextlib.suppress(Exception):
     binaries += collect_dynamic_libs("NDIlib")
-except Exception:
-    pass  # NDI not installed, skip
 
 # Prepare data files
 datas = [
@@ -48,7 +47,7 @@ datas = [
 ]
 
 # Add resources if they exist
-if os.path.exists("resources"):
+if Path("resources").exists():
     datas.append(("resources", "resources"))
 
 a = Analysis(
@@ -152,7 +151,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.abspath("resources/icon.ico") if os.path.exists("resources/icon.ico") else None,
+    icon=str(Path("resources/icon.ico").resolve()) if Path("resources/icon.ico").exists() else None,
 )
 
 coll = COLLECT(
