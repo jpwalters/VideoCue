@@ -1,15 +1,17 @@
 """
 VISCA-over-IP protocol implementation using UDP
 """
+
+import contextlib
+import logging
 import socket
 import struct
-import logging
 import threading
 from enum import Enum
-from typing import Optional
-from videocue.controllers.visca_commands import ViscaCommands, ViscaLimits, ViscaResponse
-from videocue.exceptions import ViscaConnectionError, ViscaTimeoutError, ViscaCommandError
+
 from videocue.constants import NetworkConstants
+from videocue.controllers.visca_commands import ViscaLimits
+from videocue.exceptions import ViscaConnectionError, ViscaTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,7 @@ class FocusMode(Enum):
 
 class ExposureMode(Enum):
     """Exposure mode enumeration"""
+
     AUTO = 0
     MANUAL = 1
     SHUTTER_PRIORITY = 2
@@ -32,6 +35,7 @@ class ExposureMode(Enum):
 
 class WhiteBalanceMode(Enum):
     """White balance mode enumeration"""
+
     AUTO = 0
     INDOOR = 1
     OUTDOOR = 2
@@ -42,13 +46,14 @@ class WhiteBalanceMode(Enum):
 
 class VideoFormat(Enum):
     """Video format enumeration - BirdDog P400 format codes
-    
+
     Based on actual camera responses and VISCA protocol documentation.
     Query: 81 09 06 23 FF
     Response: 90 50 pp FF (where pp is the format code)
     """
+
     FORMAT_1080P60 = 0x00  # 1920x1080 60fps
-    FORMAT_1080P50 = 0x01  # 1920x1080 50fps  
+    FORMAT_1080P50 = 0x01  # 1920x1080 50fps
     FORMAT_720P50 = 0x02  # 1280x720 50fps - CONFIRMED
     FORMAT_1080P25 = 0x03  # 1920x1080 25fps (PAL)
     FORMAT_1080P29_97 = 0x04  # 1920x1080 29.97fps (NTSC)
@@ -68,7 +73,7 @@ class VideoFormat(Enum):
 class ViscaIP:
     """
     VISCA protocol controller using UDP datagrams with connection pooling.
-    
+
     Thread Safety:
         This class is thread-safe. The internal socket is protected by _socket_lock
         and can be safely called from multiple threads (e.g., main thread and USB
@@ -81,9 +86,9 @@ class ViscaIP:
         self.ip = ip
         self.port = port
         self._seq_num = 0
-        self._socket: Optional[socket.socket] = None
+        self._socket: socket.socket | None = None
         self._socket_lock = threading.Lock()
-        self._last_error: Optional[str] = None
+        self._last_error: str | None = None
         logger.info(f"ViscaIP initialized for {ip}:{port}")
 
     def __del__(self) -> None:
@@ -116,10 +121,11 @@ class ViscaIP:
             return self._socket
 
     def _get_seq_num(self) -> int:
-        """Get unique sequence number for packet"""
-        seq = self._seq_num
-        self._seq_num = (self._seq_num + 1) % 99999990
-        return seq
+        """Get unique sequence number for packet - thread-safe"""
+        with self._socket_lock:
+            seq = self._seq_num
+            self._seq_num = (self._seq_num + 1) % 99999990
+            return seq
 
     def _build_packet(self, command: str) -> bytes:
         """
@@ -127,7 +133,7 @@ class ViscaIP:
         Format: [PayloadType:1byte][PayloadLength:3bytes][SequenceNumber:4bytes][ViscaCommand:Nbytes]
         """
         # Convert hex string to bytes (e.g., "81 01 06 01" -> b'\x81\x01\x06\x01')
-        cmd_hex = command.replace(' ', '')
+        cmd_hex = command.replace(" ", "")
         cmd_bytes = bytes.fromhex(cmd_hex)
 
         payload_type = 0x01
@@ -135,7 +141,7 @@ class ViscaIP:
         seq_num = self._get_seq_num()
 
         # Pack: 1 byte type, 2 bytes length (big-endian), 1 byte padding, 4 bytes seq (big-endian)
-        header = struct.pack('>BHxI', payload_type, payload_length, seq_num)
+        header = struct.pack(">BHxI", payload_type, payload_length, seq_num)
         return header + cmd_bytes
 
     def send_command(self, command: str) -> bool:
@@ -148,7 +154,7 @@ class ViscaIP:
             return True
         except ViscaConnectionError:
             raise
-        except socket.timeout:
+        except TimeoutError:
             self._last_error = "Send timeout"
             logger.warning(f"Send timeout for {self.ip}")
             self.close()  # Recreate socket on next call
@@ -164,7 +170,7 @@ class ViscaIP:
             self.close()
             return False
 
-    def query_command(self, command: str, timeout: float = None) -> Optional[bytes]:
+    def query_command(self, command: str, timeout: float = None) -> bytes | None:
         """
         Send VISCA query and return response.
 
@@ -182,7 +188,7 @@ class ViscaIP:
         Args:
             command: VISCA command string
             timeout: Optional timeout override in seconds
-        
+
         Returns:
             Response bytes or None on error
         """
@@ -192,13 +198,13 @@ class ViscaIP:
             if timeout is not None:
                 old_timeout = sock.gettimeout()
                 sock.settimeout(timeout)
-            
+
             packet = self._build_packet(command)
             sock.sendto(packet, (self.ip, self.port))
             response, _ = sock.recvfrom(1024)
             logger.debug(f"Query response from {self.ip}: {response.hex()[:40]}...")
             return response
-        except socket.timeout:
+        except TimeoutError:
             self._last_error = "Query timeout"
             logger.warning(f"Query timeout for {self.ip}")
             self.close()
@@ -215,10 +221,8 @@ class ViscaIP:
             return None
         finally:
             if old_timeout is not None and self._socket:
-                try:
+                with contextlib.suppress(Exception):
                     self._socket.settimeout(old_timeout)
-                except:
-                    pass
 
     def _pan_speed(self, speed: float) -> str:
         """Convert 0.0-1.5+ speed to VISCA pan speed hex (01-18)"""
@@ -258,7 +262,7 @@ class ViscaIP:
 
         This fixes slow movement issues caused by speed limiters.
         """
-        print(f"[VISCA] Setting speed limits: pan={pan_limit}, tilt={tilt_limit}")
+        logger.debug(f"Setting speed limits: pan={pan_limit}, tilt={tilt_limit}")
         pan_hex = f"{pan_limit:02X}"
         tilt_hex = f"{tilt_limit:02X}"
         return self.send_command(f"81 01 06 11 {pan_hex} {tilt_hex} FF")
@@ -289,9 +293,9 @@ class ViscaIP:
             response_hex = response.hex().upper()
             if len(response_hex) >= 3:
                 code = response_hex[-3]
-                if code == '2':
+                if code == "2":
                     return FocusMode.AUTO
-                elif code == '3':
+                if code == "3":
                     return FocusMode.MANUAL
         return FocusMode.UNKNOWN
 
@@ -314,19 +318,21 @@ class ViscaIP:
                         0: ExposureMode.AUTO,
                         3: ExposureMode.MANUAL,
                         10: ExposureMode.SHUTTER_PRIORITY,  # 0A hex = 10 decimal
-                        11: ExposureMode.IRIS_PRIORITY,     # 0B hex = 11 decimal
-                        13: ExposureMode.BRIGHT,            # 0D hex = 13 decimal (standard VISCA)
-                        15: ExposureMode.BRIGHT             # 0F hex = 15 decimal (BirdDog cameras)
+                        11: ExposureMode.IRIS_PRIORITY,  # 0B hex = 11 decimal
+                        13: ExposureMode.BRIGHT,  # 0D hex = 13 decimal (standard VISCA)
+                        15: ExposureMode.BRIGHT,  # 0F hex = 15 decimal (BirdDog cameras)
                     }
                     result = mode_map.get(mode_value, ExposureMode.UNKNOWN)
-                    logger.info(f"[{self.ip}] Exposure mode query: {result.name} (value: {mode_value})")
+                    logger.info(
+                        f"[{self.ip}] Exposure mode query: {result.name} (value: {mode_value})"
+                    )
                     return result
                 except (ValueError, IndexError) as e:
                     logger.warning(f"[{self.ip}] Failed to parse exposure mode: {e}")
         logger.warning(f"[{self.ip}] Exposure mode query failed - no valid response")
         return ExposureMode.UNKNOWN
 
-    def query_iris(self) -> Optional[int]:
+    def query_iris(self) -> int | None:
         """Query camera iris value (0-17)"""
         response = self.query_command("81 09 04 4B FF")
         if response and len(response) > 3:
@@ -341,7 +347,7 @@ class ViscaIP:
                     pass
         return None
 
-    def query_shutter(self) -> Optional[int]:
+    def query_shutter(self) -> int | None:
         """Query camera shutter value (0-21)"""
         response = self.query_command("81 09 04 4A FF")
         if response and len(response) > 3:
@@ -354,7 +360,7 @@ class ViscaIP:
                     pass
         return None
 
-    def query_gain(self) -> Optional[int]:
+    def query_gain(self) -> int | None:
         """Query camera gain value (0-15)"""
         response = self.query_command("81 09 04 4C FF")
         if response and len(response) > 3:
@@ -367,13 +373,13 @@ class ViscaIP:
                     pass
         return None
 
-    def query_brightness(self) -> Optional[int]:
+    def query_brightness(self) -> int | None:
         """Query camera brightness value (0-41)"""
         response = self.query_command("81 09 04 4D FF")
         if response and len(response) > 3:
             response_hex = response.hex().upper()
             # Check for error response
-            if '60' in response_hex or '61' in response_hex:
+            if "60" in response_hex or "61" in response_hex:
                 return None
             # Skip VISCA-over-IP header (8 bytes = 16 hex chars)
             # Response format after header: 90 50 0p 0q 0r 0s FF
@@ -381,14 +387,14 @@ class ViscaIP:
                 visca_response = response_hex[16:]  # Skip header
                 # Extract second nibble from each byte: positions 5, 7, 9, 11 in visca_response
                 try:
-                    p = int(visca_response[5], 16)   # Second char of "0p"
-                    q = int(visca_response[7], 16)   # Second char of "0q"
-                    r = int(visca_response[9], 16)   # Second char of "0r"
+                    p = int(visca_response[5], 16)  # Second char of "0p"
+                    q = int(visca_response[7], 16)  # Second char of "0q"
+                    r = int(visca_response[9], 16)  # Second char of "0r"
                     s = int(visca_response[11], 16)  # Second char of "0s"
                     value = (p << 12) | (q << 8) | (r << 4) | s
                     return value
-                except (ValueError, IndexError) as e:
-                    print(f"[ERROR] Brightness parse error: {e}")
+                except (ValueError, IndexError):
+                    logger.exception("Brightness parse error")
                     pass
         return None
 
@@ -421,17 +427,17 @@ class ViscaIP:
 
     def set_pan_left_limit(self) -> bool:
         """Set current position as left pan limit"""
-        print("[VISCA] Setting LEFT pan limit at current position")
+        logger.debug("Setting LEFT pan limit at current position")
         return self.send_command("81 01 06 07 01 FF")
 
     def set_pan_right_limit(self) -> bool:
         """Set current position as right pan limit"""
-        print("[VISCA] Setting RIGHT pan limit at current position")
+        logger.debug("Setting RIGHT pan limit at current position")
         return self.send_command("81 01 06 07 02 FF")
 
     def clear_pan_limits(self) -> bool:
         """Clear pan limits (reset to full range)"""
-        print("[VISCA] Clearing pan limits (reset to full range)")
+        logger.debug("Clearing pan limits (reset to full range)")
         return self.send_command("81 01 06 07 03 FF")
 
     def start_auto_pan(self, pan_speed: int = 10, tilt_speed: int = 10) -> bool:
@@ -445,17 +451,19 @@ class ViscaIP:
         VV = pan speed (1-24)
         WW = tilt speed (1-20) - typically 0 for horizontal-only auto pan
         """
-        print(f"[VISCA] Starting AUTO PAN with speed={pan_speed}")
+        logger.debug(f"Starting AUTO PAN with speed={pan_speed}")
         pan_hex = f"{pan_speed:02X}"
         # For auto pan (horizontal only), tilt speed is typically 00
         return self.send_command(f"81 01 06 10 {pan_hex} 00 FF")
 
     def stop_auto_pan(self) -> bool:
         """Stop auto pan mode (same as regular stop movement)"""
-        print("[VISCA] Stopping AUTO PAN")
+        logger.debug("Stopping AUTO PAN")
         return self.stop()
 
-    def recall_preset_position(self, preset_number: int, pan_speed: int = 18, tilt_speed: int = 14) -> bool:
+    def recall_preset_position(
+        self, preset_number: int, pan_speed: int = 18, tilt_speed: int = 14
+    ) -> bool:
         """
         Recall preset position (1-254)
         This command IS supported by BirdDog cameras
@@ -470,8 +478,9 @@ class ViscaIP:
         """
         if preset_number < 0 or preset_number > 254:
             return False
-        print(
-            f"[VISCA] Recalling preset #{preset_number} with speed pan={pan_speed}, tilt={tilt_speed}")
+        logger.debug(
+            f"Recalling preset #{preset_number} with speed pan={pan_speed}, tilt={tilt_speed}"
+        )
         preset_hex = f"{preset_number:02X}"
         pan_hex = f"{pan_speed:02X}"
         tilt_hex = f"{tilt_speed:02X}"
@@ -484,7 +493,7 @@ class ViscaIP:
         """
         if preset_number < 0 or preset_number > 254:
             return False
-        print(f"[VISCA] Storing preset #{preset_number}")
+        logger.debug(f"Storing preset #{preset_number}")
         preset_hex = f"{preset_number:02X}"
         return self.send_command(f"81 01 04 3F 01 {preset_hex} FF")
 
@@ -495,7 +504,7 @@ class ViscaIP:
             ExposureMode.MANUAL: "03",
             ExposureMode.SHUTTER_PRIORITY: "0A",
             ExposureMode.IRIS_PRIORITY: "0B",
-            ExposureMode.BRIGHT: "0D"
+            ExposureMode.BRIGHT: "0D",
         }
         code = mode_codes.get(mode)
         if code:
@@ -555,7 +564,7 @@ class ViscaIP:
             WhiteBalanceMode.INDOOR: "01",
             WhiteBalanceMode.OUTDOOR: "02",
             WhiteBalanceMode.ONE_PUSH: "03",
-            WhiteBalanceMode.MANUAL: "05"
+            WhiteBalanceMode.MANUAL: "05",
         }
         code = mode_codes.get(mode)
         if code:
@@ -597,30 +606,36 @@ class ViscaIP:
             logger.info(f"[{self.ip}] Raw white balance mode response: {response_hex}")
             if len(response_hex) >= 20:
                 visca_response = response_hex[16:]  # Skip header
-                logger.info(f"[{self.ip}] White balance VISCA response (after header): {visca_response}")
+                logger.info(
+                    f"[{self.ip}] White balance VISCA response (after header): {visca_response}"
+                )
                 # Extract last byte before FF terminator (position -4:-2)
                 try:
                     value_hex = visca_response[-4:-2]
                     mode_value = int(value_hex, 16)
-                    logger.info(f"[{self.ip}] Extracted white balance mode value: {mode_value} (hex: {value_hex})")
+                    logger.info(
+                        f"[{self.ip}] Extracted white balance mode value: {mode_value} (hex: {value_hex})"
+                    )
                     mode_map = {
                         0: WhiteBalanceMode.AUTO,
-                        1: WhiteBalanceMode.INDOOR,        # Standard VISCA
-                        2: WhiteBalanceMode.OUTDOOR,       # Standard VISCA
+                        1: WhiteBalanceMode.INDOOR,  # Standard VISCA
+                        2: WhiteBalanceMode.OUTDOOR,  # Standard VISCA
                         3: WhiteBalanceMode.ONE_PUSH,
-                        5: WhiteBalanceMode.MANUAL,        # BirdDog P200 returns 5 for MANUAL
-                        6: WhiteBalanceMode.INDOOR,        # BirdDog returns 6 for INDOOR
-                        10: WhiteBalanceMode.MANUAL        # BirdDog P400 returns 10 (0A hex) for MANUAL
+                        5: WhiteBalanceMode.MANUAL,  # BirdDog P200 returns 5 for MANUAL
+                        6: WhiteBalanceMode.INDOOR,  # BirdDog returns 6 for INDOOR
+                        10: WhiteBalanceMode.MANUAL,  # BirdDog P400 returns 10 (0A hex) for MANUAL
                     }
                     result = mode_map.get(mode_value, WhiteBalanceMode.UNKNOWN)
-                    logger.info(f"[{self.ip}] White balance mode query: {result.name} (value: {mode_value})")
+                    logger.info(
+                        f"[{self.ip}] White balance mode query: {result.name} (value: {mode_value})"
+                    )
                     return result
                 except (ValueError, IndexError) as e:
                     logger.warning(f"[{self.ip}] Failed to parse white balance mode: {e}")
         logger.warning(f"[{self.ip}] White balance mode query failed - no valid response")
         return WhiteBalanceMode.UNKNOWN
 
-    def query_red_gain(self) -> Optional[int]:
+    def query_red_gain(self) -> int | None:
         """Query red gain value (0-255)"""
         response = self.query_command("81 09 04 43 FF")
         if response and len(response) > 3:
@@ -639,7 +654,7 @@ class ViscaIP:
                     pass
         return None
 
-    def query_blue_gain(self) -> Optional[int]:
+    def query_blue_gain(self) -> int | None:
         """Query blue gain value (0-255)"""
         response = self.query_command("81 09 04 44 FF")
         if response and len(response) > 3:
@@ -658,7 +673,7 @@ class ViscaIP:
                     pass
         return None
 
-    def query_backlight_comp(self) -> Optional[bool]:
+    def query_backlight_comp(self) -> bool | None:
         """Query backlight compensation status"""
         response = self.query_command("81 09 04 33 FF")
         if response and len(response) > 2:
@@ -673,7 +688,7 @@ class ViscaIP:
                     pass
         return None
 
-    def query_video_format(self) -> 'VideoFormat':
+    def query_video_format(self) -> "VideoFormat":
         """Query current video format"""
         response = self.query_command("81 09 06 23 FF")
         if response and len(response) > 2:
@@ -691,7 +706,7 @@ class ViscaIP:
                     pass
         return VideoFormat.UNKNOWN
 
-    def set_video_format(self, format: 'VideoFormat') -> bool:
+    def set_video_format(self, format: "VideoFormat") -> bool:
         """Set video format"""
         if format == VideoFormat.UNKNOWN:
             return False

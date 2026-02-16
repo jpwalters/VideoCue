@@ -77,13 +77,14 @@ We welcome feature requests! Please:
 
 ## Areas for Contribution
 
-- **VISCA position query**: Implement PTZ position queries for accurate presets
+- **VISCA position query**: Implement PTZ position queries for accurate presets (current limitation)
 - **Additional camera support**: Test with more VISCA-compatible cameras
 - **Keyboard shortcuts**: Add hotkeys for common operations
 - **Camera nicknames**: User-friendly naming separate from NDI source names
 - **Preset thumbnails**: Visual previews for presets
-- **Unit tests**: Improve test coverage
+- **Unit tests**: Improve test coverage (config validation, VISCA commands)
 - **Documentation**: Examples, tutorials, troubleshooting guides
+- **Performance**: Profile and optimize NDI frame reception pipeline
 
 ## Questions?
 

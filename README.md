@@ -2,6 +2,8 @@
 
 A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video streaming and USB game controller support.
 
+![VideoCue Screenshot](resources/VideoCue-Screenshot.png)
+
 ## Features
 
 ### Camera Control
@@ -359,12 +361,19 @@ ruff.toml                     # Ruff linter configuration
 - **Query-based Testing**: Connection verification uses commands that require responses
 - **Error Resilience**: Global exception handler + try-except in all critical paths
 - **Progress Tracking**: Signals between widgets and main window for loading feedback
-- **Thread Safety**: NDI threads use Qt signals for cross-thread communication
+- **Thread Safety**: 
+  - NDI threads use Qt signals for cross-thread communication
+  - VISCA sequence numbers protected by `_socket_lock` (prevents race conditions)
+  - USB button mappings cached at init (avoids repeated config lookups)
 - **Constants Module**: Centralized configuration (NetworkConstants, UIConstants, HardwareConstants, ViscaConstants)
 - **UI Strings Centralization**: All user-facing text in `ui_strings.py` for consistency and future i18n
 - **Camera Switch Safety**: Configurable auto-stop prevents runaway cameras when switching
 - **Comprehensive Logging**: Python logging framework with file output to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
 - **Query-based Sync**: All camera settings queried after connection to sync UI with camera state
+- **Performance Optimizations**:
+  - Button mapping cache eliminates repeated config lookups during event handling
+  - Frame dropping via Qt signal queuing prevents UI lag during video reception
+  - USB hotplug detection every 5 seconds (non-blocking polling)
 
 ### Adding New Camera Parameters
 

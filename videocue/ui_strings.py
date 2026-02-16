@@ -41,6 +41,8 @@ class UIStrings:
     TOOLTIP_USB_DISCONNECTED = "No USB Controller"
     TOOLTIP_BRIGHTNESS_INCREASE = "Increase Brightness"
     TOOLTIP_BRIGHTNESS_DECREASE = "Decrease Brightness"
+    TOOLTIP_FOCUS_ONE_PUSH = "One-Push Auto Focus"
+    TOOLTIP_STOP_MOVEMENT = "Stop Camera Movement"
 
     # Camera Controls
     CTRL_PTZ_CONTROLS = "<b>Camera Controls</b>"
@@ -87,7 +89,13 @@ class UIStrings:
     MENU_PERFORMANCE = "Video Performance"
     MENU_HELP = "&Help"
     MENU_ABOUT = "&About"
-
+    # Controller Button Configuration
+    GROUP_FOCUS_BUTTON = "One-Push Auto Focus"
+    GROUP_STOP_BUTTON = "Stop Camera Movement"
+    GROUP_MENU_BUTTON = "Controller Preferences Menu"
+    LBL_FOCUS_BUTTON_MAPPING = "Button Trigger:"
+    LBL_STOP_BUTTON_MAPPING = "Button Trigger:"
+    LBL_MENU_BUTTON_MAPPING = "Button Trigger:"
     # Error Messages
     ERROR_CRITICAL = "Critical Error"
     ERROR_GENERIC = "An unexpected error occurred. The application will attempt to continue."

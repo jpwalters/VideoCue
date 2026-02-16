@@ -1,14 +1,17 @@
 """
 USB game controller support using pygame
 """
-from enum import Enum
-import os
+
+import contextlib
 import logging
+import os
+from enum import Enum
+
 # Suppress pygame welcome message
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import pygame
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
-from videocue.exceptions import USBControllerNotFoundError
+
 from videocue.constants import HardwareConstants
 
 logger = logging.getLogger(__name__)
@@ -16,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 class MovementDirection(Enum):
     """8-direction movement enumeration"""
+
     STOP = 0
     UP = 1
     DOWN = 2
@@ -45,6 +49,7 @@ class USBController(QObject):
     zoom_stop = pyqtSignal()
     stop_movement = pyqtSignal()  # X button for stop
     focus_one_push = pyqtSignal()  # B button for one-push auto focus
+    button_a_pressed = pyqtSignal()  # A button for dialog save
     prev_camera = pyqtSignal()
     next_camera = pyqtSignal()
     brightness_increase = pyqtSignal()
@@ -59,9 +64,9 @@ class USBController(QObject):
         # Initialize pygame with timeout protection
         try:
             # Set environment variable to make pygame quieter
-            os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Disable audio to prevent hangs
-            os.environ['SDL_VIDEODRIVER'] = 'dummy'  # Use dummy video driver for event system
-            
+            os.environ["SDL_AUDIODRIVER"] = "dummy"  # Disable audio to prevent hangs
+            os.environ["SDL_VIDEODRIVER"] = "dummy"  # Use dummy video driver for event system
+
             pygame.init()
             pygame.joystick.init()
             logger.info("pygame initialized successfully")
@@ -74,6 +79,9 @@ class USBController(QObject):
         self._axis_rx = 0.0  # Right stick X (axis 2)
         self._axis_ry = 0.0  # Right stick Y (axis 3)
         self._current_direction = MovementDirection.STOP
+
+        # Cache button mappings from config (avoids repeated lookups)
+        self._button_map = self._load_button_map()
 
         # Event polling timer (60 Hz)
         self.poll_timer = QTimer()
@@ -128,13 +136,10 @@ class USBController(QObject):
                 pygame.JOYAXISMOTION,
                 pygame.JOYHATMOTION,
                 pygame.JOYDEVICEADDED,
-                pygame.JOYDEVICEREMOVED
+                pygame.JOYDEVICEREMOVED,
             ]
 
             events = pygame.event.get(event_types)
-            
-            if events and len(events) > 0:
-                print(f"[USB._poll_events] Polling found {len(events)} events")
 
             for event in events:
                 try:
@@ -162,70 +167,85 @@ class USBController(QObject):
         except Exception as e:
             logger.error(f"Error in polling loop: {e}")
             # Clear the event queue on error to prevent further corruption
-            try:
+            with contextlib.suppress(Exception):
                 pygame.event.clear()
-            except:
-                pass
+
+    def _load_button_map(self) -> dict:
+        """Load button mapping configuration with defaults.
+        
+        Returns:
+            Dictionary mapping button functions to their button numbers
+        """
+        defaults = {
+            'brightness_enabled': True,
+            'brightness_increase': 3,  # Y button
+            'brightness_decrease': 0,  # A button
+            'focus_one_push': 1,  # B button
+            'stop_movement': 2,  # X button
+            'menu': 7,  # Menu/Start button
+        }
+
+        if not self.config:
+            return defaults
+
+        try:
+            usb_config = self.config.get_usb_controller_config()
+            # Merge user config with defaults (user config takes precedence)
+            button_map = {**defaults, **usb_config}
+            logger.debug(f"Loaded button mapping: {button_map}")
+            return button_map
+        except Exception as e:
+            logger.warning(f"Error loading button map, using defaults: {e}")
+            return defaults
 
     def _handle_button_down(self, button: int):
-        """Handle button press"""
-        print(f"[USB] Button {button} pressed")
-        logger.debug(f"[USB] Button {button} pressed")
+        """Handle button press using cached button mapping"""
         self.button_pressed.emit(button)
 
-        # Get brightness settings from config
-        brightness_enabled = False
-        brightness_increase_button = 3  # Default Y button
-        brightness_decrease_button = 0  # Default A button
+        # Button 0 (A button) - emit signal for dialog (before brightness check)
+        if button == 0:
+            self.button_a_pressed.emit()
+            # Don't return - allow brightness_decrease to also work if configured
 
-        if self.config:
-            usb_config = self.config.get_usb_controller_config()
-            brightness_enabled = usb_config.get("brightness_enabled", True)
-            brightness_increase_button = usb_config.get("brightness_increase_button", 3)
-            brightness_decrease_button = usb_config.get("brightness_decrease_button", 0)
+        # Use cached button map for all button checks
+        brightness_enabled = self._button_map.get('brightness_enabled', True)
+        brightness_increase_button = self._button_map.get('brightness_increase', 3)
+        brightness_decrease_button = self._button_map.get('brightness_decrease', 0)
+        focus_one_push_button = self._button_map.get('focus_one_push', 1)
+        stop_movement_button = self._button_map.get('stop_movement', 2)
+        menu_button = self._button_map.get('menu', 7)
 
         # Brightness control (only if enabled)
         if brightness_enabled:
             if button == brightness_increase_button:
-                print(f"[USB] Emitting brightness_increase signal")
-                logger.info(f"[USB] Emitting brightness_increase signal")
                 self.brightness_increase.emit()
-                return  # Don't process other button actions
-            elif button == brightness_decrease_button:
-                print(f"[USB] Emitting brightness_decrease signal")
-                logger.info(f"[USB] Emitting brightness_decrease signal")
+                return
+            if button == brightness_decrease_button:
                 self.brightness_decrease.emit()
-                return  # Don't process other button actions
-        
-        # Button 1 = B button (one-push auto focus)
-        if button == 1:
-            print(f"[USB] Emitting focus_one_push signal (B button)")
-            logger.info(f"[USB] Emitting focus_one_push signal (B button)")
-            self.focus_one_push.emit()
+                return
 
-        # Button 2 = X button (stop movement)
-        elif button == 2:
-            print(f"[USB] Emitting stop_movement signal (X button)")
-            logger.info(f"[USB] Emitting stop_movement signal (X button)")
+        # B Button (focus one-push)
+        if focus_one_push_button is not None and button == focus_one_push_button:
+            self.focus_one_push.emit()
+            return
+
+        # X Button (stop movement)
+        if stop_movement_button is not None and button == stop_movement_button:
             self.stop_movement.emit()
+            return
 
         # Button 4 = LB/L1 (prev camera)
-        elif button == 4:
-            print(f"[USB] Emitting prev_camera signal (LB button)")
-            logger.info(f"[USB] Emitting prev_camera signal (LB button)")
+        if button == 4:
             self.prev_camera.emit()
 
         # Button 5 = RB/R1 (next camera)
         elif button == 5:
-            print(f"[USB] Emitting next_camera signal (RB button)")
-            logger.info(f"[USB] Emitting next_camera signal (RB button)")
             self.next_camera.emit()
 
-        # Button 7 = Menu/Start (controller preferences)
-        elif button == 7:
-            print(f"[USB] Emitting menu_button_pressed signal (Menu button)")
-            logger.info(f"[USB] Emitting menu_button_pressed signal (Menu button)")
+        # Menu Button (controller preferences)
+        if menu_button is not None and button == menu_button:
             self.menu_button_pressed.emit()
+            return
 
     def _handle_button_up(self, button: int):
         """Handle button release"""

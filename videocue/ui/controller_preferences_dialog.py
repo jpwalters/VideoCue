@@ -1,12 +1,26 @@
 """
 Controller Preferences Dialog
 """
+
 import logging
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QSlider, QCheckBox, QComboBox, QPushButton, QFormLayout, QSpinBox, QScrollArea, QWidget
-)
+
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
 from videocue.ui_strings import UIStrings
 
 logger = logging.getLogger(__name__)
@@ -20,8 +34,8 @@ class ControllerPreferencesDialog(QDialog):
         self.config = config
         self.usb_controller = usb_controller
         self.save_button = None  # Will be set in init_ui
-        
-        print("[PrefsDialog.__init__] Starting...")
+
+        logger.debug("ControllerPreferencesDialog: Starting initialization...")
         self.setWindowTitle(UIStrings.DIALOG_PREFERENCES)
         self.setModal(False)  # NON-MODAL so signals are processed while dialog is visible
         self.setMinimumWidth(500)
@@ -29,8 +43,8 @@ class ControllerPreferencesDialog(QDialog):
 
         self.init_ui()
         self.load_preferences()
-        
-        print("[PrefsDialog.__init__] UI initialized, setting stylesheet...")
+
+        logger.debug("ControllerPreferencesDialog: UI initialized, setting stylesheet...")
         # Set up orange focus stylesheet
         self.setStyleSheet("""
             QSlider:focus, QCheckBox:focus, QComboBox:focus, QSpinBox:focus, QPushButton:focus {
@@ -43,34 +57,28 @@ class ControllerPreferencesDialog(QDialog):
                 border-radius: 4px;
             }
         """)
-        
-        print("[PrefsDialog.__init__] Connecting controller signals...")
+
+        logger.debug("ControllerPreferencesDialog: Connecting controller signals...")
         # Connect controller signals for navigation and adjustment while dialog is open
         if self.usb_controller:
-            print("[PrefsDialog] USB controller found, connecting signals...")
-            logger.info("[PrefsDialog] USB controller found, connecting signals...")
-            # B button to save
+            logger.info("ControllerPreferencesDialog: USB controller found, connecting signals...")
+            # A button to save
+            self.usb_controller.button_a_pressed.connect(self.on_a_button_pressed)
+            logger.debug("ControllerPreferencesDialog: Connected button_a_pressed signal")
+            # D-Pad for navigation and slider adjustment
+            self.usb_controller.movement_direction.connect(self.on_movement_direction)
+            logger.debug("ControllerPreferencesDialog: Connected movement_direction signal")
+            # X button to cancel
+            self.usb_controller.stop_movement.connect(self.on_x_button_pressed)
+            logger.debug("ControllerPreferencesDialog: Connected stop_movement signal for X button")
+            # B button to toggle checkboxes
             self.usb_controller.focus_one_push.connect(self.on_b_button_pressed)
-            print("[PrefsDialog] Connected focus_one_push signal")
-            logger.info("[PrefsDialog] Connected focus_one_push signal")
-            # Navigation buttons (D-Pad and Joystick for Tab navigation)
-            self.usb_controller.prev_camera.connect(self.navigate_previous)
-            print("[PrefsDialog] Connected prev_camera signal")
-            logger.info("[PrefsDialog] Connected prev_camera signal")
-            self.usb_controller.next_camera.connect(self.navigate_next)
-            print("[PrefsDialog] Connected next_camera signal")
-            logger.info("[PrefsDialog] Connected next_camera signal")
-            # Brightness buttons for slider adjustment
-            self.usb_controller.brightness_increase.connect(self.on_brightness_increase)
-            print("[PrefsDialog] Connected brightness_increase signal")
-            logger.info("[PrefsDialog] Connected brightness_increase signal")
-            self.usb_controller.brightness_decrease.connect(self.on_brightness_decrease)
-            print("[PrefsDialog] Connected brightness_decrease signal")
-            logger.info("[PrefsDialog] Connected brightness_decrease signal")
+            logger.debug(
+                "ControllerPreferencesDialog: Connected focus_one_push signal for B button"
+            )
         else:
-            print("[PrefsDialog] ERROR: No USB controller provided!")
-            logger.warning("[PrefsDialog] No USB controller provided!")
-        print("[PrefsDialog.__init__] Complete, ready for exec()")
+            logger.warning("ControllerPreferencesDialog: No USB controller provided!")
+        logger.debug("ControllerPreferencesDialog: Initialization complete, ready for display")
 
     def init_ui(self):
         """Initialize the UI"""
@@ -79,19 +87,21 @@ class ControllerPreferencesDialog(QDialog):
         # Controller usage instructions
         instructions_label = QLabel(
             "Controller Usage:\n"
-            "• LB/RB (prev/next camera buttons) = Navigate between controls\n"
-            "• A Button = Toggle checkboxes\n"
-            "• Y Button (brightness+) = Increase slider values\n"
-            "• X Button (brightness-) = Decrease slider values\n"
-            "• B Button = Save and close this window\n"
+            "• D-Pad Up/Down = Navigate between controls\n"
+            "• D-Pad Left/Right = Adjust slider values\n"
+            "• A Button = Save and close this window\n"
+            "• B Button = Toggle checkbox (when focused)\n"
+            "• X Button = Cancel and close this window\n"
             "• Orange border shows which control is selected"
         )
-        instructions_label.setStyleSheet("font-size: 9px; color: #888; background-color: #2a2a2a; padding: 8px; border-radius: 4px;")
+        instructions_label.setStyleSheet(
+            "font-size: 9px; color: #888; background-color: #2a2a2a; padding: 8px; border-radius: 4px;"
+        )
         main_layout.addWidget(instructions_label)
 
         # Scrollable content area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
         scroll_widget = QWidget()
         layout = QVBoxLayout(scroll_widget)
 
@@ -220,11 +230,76 @@ class ControllerPreferencesDialog(QDialog):
         brightness_group.setLayout(brightness_layout)
         layout.addWidget(brightness_group)
 
+        # B Button Control Group
+        b_button_group = QGroupBox(UIStrings.GROUP_FOCUS_BUTTON)
+        b_button_layout = QFormLayout()
+
+        # Button mapping for B button (focus one-push)
+        self.focus_one_push_button_combo = QComboBox()
+        self.focus_one_push_button_combo.addItem("None", None)
+        self.focus_one_push_button_combo.addItem("Button 0 (A/Cross)", 0)
+        self.focus_one_push_button_combo.addItem("Button 1 (B/Circle)", 1)
+        self.focus_one_push_button_combo.addItem("Button 2 (X/Square)", 2)
+        self.focus_one_push_button_combo.addItem("Button 3 (Y/Triangle)", 3)
+        self.focus_one_push_button_combo.addItem("Button 6 (Back/Select)", 6)
+        self.focus_one_push_button_combo.addItem("Button 7 (Start)", 7)
+        self.focus_one_push_button_combo.addItem("Button 8 (Left Stick)", 8)
+        self.focus_one_push_button_combo.addItem("Button 9 (Right Stick)", 9)
+        self.focus_one_push_button_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        b_button_layout.addRow(UIStrings.LBL_FOCUS_BUTTON_MAPPING, self.focus_one_push_button_combo)
+
+        b_button_group.setLayout(b_button_layout)
+        layout.addWidget(b_button_group)
+
+        # X Button Control Group
+        x_button_group = QGroupBox(UIStrings.GROUP_STOP_BUTTON)
+        x_button_layout = QFormLayout()
+
+        # Button mapping for X button (stop movement)
+        self.stop_movement_button_combo = QComboBox()
+        self.stop_movement_button_combo.addItem("None", None)
+        self.stop_movement_button_combo.addItem("Button 0 (A/Cross)", 0)
+        self.stop_movement_button_combo.addItem("Button 1 (B/Circle)", 1)
+        self.stop_movement_button_combo.addItem("Button 2 (X/Square)", 2)
+        self.stop_movement_button_combo.addItem("Button 3 (Y/Triangle)", 3)
+        self.stop_movement_button_combo.addItem("Button 6 (Back/Select)", 6)
+        self.stop_movement_button_combo.addItem("Button 7 (Start)", 7)
+        self.stop_movement_button_combo.addItem("Button 8 (Left Stick)", 8)
+        self.stop_movement_button_combo.addItem("Button 9 (Right Stick)", 9)
+        self.stop_movement_button_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        x_button_layout.addRow(UIStrings.LBL_STOP_BUTTON_MAPPING, self.stop_movement_button_combo)
+
+        x_button_group.setLayout(x_button_layout)
+        layout.addWidget(x_button_group)
+
+        # Menu Button Control Group
+        menu_button_group = QGroupBox(UIStrings.GROUP_MENU_BUTTON)
+        menu_button_layout = QFormLayout()
+
+        # Button mapping for Menu button (controller preferences)
+        self.menu_button_combo = QComboBox()
+        self.menu_button_combo.addItem("None", None)
+        self.menu_button_combo.addItem("Button 0 (A/Cross)", 0)
+        self.menu_button_combo.addItem("Button 1 (B/Circle)", 1)
+        self.menu_button_combo.addItem("Button 2 (X/Square)", 2)
+        self.menu_button_combo.addItem("Button 3 (Y/Triangle)", 3)
+        self.menu_button_combo.addItem("Button 6 (Back/Select)", 6)
+        self.menu_button_combo.addItem("Button 7 (Start)", 7)
+        self.menu_button_combo.addItem("Button 8 (Left Stick)", 8)
+        self.menu_button_combo.addItem("Button 9 (Right Stick)", 9)
+        self.menu_button_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        menu_button_layout.addRow(UIStrings.LBL_MENU_BUTTON_MAPPING, self.menu_button_combo)
+
+        menu_button_group.setLayout(menu_button_layout)
+        layout.addWidget(menu_button_group)
+
         # Video Streaming Group
         video_group = QGroupBox("Video Streaming")
         video_layout = QFormLayout()
 
-        self.ndi_video_enabled_checkbox = QCheckBox("Enable NDI video streaming (requires NDI Runtime)")
+        self.ndi_video_enabled_checkbox = QCheckBox(
+            "Enable NDI video streaming (requires NDI Runtime)"
+        )
         self.ndi_video_enabled_checkbox.setToolTip(
             "Enable or disable NDI video streaming globally.\n"
             "When disabled, cameras will operate in IP control mode only.\n"
@@ -257,9 +332,10 @@ class ControllerPreferencesDialog(QDialog):
         tips_label = QLabel(
             "Quick Tips:\n"
             "• Most users only need to adjust the three speed sliders above\n"
-            "• Use Tab to navigate, Arrow keys to adjust slider values\n"
-            "• Press Space to toggle checkboxes\n"
-            "• Press Enter or click Save when done"
+            "• Use D-Pad Up/Down to navigate between controls (or Tab with keyboard)\n"
+            "• Use D-Pad Left/Right to adjust slider values (or Arrow keys with keyboard)\n"
+            "• Press A button or spacebar to toggle checkboxes\n"
+            "• Press A button to save and close, or press Enter (keyboard)"
         )
         tips_label.setStyleSheet("color: #aaa; font-size: 9px; margin-top: 10px;")
         tips_label.setWordWrap(True)
@@ -268,34 +344,46 @@ class ControllerPreferencesDialog(QDialog):
         layout.addStretch()
 
         # Add scroll area to main layout
-        scroll_area.setWidget(scroll_widget)
-        main_layout.addWidget(scroll_area)
+        self.scroll_area.setWidget(scroll_widget)
+        main_layout.addWidget(self.scroll_area)
 
         # Buttons (large, easy to press)
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        cancel_button = QPushButton("Cancel")
+        cancel_button = QPushButton("Cancel (X)")
         cancel_button.setMinimumHeight(40)
         cancel_button.setMinimumWidth(100)
         cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(cancel_button)
+        self.cancel_button = cancel_button  # Store reference for X button handler
 
-        save_button = QPushButton("Save")
+        save_button = QPushButton("Save (A)")
         save_button.setMinimumHeight(40)
         save_button.setMinimumWidth(100)
         save_button.clicked.connect(self.save_preferences)
         save_button.setDefault(True)
-        save_button.setStyleSheet("QPushButton { font-weight: bold; background-color: #0d47a1; color: white; }"+
-                                   "QPushButton:focus { border: 2px solid #FF8800; }")
+        save_button.setStyleSheet(
+            "QPushButton { font-weight: bold; background-color: #0d47a1; color: white; }"
+            + "QPushButton:focus { border: 2px solid #FF8800; }"
+        )
         save_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.save_button = save_button  # Store reference for B button handler
+        self.save_button = save_button  # Store reference for A button handler
         button_layout.addWidget(save_button)
 
         main_layout.addLayout(button_layout)
 
         # Set initial focus to first speed slider
         self.dpad_slider.setFocus()
+
+        # Connect combobox signals to update button availability
+        self.brightness_increase_combo.currentIndexChanged.connect(self.update_button_availability)
+        self.brightness_decrease_combo.currentIndexChanged.connect(self.update_button_availability)
+        self.focus_one_push_button_combo.currentIndexChanged.connect(
+            self.update_button_availability
+        )
+        self.stop_movement_button_combo.currentIndexChanged.connect(self.update_button_availability)
+        self.menu_button_combo.currentIndexChanged.connect(self.update_button_availability)
 
     def update_dpad_label(self, value):
         """Update D-pad speed label"""
@@ -311,6 +399,57 @@ class ControllerPreferencesDialog(QDialog):
         """Update zoom speed label"""
         speed = value / 100.0
         self.zoom_value_label.setText(f"{speed:.1f}")
+
+    def update_button_availability(self):
+        """Update which button options are enabled/disabled based on selections"""
+        # Get all currently selected buttons (excluding None)
+        selected_buttons = {}
+        selected_buttons["brightness_increase"] = self.brightness_increase_combo.currentData()
+        selected_buttons["brightness_decrease"] = self.brightness_decrease_combo.currentData()
+        selected_buttons["focus_one_push"] = self.focus_one_push_button_combo.currentData()
+        selected_buttons["stop_movement"] = self.stop_movement_button_combo.currentData()
+        selected_buttons["menu"] = self.menu_button_combo.currentData()
+
+        # List of all button comboboxes
+        all_combos = [
+            (self.brightness_increase_combo, "brightness_increase"),
+            (self.brightness_decrease_combo, "brightness_decrease"),
+            (self.focus_one_push_button_combo, "focus_one_push"),
+            (self.stop_movement_button_combo, "stop_movement"),
+            (self.menu_button_combo, "menu"),
+        ]
+
+        # Update each combobox to disable already-selected buttons
+        for combo, combo_key in all_combos:
+            # Get the model of the combobox
+            model = combo.model()
+            if model is None:
+                continue
+
+            for row in range(combo.count()):
+                item = model.item(row)
+                if item is None:
+                    continue
+
+                button_value = combo.itemData(row)
+
+                # Always enable None items
+                if button_value is None:
+                    item.setEnabled(True)
+                    continue
+
+                # Check if this button is selected by another combo
+                is_used_elsewhere = False
+                for _other_combo, other_key in all_combos:
+                    if other_key != combo_key:  # Don't compare with itself
+                        other_value = selected_buttons[other_key]
+                        # Only compare non-None values
+                        if other_value is not None and other_value == button_value:
+                            is_used_elsewhere = True
+                            break
+
+                # Enable/disable the item based on whether it's used elsewhere
+                item.setEnabled(not is_used_elsewhere)
 
     def load_preferences(self):
         """Load current preferences from config"""
@@ -357,93 +496,97 @@ class ControllerPreferencesDialog(QDialog):
         if index >= 0:
             self.brightness_decrease_combo.setCurrentIndex(index)
 
+        # Load B button (focus one-push) settings
+        focus_one_push_button = usb_config.get("focus_one_push_button", 1)
+        index = self.focus_one_push_button_combo.findData(focus_one_push_button)
+        if index >= 0:
+            self.focus_one_push_button_combo.setCurrentIndex(index)
+
+        # Load X button (stop movement) settings
+        stop_movement_button = usb_config.get("stop_movement_button", 2)
+        index = self.stop_movement_button_combo.findData(stop_movement_button)
+        if index >= 0:
+            self.stop_movement_button_combo.setCurrentIndex(index)
+
+        # Load Menu button settings
+        menu_button = usb_config.get("menu_button", 7)
+        index = self.menu_button_combo.findData(menu_button)
+        if index >= 0:
+            self.menu_button_combo.setCurrentIndex(index)
+
         # Load NDI video enabled setting
         ndi_video_enabled = self.config.get_ndi_video_enabled()
         self.ndi_video_enabled_checkbox.setChecked(ndi_video_enabled)
 
-    def on_b_button_pressed(self):
-        """Handle B button press to save preferences"""
-        print("[PrefsDialog.on_b_button_pressed] === SIGNAL HANDLER CALLED ===")
-        logger.info("[PrefsDialog] B button pressed, saving preferences...")
+        # Update button availability after loading all preferences
+        self.update_button_availability()
+
+    def on_a_button_pressed(self):
+        """Handle A button press to save preferences"""
         self.save_preferences()
 
-    def navigate_previous(self):
-        """Navigate to previous control (Shift+Tab)"""
-        print("[PrefsDialog.navigate_previous] === SIGNAL HANDLER CALLED ===")
-        logger.info("[PrefsDialog] LB button pressed, navigating to previous control")
-        focused = self.focusWidget()
-        print(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
-        logger.info(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
-        self.focusPreviousChild()
-        new_focused = self.focusWidget()
-        print(f"[PrefsDialog] New focused widget: {type(new_focused).__name__ if new_focused else 'None'}")
-        logger.info(f"[PrefsDialog] New focused widget: {type(new_focused).__name__ if new_focused else 'None'}")
+    def on_x_button_pressed(self):
+        """Handle X button press to cancel preferences"""
+        self.reject()
 
-    def navigate_next(self):
-        """Navigate to next control (Tab)"""
-        print("[PrefsDialog.navigate_next] === SIGNAL HANDLER CALLED ===")
-        logger.info("[PrefsDialog] RB button pressed, navigating to next control")
+    def on_b_button_pressed(self):
+        """Handle B button press to toggle focused checkbox"""
         focused = self.focusWidget()
-        print(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
-        logger.info(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
-        self.focusNextChild()
-        new_focused = self.focusWidget()
-        print(f"[PrefsDialog] New focused widget: {type(new_focused).__name__ if new_focused else 'None'}")
-        logger.info(f"[PrefsDialog] New focused widget: {type(new_focused).__name__ if new_focused else 'None'}")
+        if isinstance(focused, QCheckBox):
+            focused.setChecked(not focused.isChecked())
+
+    def on_movement_direction(self, direction, speed):
+        """Handle D-pad for field navigation and slider adjustment"""
+        from videocue.controllers.usb_controller import MovementDirection
+
+        if direction == MovementDirection.UP:
+            self.focusPreviousChild()
+            new_focused = self.focusWidget()
+            # Ensure newly focused widget is visible in scroll area
+            if new_focused and self.scroll_area:
+                self.scroll_area.ensureWidgetVisible(new_focused)
+        elif direction == MovementDirection.DOWN:
+            self.focusNextChild()
+            new_focused = self.focusWidget()
+            # Ensure newly focused widget is visible in scroll area
+            if new_focused and self.scroll_area:
+                self.scroll_area.ensureWidgetVisible(new_focused)
+        elif direction == MovementDirection.RIGHT:
+            focused = self.focusWidget()
+            if isinstance(focused, QSlider):
+                focused.setValue(min(focused.value() + 5, focused.maximum()))
+        elif direction == MovementDirection.LEFT:
+            focused = self.focusWidget()
+            if isinstance(focused, QSlider):
+                focused.setValue(max(focused.value() - 5, focused.minimum()))
 
     def on_brightness_increase(self):
         """Increase slider value when brightness_increase button pressed"""
-        print("[PrefsDialog.on_brightness_increase] === SIGNAL HANDLER CALLED ===")
-        logger.info("[PrefsDialog] Y button pressed (brightness_increase)")
         focused = self.focusWidget()
-        print(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
-        logger.info(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
         if isinstance(focused, QSlider):
-            old_val = focused.value()
             focused.setValue(min(focused.value() + 5, focused.maximum()))
-            print(f"[PrefsDialog] Slider adjusted: {old_val} -> {focused.value()}")
-            logger.info(f"[PrefsDialog] Slider adjusted: {old_val} -> {focused.value()}")
-        else:
-            print(f"[PrefsDialog] Focused widget is not a slider, ignoring")
-            logger.info(f"[PrefsDialog] Focused widget is not a slider, ignoring")
 
     def on_brightness_decrease(self):
         """Decrease slider value when brightness_decrease button pressed"""
-        print("[PrefsDialog.on_brightness_decrease] === SIGNAL HANDLER CALLED ===")
-        logger.info("[PrefsDialog] X button pressed (brightness_decrease)")
         focused = self.focusWidget()
-        print(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
-        logger.info(f"[PrefsDialog] Currently focused widget: {type(focused).__name__ if focused else 'None'}")
         if isinstance(focused, QSlider):
-            old_val = focused.value()
             focused.setValue(max(focused.value() - 5, focused.minimum()))
-            print(f"[PrefsDialog] Slider adjusted: {old_val} -> {focused.value()}")
-            logger.info(f"[PrefsDialog] Slider adjusted: {old_val} -> {focused.value()}")
-        else:
-            print(f"[PrefsDialog] Focused widget is not a slider, ignoring")
-            logger.info(f"[PrefsDialog] Focused widget is not a slider, ignoring")
 
     def closeEvent(self, event):
         """Clean up when dialog closes"""
-        print("[PrefsDialog.closeEvent] Dialog closing...")
         # Disconnect all controller signals when dialog closes
         if self.usb_controller:
             try:
+                self.usb_controller.button_a_pressed.disconnect(self.on_a_button_pressed)
+                self.usb_controller.movement_direction.disconnect(self.on_movement_direction)
+                self.usb_controller.stop_movement.disconnect(self.on_x_button_pressed)
                 self.usb_controller.focus_one_push.disconnect(self.on_b_button_pressed)
-                self.usb_controller.prev_camera.disconnect(self.navigate_previous)
-                self.usb_controller.next_camera.disconnect(self.navigate_next)
-                self.usb_controller.brightness_increase.disconnect(self.on_brightness_increase)
-                self.usb_controller.brightness_decrease.disconnect(self.on_brightness_decrease)
-                print("[PrefsDialog.closeEvent] Disconnected all signals")
             except TypeError:
                 pass  # Already disconnected
         super().closeEvent(event)
-        print("[PrefsDialog.closeEvent] Dialog close complete")
 
     def showEvent(self, event):
         """Called when dialog becomes visible"""
-        print("[PrefsDialog.showEvent] Dialog is now VISIBLE and RESPONSIVE, ready for controller input...")
-        logger.info("[PrefsDialog.showEvent] Dialog is now VISIBLE and RESPONSIVE, ready for controller input...")
         super().showEvent(event)
 
     def save_preferences(self):
@@ -467,6 +610,15 @@ class ControllerPreferencesDialog(QDialog):
         usb_config["brightness_increase_button"] = self.brightness_increase_combo.currentData()
         usb_config["brightness_decrease_button"] = self.brightness_decrease_combo.currentData()
 
+        # Save B button (focus one-push) settings
+        usb_config["focus_one_push_button"] = self.focus_one_push_button_combo.currentData()
+
+        # Save X button (stop movement) settings
+        usb_config["stop_movement_button"] = self.stop_movement_button_combo.currentData()
+
+        # Save Menu button settings
+        usb_config["menu_button"] = self.menu_button_combo.currentData()
+
         # Save stop on camera switch setting
         usb_config["stop_on_camera_switch"] = self.stop_on_switch_checkbox.isChecked()
 
@@ -474,7 +626,7 @@ class ControllerPreferencesDialog(QDialog):
         self.config.set_ndi_video_enabled(self.ndi_video_enabled_checkbox.isChecked())
 
         self.config.save()
-        
+
         # Close dialog (emits finished signal)
         self.accept()
         self.accept()

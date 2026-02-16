@@ -2,11 +2,13 @@
 
 ## Supported Versions
 
-Currently, this project is in initial release. Security updates will be provided for the latest version.
+Currently, this project is in active development. Security updates will be provided for the latest version.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| Latest  | :white_check_mark: |
+| 0.4.x   | :white_check_mark: |
+| 0.3.x   | :warning:          |
+| <0.3    | :x:                |
 
 ## Reporting a Vulnerability
 

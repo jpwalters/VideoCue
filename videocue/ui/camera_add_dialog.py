@@ -1,13 +1,24 @@
 """
 Camera add dialog for discovering and adding cameras"""
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QCheckBox,
-    QLineEdit, QPushButton, QScrollArea, QWidget, QLabel
-)
+
+import logging
+
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from videocue.controllers.ndi_video import find_ndi_cameras, ndi_available
-from videocue.ui_strings import UIStrings
+
+logger = logging.getLogger(__name__)
 
 
 class NDIDiscoveryThread(QThread):
@@ -28,32 +39,30 @@ class NDIDiscoveryThread(QThread):
     def run(self):
         """Discover cameras in background"""
         try:
-            print(f"[DiscoveryThread {id(self)}] Starting NDI discovery with {self.timeout_ms}ms timeout")
+            logger.debug(f"Starting NDI discovery with {self.timeout_ms}ms timeout")
             cameras = find_ndi_cameras(self.timeout_ms)
-            print(f"[DiscoveryThread {id(self)}] Discovery complete, found {len(cameras)} cameras")
-            
+            logger.debug(f"Discovery complete, found {len(cameras)} cameras")
+
             # Add explicit logging and error handling around signal emission
             try:
-                print(f"[DiscoveryThread {id(self)}] About to emit cameras_found signal with {len(cameras)} cameras...")
+                logger.debug(f"About to emit cameras_found signal with {len(cameras)} cameras...")
                 self.cameras_found.emit(cameras)
-                print(f"[DiscoveryThread {id(self)}] Signal emitted successfully")
-            except Exception as signal_error:
-                import traceback
-                print(f"[DiscoveryThread {id(self)}] CRITICAL: Failed to emit signal: {signal_error}")
-                traceback.print_exc()
+                logger.debug("Signal emitted successfully")
+            except Exception:
+                logger.exception("CRITICAL: Failed to emit signal")
                 raise
-                
+
         except Exception as e:
             import traceback
+
             error_msg = f"Discovery failed: {str(e)}"
-            print(f"[DiscoveryThread {id(self)}] ERROR: {error_msg}")
+            logger.exception("Error during NDI discovery")
             traceback.print_exc()
             try:
                 self.error_occurred.emit(error_msg)
                 self.cameras_found.emit([])  # Emit empty list on error
-            except Exception as emit_error:
-                print(f"[DiscoveryThread {id(self)}] CRITICAL: Failed to emit error signal: {emit_error}")
-                traceback.print_exc()
+            except Exception:
+                logger.exception("CRITICAL: Failed to emit error signal")
 
 
 class CameraAddDialog(QDialog):
@@ -127,43 +136,44 @@ class CameraAddDialog(QDialog):
         button_layout.addWidget(ok_button)
 
         layout.addLayout(button_layout)
-    
+
     def start_search(self):
         """Start camera search with loading animation"""
         try:
             from PyQt6.QtCore import QTimer
-            
+
             # If a search is already running, don't start another
             if self._search_in_progress:
-                print("[CameraAddDialog] Search already in progress, ignoring request")
+                logger.debug("Search already in progress, ignoring request")
                 return
-            
+
             if self.discovery_thread and self.discovery_thread.isRunning():
-                print("[CameraAddDialog] Discovery thread still running, ignoring request")
+                logger.debug("Discovery thread still running, ignoring request")
                 return
-            
+
             self._search_in_progress = True
-            
+
             # Disable search button IMMEDIATELY
             if self.search_button:
                 self.search_button.setEnabled(False)
                 self.search_button.setText("Searching.")
-            
+
             # Start loading animation IMMEDIATELY
             self.loading_dots = 1  # Start at 1 since we already show one dot
             if self.loading_timer:
                 self.loading_timer.stop()
-            
+
             self.loading_timer = QTimer()
             self.loading_timer.timeout.connect(self._update_loading_animation)
             self.loading_timer.start(500)  # Update every 500ms
-            
+
             # Defer the actual search to next event loop iteration
             # This ensures UI updates (button disable, text change) happen immediately
             QTimer.singleShot(10, lambda: self.load_camera_list(quick=False))
         except Exception as e:
             import traceback
-            print(f"[CameraAddDialog] Error starting search: {e}")
+
+            logger.exception("Error starting search")
             traceback.print_exc()
             # Re-enable search button on error
             self._search_in_progress = False
@@ -172,6 +182,7 @@ class CameraAddDialog(QDialog):
                 self.search_button.setText("Search")
             # Show error to user
             from PyQt6.QtWidgets import QMessageBox
+
             QMessageBox.warning(self, "Search Error", f"Failed to start camera search:\n{str(e)}")
 
     def _update_loading_animation(self):
@@ -181,8 +192,8 @@ class CameraAddDialog(QDialog):
                 self.loading_dots = (self.loading_dots + 1) % 4
                 dots = "." * self.loading_dots
                 self.search_button.setText(f"Searching{dots}")
-        except Exception as e:
-            print(f"[CameraAddDialog] Error updating animation: {e}")
+        except Exception:
+            logger.exception("Error updating animation")
 
     def load_camera_list(self, quick: bool = True, skip_discovery: bool = False):
         """Load NDI cameras and populate list"""
@@ -198,7 +209,7 @@ class CameraAddDialog(QDialog):
                     break
                 if widget and (isinstance(widget, QCheckBox) or isinstance(widget, QLabel)):
                     items_to_remove.append(widget)
-            
+
             # Delete widgets immediately to prevent accumulation
             for widget in items_to_remove:
                 try:
@@ -218,15 +229,15 @@ class CameraAddDialog(QDialog):
             if ndi_available and not skip_discovery:
                 # If a discovery is already running, don't start another
                 if self.discovery_thread and self.discovery_thread.isRunning():
-                    print("[CameraAddDialog] Discovery already in progress, skipping new search")
+                    logger.debug("Discovery already in progress, skipping new search")
                     return
-                
+
                 # Clean up old thread if it exists
                 if self.discovery_thread:
-                    print(f"[CameraAddDialog] Cleaning up old thread {id(self.discovery_thread)}...")
+                    logger.debug(f"Cleaning up old thread {id(self.discovery_thread)}...")
                     # Wait for thread to finish if still running
                     if self.discovery_thread.isRunning():
-                        print("[CameraAddDialog] Waiting for thread to finish...")
+                        logger.debug("Waiting for thread to finish...")
                         self.discovery_thread.wait(2000)
                     # Disconnect all signals
                     try:
@@ -237,17 +248,17 @@ class CameraAddDialog(QDialog):
                     # Delete the thread
                     self.discovery_thread.deleteLater()
                     self.discovery_thread = None
-                    print("[CameraAddDialog] Old thread cleaned up")
-                
+                    logger.debug("Old thread cleaned up")
+
                 # Always create a fresh thread
-                print("[CameraAddDialog] Creating new discovery thread...")
+                logger.debug("Creating new discovery thread...")
                 self.discovery_thread = NDIDiscoveryThread(self)
-                print(f"[CameraAddDialog] Thread object ID: {id(self.discovery_thread)}")
-                print("[CameraAddDialog] Connecting signals...")
+                logger.debug(f"Thread object ID: {id(self.discovery_thread)}")
+                logger.debug("Connecting signals...")
                 self.discovery_thread.cameras_found.connect(self._on_cameras_discovered)
                 self.discovery_thread.error_occurred.connect(self._on_discovery_error)
-                print("[CameraAddDialog] Signals connected")
-                
+                logger.debug("Signals connected")
+
                 # Show loading message at top
                 loading_label = QLabel("Searching for NDI cameras...")
                 loading_label.setStyleSheet("color: lightblue; font-style: italic;")
@@ -256,13 +267,17 @@ class CameraAddDialog(QDialog):
 
                 # Start discovery in background thread
                 timeout = 1000 if quick else 5000
-                print(f"[CameraAddDialog] Setting timeout to {timeout}ms and starting discovery...")
+                logger.debug(f"Setting timeout to {timeout}ms and starting discovery...")
                 self.discovery_thread.set_timeout(timeout)
                 self.discovery_thread.start()
-                print(f"[CameraAddDialog] Discovery thread started. Running: {self.discovery_thread.isRunning()}")
+                logger.debug(
+                    f"Discovery thread started. Running: {self.discovery_thread.isRunning()}"
+                )
             elif skip_discovery and ndi_available:
                 # Show message that discovery is available via search button
-                label = QLabel("Click 'Search' to discover NDI cameras, or enter details manually below")
+                label = QLabel(
+                    "Click 'Search' to discover NDI cameras, or enter details manually below"
+                )
                 label.setStyleSheet("color: lightblue; font-style: italic;")
                 self.list_layout.insertWidget(0, label)
             else:
@@ -272,7 +287,8 @@ class CameraAddDialog(QDialog):
                 self.list_layout.insertWidget(0, label)
         except Exception as e:
             import traceback
-            print(f"[CameraAddDialog] Error loading camera list: {e}")
+
+            logger.exception("Error loading camera list")
             traceback.print_exc()
             # Re-enable search button on error
             if self.loading_timer:
@@ -292,82 +308,84 @@ class CameraAddDialog(QDialog):
     def _on_cameras_discovered(self, ndi_cameras):
         """Handle NDI camera discovery completion"""
         try:
-            print(f"[CameraAddDialog] _on_cameras_discovered called with {len(ndi_cameras)} cameras")
-        except Exception as e:
-            print(f"[CameraAddDialog] ERROR in initial logging: {e}")
-        
+            logger.debug(f"_on_cameras_discovered called with {len(ndi_cameras)} cameras")
+        except Exception:
+            logger.exception("ERROR in initial logging")
+
         # Prevent concurrent processing of results (can happen if multiple discoveries complete)
         if self._processing_results:
-            print("[CameraAddDialog] Already processing results, ignoring duplicate call")
+            logger.debug("Already processing results, ignoring duplicate call")
             return
-        
-        print("[CameraAddDialog] Starting result processing...")
+
+        logger.debug("Starting result processing...")
         self._processing_results = True
         try:
-            print("[CameraAddDialog] Stopping loading animation...")
+            logger.debug("Stopping loading animation...")
             # Stop loading animation
             if self.loading_timer:
                 self.loading_timer.stop()
                 self.loading_timer = None
-            
-            print("[CameraAddDialog] Re-enabling search button...")
+
+            logger.debug("Re-enabling search button...")
             # Re-enable search button
             if self.search_button:
                 self.search_button.setEnabled(True)
                 self.search_button.setText("Search")
-            
-            print(f"[CameraAddDialog] Clearing {len(self.ndi_checkboxes)} existing checkboxes...")
+
+            logger.debug(f"Clearing {len(self.ndi_checkboxes)} existing checkboxes...")
             # Clear ALL existing checkboxes (safer than selective removal)
             for i, checkbox in enumerate(self.ndi_checkboxes):
                 try:
-                    print(f"[CameraAddDialog] Removing checkbox {i}: {checkbox.text()}")
+                    logger.debug(f"Removing checkbox {i}: {checkbox.text()}")
                     self.list_layout.removeWidget(checkbox)
                     checkbox.setParent(None)
                     checkbox.deleteLater()
-                except RuntimeError as e:
-                    print(f"[CameraAddDialog] RuntimeError removing checkbox {i}: {e}")
-                except Exception as e:
-                    print(f"[CameraAddDialog] Unexpected error removing checkbox {i}: {e}")
+                except RuntimeError:
+                    logger.exception(f"RuntimeError removing checkbox {i}")
+                except Exception:
+                    logger.exception(f"Unexpected error removing checkbox {i}")
                     import traceback
+
                     traceback.print_exc()
             self.ndi_checkboxes.clear()
-            print("[CameraAddDialog] Checkboxes cleared")
-            
-            print("[CameraAddDialog] Removing label widgets...")
+            logger.debug("Checkboxes cleared")
+
+            logger.debug("Removing label widgets...")
             # Remove any labels at the top (loading, error, "no cameras" messages)
             items_to_remove = []
             for i in range(self.list_layout.count()):
                 item = self.list_layout.itemAt(i)
                 if item and item.spacerItem():
-                    print(f"[CameraAddDialog] Found spacer at index {i}, stopping label removal")
+                    logger.debug(f"Found spacer at index {i}, stopping label removal")
                     break  # Stop at spacer (before manual IP section)
                 widget = item.widget() if item else None
                 if widget and isinstance(widget, QLabel):
-                    print(f"[CameraAddDialog] Marking label for removal: {widget.text()[:50]}")
+                    logger.debug(f"Marking label for removal: {widget.text()[:50]}")
                     items_to_remove.append(widget)
-            
-            print(f"[CameraAddDialog] Removing {len(items_to_remove)} labels...")
+
+            logger.debug(f"Removing {len(items_to_remove)} labels...")
             for j, widget in enumerate(items_to_remove):
                 try:
-                    print(f"[CameraAddDialog] Removing label {j}...")
+                    logger.debug(f"Removing label {j}...")
                     self.list_layout.removeWidget(widget)
                     widget.setParent(None)
                     widget.deleteLater()
-                except RuntimeError as e:
-                    print(f"[CameraAddDialog] RuntimeError removing label {j}: {e}")
-                except Exception as e:
-                    print(f"[CameraAddDialog] Unexpected error removing label {j}: {e}")
+                except RuntimeError:
+                    logger.exception(f"RuntimeError removing label {j}")
+                except Exception:
+                    logger.exception(f"Unexpected error removing label {j}")
                     import traceback
+
                     traceback.print_exc()
-            
-            print("[CameraAddDialog] Labels removed, adding new content...")
+
+            logger.debug("Labels removed, adding new content...")
             # Add discovered cameras at top
             if ndi_cameras:
-                print(f"[CameraAddDialog] Adding {len(ndi_cameras)} camera checkboxes...")
+                logger.debug(f"Adding {len(ndi_cameras)} camera checkboxes...")
                 for k, camera_name in enumerate(ndi_cameras):
                     try:
-                        print(f"[CameraAddDialog] Creating checkbox {k}: {camera_name}")
-                        
+                        logger.debug(f"Creating checkbox {k}: {camera_name}")
+
                         # Check if camera already exists
                         already_added = self._is_camera_already_added(camera_name)
                         checkbox = QCheckBox(camera_name)
@@ -379,36 +397,32 @@ class CameraAddDialog(QDialog):
                             checkbox.setStyleSheet("color: gray; font-style: italic;")
                         else:
                             checkbox.setChecked(True)  # Selected by default
-                        
+
                         insert_pos = len(self.ndi_checkboxes)
-                        print(f"[CameraAddDialog] Inserting at position {insert_pos}")
+                        logger.debug(f"Inserting at position {insert_pos}")
                         self.list_layout.insertWidget(insert_pos, checkbox)
                         self.ndi_checkboxes.append(checkbox)
-                        print(f"[CameraAddDialog] Checkbox {k} added successfully")
-                    except Exception as e:
-                        print(f"[CameraAddDialog] ERROR adding checkbox {k}: {e}")
+                        logger.debug(f"Checkbox {k} added successfully")
+                    except Exception:
+                        logger.exception(f"ERROR adding checkbox {k}")
                         import traceback
+
                         traceback.print_exc()
             else:
-                print("[CameraAddDialog] No cameras found, adding label...")
+                logger.debug("No cameras found, adding label...")
                 try:
                     label = QLabel("No NDI cameras found")
                     label.setStyleSheet("color: gray; font-style: italic;")
                     self.list_layout.insertWidget(0, label)
-                    print("[CameraAddDialog] 'No cameras' label added")
-                except Exception as e:
-                    print(f"[CameraAddDialog] ERROR adding 'no cameras' label: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            print("[CameraAddDialog] Result processing completed successfully")
+                    logger.debug("'No cameras' label added")
+                except Exception:
+                    logger.exception("ERROR adding 'no cameras' label")
+
+            logger.debug("Result processing completed successfully")
             # Don't call adjustSize() or processEvents() - they can block UI
             # Dialog will resize naturally with content
-        except Exception as e:
-            import traceback
-            print(f"[CameraAddDialog] EXCEPTION in _on_cameras_discovered: {e}")
-            print(f"[CameraAddDialog] Exception type: {type(e).__name__}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("EXCEPTION in _on_cameras_discovered")
             # Re-enable search button on error
             if self.loading_timer:
                 self.loading_timer.stop()
@@ -417,54 +431,52 @@ class CameraAddDialog(QDialog):
                 self.search_button.setEnabled(True)
                 self.search_button.setText("Search")
         finally:
-            print("[CameraAddDialog] Entering finally block, resetting flags...")
+            logger.debug("Resetting search and processing flags")
             # Always reset both flags
             self._search_in_progress = False
             self._processing_results = False
-            print("[CameraAddDialog] Flags reset, _on_cameras_discovered complete")
+            logger.debug("Flags reset, _on_cameras_discovered complete")
 
     def _on_discovery_error(self, error_msg: str):
         """Handle discovery error"""
         try:
-            print(f"[CameraAddDialog] Discovery error: {error_msg}")
-            
+            logger.warning(f"Discovery error: {error_msg}")
+
             # Clear the search in progress flag
             self._search_in_progress = False
-            
+
             # Stop loading animation
             if self.loading_timer:
                 self.loading_timer.stop()
                 self.loading_timer = None
-            
+
             # Re-enable search button
             if self.search_button:
                 self.search_button.setEnabled(True)
                 self.search_button.setText("Search")
-            
+
             # Remove loading label and show error
             for i in range(self.list_layout.count()):
                 item = self.list_layout.itemAt(i)
                 if item and item.widget() and item.widget().objectName() == "loading_label":
                     item.widget().deleteLater()
                     break
-            
+
             # Show error message
             error_label = QLabel(f"Discovery failed: {error_msg}")
             error_label.setStyleSheet("color: red; font-style: italic;")
             self.list_layout.insertWidget(0, error_label)
-        except Exception as e:
-            import traceback
-            print(f"[CameraAddDialog] Error handling discovery error: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling discovery error")
             self._search_in_progress = False
 
     def _is_camera_already_added(self, ndi_name: str) -> bool:
         """Check if camera with this NDI name is already added"""
         for cam_config in self.existing_cameras:
-            if cam_config.get('ndi_source_name') == ndi_name:
+            if cam_config.get("ndi_source_name") == ndi_name:
                 return True
         return False
-    
+
     def _add_manual_ip_section(self):
         """Add the manual IP entry section"""
         # Add separator
@@ -478,10 +490,11 @@ class CameraAddDialog(QDialog):
         self.ndi_name_input = QLineEdit()
         self.ndi_name_input.setPlaceholderText("BIRDDOG-12345 (Channel 1)")
         self.ndi_name_input.setToolTip("Enter NDI source name if discovery is blocked by firewall")
-        
+
         # Auto-check checkbox when typing
         self.ndi_name_input.textChanged.connect(
-            lambda: self.ndi_name_checkbox.setChecked(bool(self.ndi_name_input.text())))
+            lambda: self.ndi_name_checkbox.setChecked(bool(self.ndi_name_input.text()))
+        )
 
         ndi_container.addWidget(self.ndi_name_input)
         self.list_layout.addLayout(ndi_container)
@@ -497,8 +510,8 @@ class CameraAddDialog(QDialog):
         self.ip_input.setMaxLength(15)
 
         # Simple IP validation (allow partial input)
-        from PyQt6.QtGui import QRegularExpressionValidator
         from PyQt6.QtCore import QRegularExpression
+        from PyQt6.QtGui import QRegularExpressionValidator
 
         ip_regex = QRegularExpression(
             r"^(([01]?[0-9]{0,2})|(2[0-4][0-9])|(25[0-5]))?(\.(([01]?[0-9]{0,2})|(2[0-4][0-9])|(25[0-5]))){0,3}$"
@@ -508,7 +521,8 @@ class CameraAddDialog(QDialog):
 
         # Auto-check checkbox when typing
         self.ip_input.textChanged.connect(
-            lambda: self.ip_checkbox.setChecked(bool(self.ip_input.text())))
+            lambda: self.ip_checkbox.setChecked(bool(self.ip_input.text()))
+        )
 
         ip_container.addWidget(self.ip_input)
 
@@ -517,18 +531,14 @@ class CameraAddDialog(QDialog):
 
     def get_selected_ndi_cameras(self):
         """Get list of selected NDI camera names"""
-        cameras = [
-            cb.text()
-            for cb in self.ndi_checkboxes
-            if cb.isChecked()
-        ]
-        
+        cameras = [cb.text() for cb in self.ndi_checkboxes if cb.isChecked()]
+
         # Add manual NDI name if provided
         if self.ndi_name_checkbox and self.ndi_name_checkbox.isChecked():
             ndi_name = self.ndi_name_input.text().strip()
             if ndi_name:
                 cameras.append(ndi_name)
-        
+
         return cameras
 
     def get_ip_address(self):
@@ -536,6 +546,6 @@ class CameraAddDialog(QDialog):
         if self.ip_checkbox and self.ip_checkbox.isChecked():
             ip = self.ip_input.text().strip()
             # Validate it's a complete IP (4 octets)
-            if ip.count('.') == 3:
+            if ip.count(".") == 3:
                 return ip
         return None

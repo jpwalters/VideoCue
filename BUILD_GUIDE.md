@@ -6,7 +6,7 @@ The easiest way to build VideoCue is using the PowerShell build script:
 
 ```powershell
 # Build everything with version update
-.\build.ps1 -Version "0.4.1"
+.\build.ps1 -Version "0.4.2"
 ```
 
 This single command:

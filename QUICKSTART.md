@@ -137,6 +137,7 @@ The configuration includes:
 - **Menu/Start button to open controller preferences dialog**
 - Brightness control (Y/A buttons in Bright mode)
 - **Safe camera switching** (auto-stop previous camera, configurable)
+- **Optimized button handling** - Button mappings cached at init for responsive input
 
 ✅ Multi-camera management
 - Add cameras via NDI discovery or manual IP
@@ -174,6 +175,8 @@ The configuration includes:
 - Ruff linter configuration for fast, accurate linting
 - Type checking with Pyright
 - Automated build script with version management
+- Thread-safe sequence number generation in VISCA protocol
+- Performance optimizations (button mapping cache, frame dropping)
 
 ✅ Dark theme UI (qdarkstyle)
 

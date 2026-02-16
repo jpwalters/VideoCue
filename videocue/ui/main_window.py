@@ -5,7 +5,7 @@ Main application window
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot  # type: ignore
+from PyQt6.QtCore import Qt, pyqtSlot  # type: ignore
 from PyQt6.QtGui import QAction, QActionGroup, QIcon  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QHBoxLayout,
@@ -65,6 +65,9 @@ class MainWindow(QMainWindow):
         self._cameras_initialized = 0
         self._current_progress_step = 0
         self._total_progress_steps = 0
+
+        # USB controller signal handlers (stored for connect/disconnect)
+        self._usb_signal_handlers = {}
 
         # Setup UI
         self.init_ui()
@@ -267,20 +270,41 @@ class MainWindow(QMainWindow):
         try:
             self.usb_controller = USBController(self.config)
 
+            # Store signal handlers for connect/disconnect when dialog opens/closes
+            # We don't disconnect 'connected' and 'disconnected' as they don't affect cameras
+            self._usb_signal_handlers["prev_camera"] = lambda: self.select_camera(-1)
+            self._usb_signal_handlers["next_camera"] = lambda: self.select_camera(1)
+            self._usb_signal_handlers["movement_direction"] = self.on_usb_movement
+            self._usb_signal_handlers["zoom_in"] = self.on_usb_zoom_in
+            self._usb_signal_handlers["zoom_out"] = self.on_usb_zoom_out
+            self._usb_signal_handlers["zoom_stop"] = self.on_usb_zoom_stop
+            self._usb_signal_handlers["stop_movement"] = self.on_usb_stop_movement
+            self._usb_signal_handlers["brightness_increase"] = self.on_usb_brightness_increase
+            self._usb_signal_handlers["brightness_decrease"] = self.on_usb_brightness_decrease
+            self._usb_signal_handlers["focus_one_push"] = self.on_usb_focus_one_push
+            self._usb_signal_handlers["button_a_pressed"] = lambda: None  # Placeholder for dialog
+
             # Connect signals
             self.usb_controller.connected.connect(self.on_usb_connected)
             self.usb_controller.disconnected.connect(self.on_usb_disconnected)
-            self.usb_controller.prev_camera.connect(lambda: self.select_camera(-1))
-            self.usb_controller.next_camera.connect(lambda: self.select_camera(1))
-            self.usb_controller.movement_direction.connect(self.on_usb_movement)
-            self.usb_controller.zoom_in.connect(self.on_usb_zoom_in)
-            self.usb_controller.zoom_out.connect(self.on_usb_zoom_out)
-            self.usb_controller.zoom_stop.connect(self.on_usb_zoom_stop)
-            self.usb_controller.stop_movement.connect(self.on_usb_stop_movement)
-            self.usb_controller.brightness_increase.connect(self.on_usb_brightness_increase)
-            self.usb_controller.brightness_decrease.connect(self.on_usb_brightness_decrease)
-            self.usb_controller.focus_one_push.connect(self.on_usb_focus_one_push)
+            self.usb_controller.prev_camera.connect(self._usb_signal_handlers["prev_camera"])
+            self.usb_controller.next_camera.connect(self._usb_signal_handlers["next_camera"])
+            self.usb_controller.movement_direction.connect(
+                self._usb_signal_handlers["movement_direction"]
+            )
+            self.usb_controller.zoom_in.connect(self._usb_signal_handlers["zoom_in"])
+            self.usb_controller.zoom_out.connect(self._usb_signal_handlers["zoom_out"])
+            self.usb_controller.zoom_stop.connect(self._usb_signal_handlers["zoom_stop"])
+            self.usb_controller.stop_movement.connect(self._usb_signal_handlers["stop_movement"])
+            self.usb_controller.brightness_increase.connect(
+                self._usb_signal_handlers["brightness_increase"]
+            )
+            self.usb_controller.brightness_decrease.connect(
+                self._usb_signal_handlers["brightness_decrease"]
+            )
+            self.usb_controller.focus_one_push.connect(self._usb_signal_handlers["focus_one_push"])
             self.usb_controller.menu_button_pressed.connect(self.show_controller_preferences)
+            # Note: button_a_pressed is only used by preferences dialog and not connected here
 
             # Update UI to reflect current connection state
             if self.usb_controller.joystick is not None:
@@ -288,7 +312,7 @@ class MainWindow(QMainWindow):
                 self._update_usb_indicator(True, name)
 
         except (ImportError, RuntimeError, OSError) as e:
-            print(f"USB controller initialization error: {e}")
+            logger.error(f"USB controller initialization error: {e}")
 
     def showEvent(self, event):
         """Override showEvent to load cameras after UI is visible"""
@@ -320,10 +344,7 @@ class MainWindow(QMainWindow):
 
                 QTimer.singleShot(100, self.load_cameras)
         except Exception as e:
-            import traceback
-
-            print(f"[MainWindow] CRITICAL ERROR in showEvent: {e}")
-            traceback.print_exc()
+            logger.exception("CRITICAL ERROR in showEvent")
             from PyQt6.QtWidgets import QMessageBox
 
             QMessageBox.critical(self, "Startup Error", f"Error during window show:\n{str(e)}")
@@ -442,10 +463,7 @@ class MainWindow(QMainWindow):
 
                 QTimer.singleShot(500, self._hide_loading_indicator)
         except Exception as e:
-            import traceback
-
-            print(f"[MainWindow] ERROR in on_camera_initialized: {e}")
-            traceback.print_exc()
+            logger.exception("ERROR in on_camera_initialized")
             from PyQt6.QtWidgets import QMessageBox
 
             QMessageBox.critical(
@@ -457,15 +475,12 @@ class MainWindow(QMainWindow):
     def _hide_loading_indicator(self):
         """Hide the loading indicator"""
         try:
-            print("[MainWindow] Hiding loading indicator...")
+            logger.debug("Hiding loading indicator...")
             self.loading_label.setVisible(False)
             self.loading_progress.setVisible(False)
-            print("[MainWindow] Loading indicator hidden successfully")
-        except Exception as e:
-            import traceback
-
-            print(f"[MainWindow] ERROR hiding loading indicator: {e}")
-            traceback.print_exc()
+            logger.debug("Loading indicator hidden successfully")
+        except Exception:
+            logger.exception("ERROR hiding loading indicator")
 
     def add_camera_dialog(self):
         """Show add camera dialog"""
@@ -710,11 +725,8 @@ class MainWindow(QMainWindow):
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_movement(direction, speed)
-        except Exception as e:
-            import traceback
-
-            print(f"Error handling USB movement: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB movement")
 
     @pyqtSlot(float)
     def on_usb_zoom_in(self, speed: float):
@@ -723,11 +735,8 @@ class MainWindow(QMainWindow):
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_zoom_in(speed)
-        except Exception as e:
-            import traceback
-
-            print(f"Error handling USB zoom in: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB zoom in")
 
     @pyqtSlot(float)
     def on_usb_zoom_out(self, speed: float):
@@ -736,11 +745,8 @@ class MainWindow(QMainWindow):
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_zoom_out(speed)
-        except Exception as e:
-            import traceback
-
-            print(f"Error handling USB zoom out: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB zoom out")
 
     @pyqtSlot()
     def on_usb_stop_movement(self):
@@ -749,11 +755,8 @@ class MainWindow(QMainWindow):
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_stop()
-        except Exception as e:
-            import traceback
-
-            print(f"Error handling USB stop: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB stop")
 
     @pyqtSlot()
     def on_usb_zoom_stop(self):
@@ -762,11 +765,8 @@ class MainWindow(QMainWindow):
             camera = self.get_selected_camera()
             if camera and camera.is_connected:
                 camera.handle_usb_zoom_stop()
-        except Exception as e:
-            import traceback
-
-            print(f"Error handling USB zoom stop: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error handling USB zoom stop")
 
     @pyqtSlot()
     def on_usb_brightness_increase(self) -> None:
@@ -833,12 +833,9 @@ class MainWindow(QMainWindow):
                     # Update the frame skip on the running thread
                     camera.ndi_thread.frame_skip = skip_value
 
-            print(f"[MainWindow] Video frame skip set to {skip_value}")
-        except Exception as e:
-            import traceback
-
-            print(f"Error handling frame rate change: {e}")
-            traceback.print_exc()
+            logger.debug(f"Video frame skip set to {skip_value}")
+        except Exception:
+            logger.exception("Error handling frame rate change")
 
     def show_about(self):
         """Show about dialog"""
@@ -856,38 +853,74 @@ class MainWindow(QMainWindow):
         """Show controller preferences dialog (non-modal, stays open)"""
         from videocue.ui.controller_preferences_dialog import ControllerPreferencesDialog
 
-        print(f"[MainWindow] show_controller_preferences called. dialog_open={self._preferences_dialog_open}")
-        logger.info(f"[MainWindow] show_controller_preferences called. dialog_open={self._preferences_dialog_open}")
+        logger.info(
+            f"show_controller_preferences called. dialog_open={self._preferences_dialog_open}"
+        )
 
         # If dialog is already open, ignore this menu button press (prevents multiple windows)
         if self._preferences_dialog_open:
-            print("[MainWindow] Dialog already open, ignoring menu press")
-            logger.info("[MainWindow] Dialog already open, ignoring menu press")
+            logger.info("Dialog already open, ignoring menu press")
             return
 
         # Mark dialog as open
         self._preferences_dialog_open = True
-        print("[MainWindow] Opening preferences dialog")
-        logger.info("[MainWindow] Opening preferences dialog")
-        
+        logger.info("Opening preferences dialog")
+
+        # DISABLE ALL CAMERA/CONTROL SIGNALS - only dialog should respond to controller
+        logger.debug("Disconnecting ALL camera control signals")
+        if self.usb_controller:
+            try:
+                self.usb_controller.prev_camera.disconnect()
+                self.usb_controller.next_camera.disconnect()
+                self.usb_controller.movement_direction.disconnect()
+                self.usb_controller.zoom_in.disconnect()
+                self.usb_controller.zoom_out.disconnect()
+                self.usb_controller.zoom_stop.disconnect()
+                self.usb_controller.stop_movement.disconnect()
+                self.usb_controller.brightness_increase.disconnect()
+                self.usb_controller.brightness_decrease.disconnect()
+                self.usb_controller.focus_one_push.disconnect()
+            except TypeError:
+                pass  # Already disconnected
+
         # Always create fresh dialog
-        print(f"[MainWindow] Creating dialog with usb_controller={self.usb_controller}")
-        logger.info(f"[MainWindow] Creating dialog with usb_controller={self.usb_controller}")
-        self.preferences_dialog = ControllerPreferencesDialog(self.config, self, self.usb_controller)
-        
+        logger.debug(f"Creating dialog with usb_controller={self.usb_controller}")
+        self.preferences_dialog = ControllerPreferencesDialog(
+            self.config, self, self.usb_controller
+        )
+
         # Connect finished signal to reset flag when dialog closes
         self.preferences_dialog.finished.connect(self._on_preferences_dialog_closed)
-        
-        print("[MainWindow] Dialog created, calling show() - DIALOG WILL REMAIN OPEN AND RESPONSIVE")
-        logger.info("[MainWindow] Dialog created, calling show() - DIALOG WILL REMAIN OPEN AND RESPONSIVE")
-        
+
+        logger.debug("Dialog created, calling show() - ready for input")
+
         # Use show() instead of exec() so signals are processed while dialog is visible
         self.preferences_dialog.show()
-    
+
     def _on_preferences_dialog_closed(self):
-        """Called when preferences dialog is closed - reset flag"""
-        print("[MainWindow] Preferences dialog closed, flag reset")
-        logger.info("[MainWindow] Preferences dialog closed, flag reset")
+        """Called when preferences dialog is closed - reset flag and reconnect all signals"""
+        logger.info("Preferences dialog closed, reconnecting signals")
+
+        # RECONNECT ALL CAMERA/CONTROL SIGNALS
+        logger.debug("Reconnecting ALL camera control signals")
+        if self.usb_controller and self._usb_signal_handlers:
+            self.usb_controller.prev_camera.connect(self._usb_signal_handlers["prev_camera"])
+            self.usb_controller.next_camera.connect(self._usb_signal_handlers["next_camera"])
+            self.usb_controller.movement_direction.connect(
+                self._usb_signal_handlers["movement_direction"]
+            )
+            self.usb_controller.zoom_in.connect(self._usb_signal_handlers["zoom_in"])
+            self.usb_controller.zoom_out.connect(self._usb_signal_handlers["zoom_out"])
+            self.usb_controller.zoom_stop.connect(self._usb_signal_handlers["zoom_stop"])
+            self.usb_controller.stop_movement.connect(self._usb_signal_handlers["stop_movement"])
+            self.usb_controller.brightness_increase.connect(
+                self._usb_signal_handlers["brightness_increase"]
+            )
+            self.usb_controller.brightness_decrease.connect(
+                self._usb_signal_handlers["brightness_decrease"]
+            )
+            self.usb_controller.focus_one_push.connect(self._usb_signal_handlers["focus_one_push"])
+
         self._preferences_dialog_open = False
 
     def closeEvent(self, event) -> None:

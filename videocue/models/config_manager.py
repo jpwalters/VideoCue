@@ -82,6 +82,13 @@ class ConfigManager:
                 "invert_vertical": False,
                 "joystick_mode": "single",
                 "stop_on_camera_switch": True,
+                "brightness_enabled": True,
+                "brightness_step": 1,
+                "brightness_increase_button": 3,
+                "brightness_decrease_button": 0,
+                "focus_one_push_button": 1,
+                "stop_movement_button": 2,
+                "menu_button": 7,
                 "button_mappings": {
                     "button_4": "prev_camera",
                     "button_5": "next_camera",

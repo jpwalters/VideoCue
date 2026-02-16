@@ -969,7 +969,7 @@ class CameraWidget(QWidget):
 
     def _test_visca_connection(self):
         """Test VISCA connection for IP-only cameras using background thread"""
-        print(f"[Camera] Testing VISCA connection to {self.visca_ip}...")
+        logger.debug(f"Testing VISCA connection to {self.visca_ip}...")
 
         # Emit connection starting signal
         self.connection_starting.emit()
@@ -1023,7 +1023,9 @@ class CameraWidget(QWidget):
         # Stop VISCA test thread
         if self.visca_test_thread:
             try:
-                self.visca_test_thread.wait(timeout=1000)  # Wait up to 1 second for thread to finish
+                self.visca_test_thread.wait(
+                    timeout=1000
+                )  # Wait up to 1 second for thread to finish
             except Exception as e:
                 logger.warning(f"Error stopping VISCA test thread: {e}")
             finally:
@@ -1042,7 +1044,9 @@ class CameraWidget(QWidget):
 
         # Skip discovery if NDI video is disabled or NDI not available
         if not ndi_available or not self.config.get_ndi_video_enabled():
-            print(f"[Camera] Skipping NDI discovery (NDI available: {ndi_available}, NDI video enabled: {self.config.get_ndi_video_enabled()})")
+            logger.debug(
+                f"Skipping NDI discovery (NDI available: {ndi_available}, NDI video enabled: {self.config.get_ndi_video_enabled()})"
+            )
             self.video_label.setText("NDI disabled\n(IP control only)")
             # Test VISCA connection for IP-only control
             self._test_visca_connection()
@@ -1051,15 +1055,15 @@ class CameraWidget(QWidget):
         # Emit connection starting signal
         self.connection_starting.emit()
 
-        print(f"[Camera] Attempting to discover NDI source for IP {self.visca_ip}")
+        logger.debug(f"Attempting to discover NDI source for IP {self.visca_ip}")
         cameras = find_ndi_cameras(timeout_ms=5000)
 
-        print(f"[Camera] Found {len(cameras)} NDI sources: {cameras}")
+        logger.debug(f"Found {len(cameras)} NDI sources: {cameras}")
 
         # Try to find a source containing this IP
         for camera_name in cameras:
             if self.visca_ip in camera_name:
-                print(f"[Camera] Matched NDI source: {camera_name}")
+                logger.debug(f"Matched NDI source: {camera_name}")
                 self.ndi_source_name = camera_name
                 # Update label with formatted name (avoids redundancy)
                 self.name_label.setText(self._format_camera_display_name())
@@ -1072,7 +1076,7 @@ class CameraWidget(QWidget):
                 self.start_video()
                 return
 
-        print(f"[Camera] No NDI source found matching IP {self.visca_ip}")
+        logger.debug(f"No NDI source found matching IP {self.visca_ip}")
         self.video_label.setText("No NDI source\n(IP control only)")
 
         # Test VISCA connection for IP-only control
@@ -1080,7 +1084,12 @@ class CameraWidget(QWidget):
 
     def start_video(self):
         """Start NDI video reception"""
-        if self.ndi_thread or not self.ndi_source_name or not ndi_available or not self.config.get_ndi_video_enabled():
+        if (
+            self.ndi_thread
+            or not self.ndi_source_name
+            or not ndi_available
+            or not self.config.get_ndi_video_enabled()
+        ):
             # Mark as initialized even if we can't start video
             QTimer.singleShot(100, self.initialized.emit)
             return
@@ -1109,7 +1118,7 @@ class CameraWidget(QWidget):
             import traceback
 
             error_msg = f"Failed to start NDI video: {str(e)}"
-            print(f"\n{error_msg}")
+            logger.error(f"{error_msg}")
             traceback.print_exc()
             self.video_label.setText(f"Video Error:\n{str(e)}")
             self.initialized.emit()
@@ -1181,7 +1190,7 @@ class CameraWidget(QWidget):
             match = re.search(r"(\d+\.\d+\.\d+\.\d+)", web_url)
             if match:
                 extracted_ip = match.group(1)
-                print(f"[Camera] Extracted IP {extracted_ip} from NDI web control URL")
+                logger.debug(f"Extracted IP {extracted_ip} from NDI web control URL")
 
                 # Update IP address if it was unknown or different
                 if self.visca_ip != extracted_ip:
@@ -1191,11 +1200,11 @@ class CameraWidget(QWidget):
                     # Update UI label with formatted name (avoids redundancy)
                     display_text = self._format_camera_display_name()
                     self.name_label.setText(display_text)
-                    print(f"[Camera] Updated UI label to: {display_text}")
+                    logger.debug(f"Updated UI label to: {display_text}")
 
                     # Save IP to config
                     self.config.update_camera(self.camera_id, visca_ip=self.visca_ip)
-                    print(f"[Camera] Saved IP {self.visca_ip} to config")
+                    logger.debug(f"Saved IP {self.visca_ip} to config")
 
         # Emit initialized signal
         self.initialized.emit()
@@ -1691,7 +1700,7 @@ class CameraWidget(QWidget):
         self.config.update_camera(
             self.camera_id, auto_pan_left_preset=left_preset, auto_pan_right_preset=right_preset
         )
-        print(f"[AUTO PAN] Saved preset selections: Left='{left_preset}', Right='{right_preset}'")
+        logger.debug(f"Saved preset selections: Left='{left_preset}', Right='{right_preset}'")
 
     def on_start_auto_pan(self):
         """Start preset-based auto pan"""
@@ -1746,7 +1755,7 @@ class CameraWidget(QWidget):
             target_label = "RIGHT"
             self.auto_pan_current_target = "left"
 
-        print(f"[AUTO PAN] Going to {target_label} position: '{preset_name}'")
+        logger.debug(f"Going to {target_label} position: '{preset_name}'")
 
         # Find and recall preset
         presets = self.config.get_presets(self.camera_id)
@@ -1988,7 +1997,7 @@ class CameraWidget(QWidget):
     def reconnect_camera(self):
         """Attempt to reconnect to camera (non-blocking)"""
         try:
-            print(f"[Camera] Attempting to reconnect to {self.visca_ip}...")
+            logger.debug(f"Attempting to reconnect to {self.visca_ip}...")
 
             # Hide reconnect button and show loading indicator
             self.reconnect_button.setVisible(False)
@@ -1999,7 +2008,7 @@ class CameraWidget(QWidget):
         except Exception as e:
             import traceback
 
-            print(f"[Camera] Error in reconnect_camera: {e}")
+            logger.exception("Error in reconnect_camera")
             traceback.print_exc()
             self.loading_label.setVisible(False)
             self.reconnect_button.setVisible(True)
@@ -2009,11 +2018,11 @@ class CameraWidget(QWidget):
         """Poll for thread to finish without blocking UI"""
         if self.ndi_thread and self.ndi_thread.isRunning():
             # Thread still running, check again in 100ms
-            print("[Camera] Waiting for thread to stop...")
+            logger.debug("Waiting for thread to stop...")
             QTimer.singleShot(100, self._wait_for_thread_stop)
         else:
             # Thread stopped, proceed with reconnection
-            print("[Camera] Thread stopped, proceeding with reconnection")
+            logger.debug("Thread stopped, proceeding with reconnection")
             self._cleanup_and_reconnect()
 
     def _cleanup_and_reconnect(self):
@@ -2046,16 +2055,16 @@ class CameraWidget(QWidget):
                 def run(self):
                     try:
                         discover_and_cache_all_sources()
-                    except Exception as e:
-                        print(f"[Camera] Cache refresh error: {e}")
+                    except Exception:
+                        logger.exception("Cache refresh error")
 
             self.cache_refresh_thread = CacheRefreshThread()
             self.cache_refresh_thread.finished.connect(self._attempt_video_reconnect)
             self.cache_refresh_thread.start()
-        except Exception as e:
+        except Exception:
             import traceback
 
-            print(f"[Camera] Error starting cache refresh: {e}")
+            logger.exception("Error starting cache refresh")
             traceback.print_exc()
             # Fall back to direct reconnect
             self._attempt_video_reconnect()
@@ -2068,7 +2077,7 @@ class CameraWidget(QWidget):
         except Exception as e:
             import traceback
 
-            print(f"[Camera] Error in video reconnect: {e}")
+            logger.exception("Error in video reconnect")
             traceback.print_exc()
             self.reconnect_button.setVisible(True)
             self.video_label.setText(f"Video Reconnect Failed:\\n{str(e)[:50]}")
@@ -2083,7 +2092,7 @@ class CameraWidget(QWidget):
         except Exception as e:
             import traceback
 
-            print(f"[Camera] Error starting VISCA reconnect: {e}")
+            logger.exception("Error starting VISCA reconnect")
             traceback.print_exc()
             self.loading_label.setVisible(False)
             self.reconnect_button.setVisible(True)
@@ -2099,16 +2108,16 @@ class CameraWidget(QWidget):
                 self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
                 self.set_controls_enabled(True)
                 # Don't query all settings on reconnect - it blocks UI
-                print(f"[Camera] Reconnected to {self.visca_ip}")
+                logger.info(f"Reconnected to {self.visca_ip}")
             else:
                 # Reconnect failed, show button again
                 self.is_connected = False
                 self.reconnect_button.setVisible(True)
                 self.video_label.setText("Reconnection failed\nClick Reconnect to retry")
-        except Exception as e:
+        except Exception:
             import traceback
 
-            print(f"[Camera] Error handling VISCA reconnect result: {e}")
+            logger.exception("Error handling VISCA reconnect result")
             traceback.print_exc()
             self.reconnect_button.setVisible(True)
 
