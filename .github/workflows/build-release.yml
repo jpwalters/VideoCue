@@ -164,12 +164,14 @@ jobs:
           }
           
           # Copy DLL to libs folder for PyInstaller
-          $ndiDll = "C:\Program Files\NDI\NDI 6 SDK\Bin\x64\Processing.NDI.Lib.x64.dll"
+          $ndiDll = "C:\Program Files\NDI\NDI 6 Runtime\v6\Processing.NDI.Lib.x64.dll"
           if (Test-Path $ndiDll) {
             Copy-Item $ndiDll libs\
             Write-Host "NDI DLL copied successfully"
           } else {
-            Write-Host "ERROR: NDI DLL not found after installation"
+            Write-Host "ERROR: NDI DLL not found at: $ndiDll"
+            Write-Host "Searching for NDI DLL in all locations..."
+            Get-ChildItem -Path "C:\Program Files\NDI" -Recurse -Filter "Processing.NDI.Lib.x64.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Found: $($_.FullName)" }
             exit 1
           }
       
