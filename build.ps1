@@ -88,8 +88,15 @@ if (-not $SkipBuild) {
     
     $PyInstallerStart = Get-Date
     
+    # Check if venv exists, otherwise use global pyinstaller
+    $PyInstallerCmd = if (Test-Path "$ScriptDir\.venv\Scripts\pyinstaller.exe") {
+        "$ScriptDir\.venv\Scripts\pyinstaller.exe"
+    } else {
+        "pyinstaller"  # Use global installation
+    }
+    
     try {
-        & "$ScriptDir\.venv\Scripts\pyinstaller.exe" VideoCue.spec --clean --noconfirm
+        & $PyInstallerCmd VideoCue.spec --clean --noconfirm
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host "`nERROR: PyInstaller failed with exit code $LASTEXITCODE" -ForegroundColor Red
