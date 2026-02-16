@@ -39,13 +39,7 @@ jobs:
       
       - name: Download NDI SDK
         run: |
-          # Download NDI SDK (you may need to handle this differently based on NDI licensing)
-          # Option 1: If you have a self-hosted runner with NDI SDK pre-installed, skip this
-          # Option 2: If NDI SDK is hosted in your private storage, download from there
-          # Option 3: Use NDI installer if available
-          
-          Write-Host "Note: NDI SDK download would happen here"
-          Write-Host "For now, using pre-installed NDI SDK or skip if not available"
+          Write-Host "Checking for NDI SDK..."
           
           # Check if NDI SDK exists (on self-hosted runner)
           if (Test-Path "C:\Program Files\NDI\NDI 6 SDK") {
@@ -58,9 +52,36 @@ jobs:
               Write-Host "[OK] NDI SDK found at C:\Program Files\NDI SDK"
               $env:NDI_PATH = "C:\Program Files\NDI SDK"
           } else {
-              Write-Host "[WARNING] NDI SDK not found - cannot rebuild"
-              exit 1
+              # Download NDI SDK from NewTek
+              Write-Host "[INFO] NDI SDK not found - downloading..."
+              $ndiUrl = "https://get.ndi.video/e/1092312/SDK-NDI-SDK-NDI20620SDK-exe/lygzhs/2113259237/h/_EdCdLDbOZNnTUt1jV6oEEaEJSSk9VwcAM4agxRzmYs"
+              $ndiInstallerPath = "$env:TEMP\NDI_SDK_installer.exe"
+              
+              try {
+                  Write-Host "Downloading NDI SDK from $ndiUrl"
+                  Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstallerPath -TimeoutSec 300
+                  Write-Host "[OK] NDI SDK downloaded to $ndiInstallerPath"
+                  
+                  # Run NDI SDK installer silently
+                  Write-Host "Installing NDI SDK..."
+                  & $ndiInstallerPath /S /D=C:\NDI` SDK` 6 | Out-Null
+                  Start-Sleep -Seconds 5
+                  
+                  # Verify installation
+                  if (Test-Path "C:\NDI SDK 6\Include\Processing.NDI.Lib.h") {
+                      Write-Host "[OK] NDI SDK installed successfully"
+                      $env:NDI_PATH = "C:\NDI SDK 6"
+                  } else {
+                      Write-Error "NDI SDK installation failed - headers not found"
+                      exit 1
+                  }
+              } catch {
+                  Write-Error "Failed to download/install NDI SDK: $_"
+                  exit 1
+              }
           }
+          
+          echo "NDI_PATH=$env:NDI_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       
       - name: Install pybind11
         run: |

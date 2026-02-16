@@ -152,6 +152,28 @@ function Find-NDI-SDK {
         return $regPath.PathToApp
     }
     
+    # Try downloading NDI SDK as fallback
+    Write-Host "`n[INFO] NDI SDK not found locally. Attempting to download..." -ForegroundColor Yellow
+    $ndiInstallerPath = "$env:TEMP\NDI_SDK_installer.exe"
+    $ndiUrl = "https://get.ndi.video/e/1092312/SDK-NDI-SDK-NDI20620SDK-exe/lygzhs/2113259237/h/_EdCdLDbOZNnTUt1jV6oEEaEJSSk9VwcAM4agxRzmYs"
+    
+    try {
+        Write-Host "Downloading NDI SDK from get.ndi.video..."
+        Invoke-WebRequest -Uri $ndiUrl -OutFile $ndiInstallerPath -TimeoutSec 300 -ErrorAction Stop
+        Write-Success "Downloaded to $ndiInstallerPath"
+        
+        Write-Host "Installing NDI SDK (this may take a few minutes)..."
+        & $ndiInstallerPath /S /D="C:\NDI SDK 6" | Out-Null
+        Start-Sleep -Seconds 5
+        
+        if (Test-Path "C:\NDI SDK 6\Include\Processing.NDI.Lib.h") {
+            Write-Success "NDI SDK installed successfully at C:\NDI SDK 6"
+            return "C:\NDI SDK 6"
+        }
+    } catch {
+        Write-Host "Download/install failed: $_" -ForegroundColor DarkGray
+    }
+    
     return $null
 }
 
