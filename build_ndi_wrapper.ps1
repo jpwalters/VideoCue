@@ -98,7 +98,10 @@ function Get-Python-Executable {
     param([string]$Version)
     
     if ($Version -eq 'auto') {
-        return (Get-Command python -ErrorAction SilentlyContinue).Source
+        $pyPath = (Get-Command python -ErrorAction SilentlyContinue).Source
+        if ($pyPath) {
+            return @{ Exe = $pyPath; Args = @() }
+        }
     }
     
     # Try common Python install locations
@@ -110,7 +113,7 @@ function Get-Python-Executable {
     
     foreach ($path in $paths) {
         if (Test-Path $path) {
-            return $path
+            return @{ Exe = $path; Args = @() }
         }
     }
     
@@ -119,7 +122,7 @@ function Get-Python-Executable {
     if ($pyExe) {
         $pyVersion = & $pyExe -$Version --version 2>&1
         if ($pyVersion -match 'Python') {
-            return "$pyExe -$Version"
+            return @{ Exe = $pyExe; Args = @("-$Version") }
         }
     }
     
@@ -198,17 +201,17 @@ $prereqsOK = $true
 
 # Check Python
 if ($PythonVersion -eq 'auto' -or $PythonVersion -eq 'all') {
-    $pyExe = Get-Python-Executable 'auto'
-    if ($pyExe) {
-        Write-Success "Python: $pyExe"
+    $pyInfo = Get-Python-Executable 'auto'
+    if ($pyInfo) {
+        Write-Success "Python: $($pyInfo.Exe) $($pyInfo.Args -join ' ')"
     } else {
         Write-Error-Custom "Python not found"
         $prereqsOK = $false
     }
 } else {
-    $pyExe = Get-Python-Executable $PythonVersion
-    if ($pyExe) {
-        Write-Success "Python $PythonVersion`:`n    $pyExe"
+    $pyInfo = Get-Python-Executable $PythonVersion
+    if ($pyInfo) {
+        Write-Success "Python $PythonVersion`:`n    $($pyInfo.Exe) $($pyInfo.Args -join ' ')"
     } else {
         Write-Error-Custom "Python $PythonVersion not found"
         $prereqsOK = $false
@@ -248,8 +251,8 @@ if ($ndiPath) {
 }
 
 # Check pybind11
-if ($pyExe) {
-    $pybind11Dir = & $pyExe -c 'import pybind11; print(pybind11.get_cmake_dir())' 2>$null
+if ($pyInfo) {
+    $pybind11Dir = & $pyInfo.Exe $pyInfo.Args -c 'import pybind11; print(pybind11.get_cmake_dir())' 2>$null
     if ($LASTEXITCODE -eq 0) {
         Write-Success "pybind11 module found"
         Write-Host "    CMake dir: $pybind11Dir" -ForegroundColor Gray
