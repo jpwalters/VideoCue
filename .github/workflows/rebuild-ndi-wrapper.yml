@@ -41,15 +41,18 @@ jobs:
         run: |
           .\Install-NDI-SDK.ps1
       
-      - name: Install pybind11
+      - name: Install pybind11 (Python 3.10)
         run: |
-          python3.10 -m pip install pybind11
-          python3.12 -m pip install pybind11
+          py -3.10 -m pip install pybind11
       
       - name: Build NDI wrapper (Python 3.10)
         run: |
           $env:Path = "C:\Program Files\CMake\bin;$env:Path"
           .\build_ndi_wrapper.ps1 -PythonVersion 3.10 -Verbose
+      
+      - name: Install pybind11 (Python 3.12)
+        run: |
+          py -3.12 -m pip install pybind11
       
       - name: Build NDI wrapper (Python 3.12)
         run: |

@@ -44,8 +44,8 @@ jobs:
       - name: Install build tools
         run: |
           choco install cmake -y
-          python3.10 -m pip install pybind11
-          python3.12 -m pip install pybind11
+          py -3.10 -m pip install pybind11
+          py -3.12 -m pip install pybind11
       
       - name: Locate NDI SDK
         run: |
