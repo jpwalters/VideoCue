@@ -629,4 +629,3 @@ class ControllerPreferencesDialog(QDialog):
 
         # Close dialog (emits finished signal)
         self.accept()
-        self.accept()

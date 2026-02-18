@@ -1102,6 +1102,22 @@ class MainWindow(QMainWindow):
         # RECONNECT ALL CAMERA/CONTROL SIGNALS
         logger.debug("Reconnecting ALL camera control signals")
         if self.usb_controller and self._usb_signal_handlers:
+            # Ensure disconnection before reconnecting to prevent duplicate connections
+            try:
+                self.usb_controller.prev_camera.disconnect()
+                self.usb_controller.next_camera.disconnect()
+                self.usb_controller.movement_direction.disconnect()
+                self.usb_controller.zoom_in.disconnect()
+                self.usb_controller.zoom_out.disconnect()
+                self.usb_controller.zoom_stop.disconnect()
+                self.usb_controller.stop_movement.disconnect()
+                self.usb_controller.brightness_increase.disconnect()
+                self.usb_controller.brightness_decrease.disconnect()
+                self.usb_controller.focus_one_push.disconnect()
+            except TypeError:
+                pass  # Already disconnected
+
+            # Now reconnect
             self.usb_controller.prev_camera.connect(self._usb_signal_handlers["prev_camera"])
             self.usb_controller.next_camera.connect(self._usb_signal_handlers["next_camera"])
             self.usb_controller.movement_direction.connect(
