@@ -506,17 +506,25 @@ class CameraAddDialog(QDialog):
         ip_container.addWidget(self.ip_checkbox)
 
         self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("192.168.1.100")
-        self.ip_input.setMaxLength(15)
+        self.ip_input.setPlaceholderText("192.168.1.100 or hostname:port")
+        self.ip_input.setMaxLength(100)  # Allow for longer hostnames and port
+        self.ip_input.setToolTip(
+            "Enter IP address or hostname, optionally with :port\nExamples: 192.168.1.100, localhost:12345"
+        )
 
-        # Simple IP validation (allow partial input)
+        # Flexible validation for hostname/IP with optional port
+        # Allows: IP addresses, hostnames, and optional :port suffix
         from PyQt6.QtCore import QRegularExpression
         from PyQt6.QtGui import QRegularExpressionValidator
 
-        ip_regex = QRegularExpression(
-            r"^(([01]?[0-9]{0,2})|(2[0-4][0-9])|(25[0-5]))?(\.(([01]?[0-9]{0,2})|(2[0-4][0-9])|(25[0-5]))){0,3}$"
+        # Pattern allows:
+        # - IPv4 addresses (e.g., 192.168.1.100)
+        # - Hostnames (e.g., localhost, camera.local)
+        # - Optional port suffix (e.g., :52381)
+        host_port_regex = QRegularExpression(
+            r"^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]?(:[0-9]{1,5})?$|^[0-9]{1,3}(\.[0-9]{1,3}){0,3}(:[0-9]{1,5})?$"
         )
-        validator = QRegularExpressionValidator(ip_regex)
+        validator = QRegularExpressionValidator(host_port_regex)
         self.ip_input.setValidator(validator)
 
         # Auto-check checkbox when typing
@@ -542,10 +550,29 @@ class CameraAddDialog(QDialog):
         return cameras
 
     def get_ip_address(self):
-        """Get manual IP address if checked"""
+        """Get manual IP/hostname and optional port if checked
+
+        Returns:
+            tuple: (host, port) where host is IP or hostname, port is int or None
+            None: if not checked or invalid
+        """
         if self.ip_checkbox and self.ip_checkbox.isChecked():
-            ip = self.ip_input.text().strip()
-            # Validate it's a complete IP (4 octets)
-            if ip.count(".") == 3:
-                return ip
+            text = self.ip_input.text().strip()
+            if not text:
+                return None
+
+            # Parse host and optional port
+            if ":" in text:
+                parts = text.rsplit(":", 1)  # Split from right to handle IPv6 in future
+                host = parts[0]
+                try:
+                    port = int(parts[1])
+                    if 1 <= port <= 65535:  # Valid port range
+                        return (host, port)
+                    return None  # Invalid port range
+                except ValueError:
+                    return None  # Port is not a valid integer
+
+            # No port specified, return just host
+            return (text, None)
         return None

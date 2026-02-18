@@ -73,6 +73,7 @@ class ConfigManager:
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
                 "file_logging_enabled": False,
+                "single_instance_mode": True,
             },
             "usb_controller": {
                 "enabled": True,
@@ -290,6 +291,15 @@ class ConfigManager:
     def get_ndi_video_enabled(self) -> bool:
         """Get NDI video enabled/disabled preference (default True)"""
         return self.config["preferences"].get("ndi_video_enabled", True)
+
+    def set_single_instance_mode(self, enabled: bool):
+        """Set single instance mode enabled/disabled"""
+        self.config["preferences"]["single_instance_mode"] = enabled
+        self.save()
+
+    def get_single_instance_mode(self) -> bool:
+        """Get single instance mode preference (default True)"""
+        return self.config["preferences"].get("single_instance_mode", True)
 
     def set_usb_controller_name(self, name: str):
         """Set USB controller device name"""

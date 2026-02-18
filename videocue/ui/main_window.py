@@ -534,10 +534,10 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             # Get selected cameras
             ndi_cameras = dialog.get_selected_ndi_cameras()
-            ip_address = dialog.get_ip_address()
+            manual_host_port = dialog.get_ip_address()  # Returns (host, port) tuple or None
 
             # Count how many cameras we're adding
-            cameras_to_add = len(ndi_cameras) + (1 if ip_address else 0)
+            cameras_to_add = len(ndi_cameras) + (1 if manual_host_port else 0)
 
             if cameras_to_add > 0:
                 # Show loading progress bar
@@ -571,9 +571,12 @@ class MainWindow(QMainWindow):
                     if cam_config:
                         self.add_camera_from_config(cam_config)
 
-            # Add IP-only camera
-            if ip_address:
-                camera_id = self.config.add_camera(ndi_source_name="", visca_ip=ip_address)
+            # Add IP-only camera (manual host/port entry)
+            if manual_host_port:
+                host, port = manual_host_port
+                camera_id = self.config.add_camera(
+                    ndi_source_name="", visca_ip=host, visca_port=port
+                )
 
                 cam_config = self.config.get_camera(camera_id)
                 if cam_config:
@@ -1134,38 +1137,63 @@ class MainWindow(QMainWindow):
         logger.info("Preferences dialog closed, reconnecting main window handlers")
 
         # Reconnect main window camera control handlers using UniqueConnection
-        # UniqueConnection prevents duplicate connections even if disconnect failed
+        # UniqueConnection can raise TypeError if connection already exists, so we handle it gracefully
         if self.usb_controller and self._usb_signal_handlers:
             logger.debug("Reconnecting main window camera control handlers")
-            self.usb_controller.prev_camera.connect(
-                self._usb_signal_handlers["prev_camera"], Qt.ConnectionType.UniqueConnection
+
+            # Helper to safely reconnect with UniqueConnection
+            def safe_connect(signal, handler, name=""):
+                try:
+                    signal.connect(handler, Qt.ConnectionType.UniqueConnection)
+                except TypeError as e:
+                    if "unique" in str(e).lower():
+                        logger.debug(f"Connection for {name} already exists (safe to ignore)")
+                    else:
+                        logger.warning(f"Unexpected error reconnecting {name}: {e}")
+
+            safe_connect(
+                self.usb_controller.prev_camera,
+                self._usb_signal_handlers["prev_camera"],
+                "prev_camera",
             )
-            self.usb_controller.next_camera.connect(
-                self._usb_signal_handlers["next_camera"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.next_camera,
+                self._usb_signal_handlers["next_camera"],
+                "next_camera",
             )
-            self.usb_controller.movement_direction.connect(
-                self._usb_signal_handlers["movement_direction"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.movement_direction,
+                self._usb_signal_handlers["movement_direction"],
+                "movement_direction",
             )
-            self.usb_controller.zoom_in.connect(
-                self._usb_signal_handlers["zoom_in"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.zoom_in, self._usb_signal_handlers["zoom_in"], "zoom_in"
             )
-            self.usb_controller.zoom_out.connect(
-                self._usb_signal_handlers["zoom_out"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.zoom_out, self._usb_signal_handlers["zoom_out"], "zoom_out"
             )
-            self.usb_controller.zoom_stop.connect(
-                self._usb_signal_handlers["zoom_stop"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.zoom_stop, self._usb_signal_handlers["zoom_stop"], "zoom_stop"
             )
-            self.usb_controller.stop_movement.connect(
-                self._usb_signal_handlers["stop_movement"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.stop_movement,
+                self._usb_signal_handlers["stop_movement"],
+                "stop_movement",
             )
-            self.usb_controller.brightness_increase.connect(
-                self._usb_signal_handlers["brightness_increase"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.brightness_increase,
+                self._usb_signal_handlers["brightness_increase"],
+                "brightness_increase",
             )
-            self.usb_controller.brightness_decrease.connect(
-                self._usb_signal_handlers["brightness_decrease"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.brightness_decrease,
+                self._usb_signal_handlers["brightness_decrease"],
+                "brightness_decrease",
             )
-            self.usb_controller.focus_one_push.connect(
-                self._usb_signal_handlers["focus_one_push"], Qt.ConnectionType.UniqueConnection
+            safe_connect(
+                self.usb_controller.focus_one_push,
+                self._usb_signal_handlers["focus_one_push"],
+                "focus_one_push",
             )
             logger.debug("Successfully reconnected all main window camera control handlers")
 

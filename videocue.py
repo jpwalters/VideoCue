@@ -4,6 +4,7 @@ VideoCue - Multi-camera PTZ controller with VISCA-over-IP and NDI streaming
 """
 
 import logging
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -132,6 +133,91 @@ class ExceptionHandlingApplication(QApplication):
             return False
 
 
+class SingleInstanceLock:
+    """Manages single instance enforcement using a lock file"""
+
+    def __init__(self):
+        """Initialize the lock file path"""
+        from videocue.utils import get_app_data_dir
+
+        self.lock_file = get_app_data_dir() / "videocue.lock"
+        self.lock_fd = None
+
+    def acquire(self) -> bool:
+        """Attempt to acquire the instance lock.
+
+        Returns:
+            bool: True if lock acquired successfully, False if another instance is running
+        """
+        try:
+            # Try to open the lock file exclusively
+            if os.name == "nt":  # Windows
+                import msvcrt
+
+                try:
+                    # Create or open the lock file
+                    self.lock_fd = self.lock_file.open("w")  # noqa: SIM115
+                    # Try to lock it exclusively (non-blocking)
+                    msvcrt.locking(self.lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+                    # Write PID to lock file
+                    self.lock_fd.write(str(os.getpid()))
+                    self.lock_fd.flush()
+                    return True
+                except OSError:
+                    # Lock failed - another instance is running
+                    if self.lock_fd:
+                        self.lock_fd.close()
+                        self.lock_fd = None
+                    return False
+            else:  # Unix/Linux/Mac
+                import fcntl
+
+                try:
+                    # Create or open the lock file
+                    self.lock_fd = self.lock_file.open("w")  # noqa: SIM115
+                    # Try to lock it exclusively (non-blocking)
+                    fcntl.flock(self.lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    # Write PID to lock file
+                    self.lock_fd.write(str(os.getpid()))
+                    self.lock_fd.flush()
+                    return True
+                except OSError:
+                    # Lock failed - another instance is running
+                    if self.lock_fd:
+                        self.lock_fd.close()
+                        self.lock_fd = None
+                    return False
+        except Exception as e:
+            # If we can't create/access the lock file, allow the app to run
+            logging.getLogger(__name__).warning(f"Failed to check single instance lock: {e}")
+            return True
+
+    def release(self):
+        """Release the instance lock"""
+        if self.lock_fd:
+            try:
+                if os.name == "nt":  # Windows
+                    import msvcrt
+
+                    msvcrt.locking(self.lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+                else:  # Unix/Linux/Mac
+                    import fcntl
+
+                    fcntl.flock(self.lock_fd.fileno(), fcntl.LOCK_UN)
+                self.lock_fd.close()
+            except Exception:
+                pass  # Ignore errors during cleanup
+            finally:
+                self.lock_fd = None
+
+        # Try to remove lock file
+        try:
+            if self.lock_file.exists():
+                self.lock_file.unlink()
+        except Exception:
+            pass  # Ignore errors during cleanup
+
+
 def main() -> None:
     """Main application entry point"""
     # Load config first to get logging preference
@@ -144,6 +230,31 @@ def main() -> None:
     setup_logging(file_logging_enabled)
     logger = logging.getLogger(__name__)
     logger.info("Starting VideoCue application")
+
+    # Check single instance mode
+    instance_lock = None
+    single_instance_mode = config.get_single_instance_mode()
+
+    if single_instance_mode:
+        logger.info("Single instance mode enabled - checking for existing instances")
+        instance_lock = SingleInstanceLock()
+        if not instance_lock.acquire():
+            logger.warning("Another instance is already running")
+            QMessageBox.warning(
+                None,
+                "VideoCue Already Running",
+                "Another instance of VideoCue is already running.\n\n"
+                "Only one instance can run at a time when single instance mode is enabled.\n\n"
+                "To allow multiple instances:\n"
+                "1. Close the existing instance\n"
+                "2. Open Preferences → Application\n"
+                "3. Disable 'Enable single instance mode'\n"
+                "4. Restart VideoCue",
+            )
+            return 1
+        logger.info("Single instance lock acquired successfully")
+    else:
+        logger.info("Single instance mode disabled - multiple instances allowed")
 
     # Log theme availability
     if not has_dark_style:
@@ -179,11 +290,20 @@ def main() -> None:
         error_msg = f"Failed to initialize application:\n{str(e)}\n\n{traceback.format_exc()}"
         logger.critical("Startup error", exc_info=True)
         QMessageBox.critical(None, "Startup Error", error_msg)
+        if instance_lock:
+            instance_lock.release()
         return 1
 
     # Run event loop - Qt handles all lifecycle management
     logger.info("Starting Qt event loop")
-    return app.exec()
+    exit_code = app.exec()
+
+    # Release instance lock before exiting
+    if instance_lock:
+        logger.info("Releasing single instance lock")
+        instance_lock.release()
+
+    return exit_code
 
 
 if __name__ == "__main__":

@@ -328,6 +328,22 @@ class ControllerPreferencesDialog(QDialog):
         switching_group.setLayout(switching_layout)
         layout.addWidget(switching_group)
 
+        # Application group
+        app_group = QGroupBox("Application")
+        app_layout = QFormLayout()
+
+        self.single_instance_checkbox = QCheckBox("Enable single instance mode (requires restart)")
+        self.single_instance_checkbox.setToolTip(
+            "When enabled, only one instance of VideoCue can run at a time.\n"
+            "When disabled, multiple instances can run simultaneously.\n"
+            "This setting requires restarting the application to take effect."
+        )
+        self.single_instance_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        app_layout.addRow("", self.single_instance_checkbox)
+
+        app_group.setLayout(app_layout)
+        layout.addWidget(app_group)
+
         # Quick tips
         tips_label = QLabel(
             "Quick Tips:\n"
@@ -518,6 +534,10 @@ class ControllerPreferencesDialog(QDialog):
         ndi_video_enabled = self.config.get_ndi_video_enabled()
         self.ndi_video_enabled_checkbox.setChecked(ndi_video_enabled)
 
+        # Load single instance mode setting
+        single_instance_mode = self.config.get_single_instance_mode()
+        self.single_instance_checkbox.setChecked(single_instance_mode)
+
         # Update button availability after loading all preferences
         self.update_button_availability()
 
@@ -624,6 +644,9 @@ class ControllerPreferencesDialog(QDialog):
 
         # Save NDI video enabled setting
         self.config.set_ndi_video_enabled(self.ndi_video_enabled_checkbox.isChecked())
+
+        # Save single instance mode setting
+        self.config.set_single_instance_mode(self.single_instance_checkbox.isChecked())
 
         self.config.save()
 
