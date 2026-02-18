@@ -306,26 +306,47 @@ class MainWindow(QMainWindow):
             self._usb_signal_handlers["focus_one_push"] = self.on_usb_focus_one_push
             self._usb_signal_handlers["button_a_pressed"] = lambda: None  # Placeholder for dialog
 
-            # Connect signals
-            self.usb_controller.connected.connect(self.on_usb_connected)
-            self.usb_controller.disconnected.connect(self.on_usb_disconnected)
-            self.usb_controller.prev_camera.connect(self._usb_signal_handlers["prev_camera"])
-            self.usb_controller.next_camera.connect(self._usb_signal_handlers["next_camera"])
-            self.usb_controller.movement_direction.connect(
-                self._usb_signal_handlers["movement_direction"]
+            # Connect signals using UniqueConnection to prevent duplicate connections
+            # This allows the preferences dialog to also connect without causing duplicates
+            self.usb_controller.connected.connect(
+                self.on_usb_connected, Qt.ConnectionType.UniqueConnection
             )
-            self.usb_controller.zoom_in.connect(self._usb_signal_handlers["zoom_in"])
-            self.usb_controller.zoom_out.connect(self._usb_signal_handlers["zoom_out"])
-            self.usb_controller.zoom_stop.connect(self._usb_signal_handlers["zoom_stop"])
-            self.usb_controller.stop_movement.connect(self._usb_signal_handlers["stop_movement"])
+            self.usb_controller.disconnected.connect(
+                self.on_usb_disconnected, Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.prev_camera.connect(
+                self._usb_signal_handlers["prev_camera"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.next_camera.connect(
+                self._usb_signal_handlers["next_camera"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.movement_direction.connect(
+                self._usb_signal_handlers["movement_direction"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.zoom_in.connect(
+                self._usb_signal_handlers["zoom_in"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.zoom_out.connect(
+                self._usb_signal_handlers["zoom_out"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.zoom_stop.connect(
+                self._usb_signal_handlers["zoom_stop"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.stop_movement.connect(
+                self._usb_signal_handlers["stop_movement"], Qt.ConnectionType.UniqueConnection
+            )
             self.usb_controller.brightness_increase.connect(
-                self._usb_signal_handlers["brightness_increase"]
+                self._usb_signal_handlers["brightness_increase"], Qt.ConnectionType.UniqueConnection
             )
             self.usb_controller.brightness_decrease.connect(
-                self._usb_signal_handlers["brightness_decrease"]
+                self._usb_signal_handlers["brightness_decrease"], Qt.ConnectionType.UniqueConnection
             )
-            self.usb_controller.focus_one_push.connect(self._usb_signal_handlers["focus_one_push"])
-            self.usb_controller.menu_button_pressed.connect(self.show_controller_preferences)
+            self.usb_controller.focus_one_push.connect(
+                self._usb_signal_handlers["focus_one_push"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.menu_button_pressed.connect(
+                self.show_controller_preferences, Qt.ConnectionType.UniqueConnection
+            )
             # Note: button_a_pressed is only used by preferences dialog and not connected here
 
             # Update UI to reflect current connection state
@@ -1064,22 +1085,8 @@ class MainWindow(QMainWindow):
         self._preferences_dialog_open = True
         logger.info("Opening preferences dialog")
 
-        # DISABLE ALL CAMERA/CONTROL SIGNALS - only dialog should respond to controller
-        logger.debug("Disconnecting ALL camera control signals")
-        if self.usb_controller:
-            try:
-                self.usb_controller.prev_camera.disconnect()
-                self.usb_controller.next_camera.disconnect()
-                self.usb_controller.movement_direction.disconnect()
-                self.usb_controller.zoom_in.disconnect()
-                self.usb_controller.zoom_out.disconnect()
-                self.usb_controller.zoom_stop.disconnect()
-                self.usb_controller.stop_movement.disconnect()
-                self.usb_controller.brightness_increase.disconnect()
-                self.usb_controller.brightness_decrease.disconnect()
-                self.usb_controller.focus_one_push.disconnect()
-            except TypeError:
-                pass  # Already disconnected
+        # No need to disconnect signals - UniqueConnection pattern prevents duplicates
+        # The dialog will connect its own handlers, and they'll coexist safely
 
         # Always create fresh dialog
         logger.debug(f"Creating dialog with usb_controller={self.usb_controller}")
@@ -1096,45 +1103,10 @@ class MainWindow(QMainWindow):
         self.preferences_dialog.show()
 
     def _on_preferences_dialog_closed(self):
-        """Called when preferences dialog is closed - reset flag and reconnect all signals"""
-        logger.info("Preferences dialog closed, reconnecting signals")
-
-        # RECONNECT ALL CAMERA/CONTROL SIGNALS
-        logger.debug("Reconnecting ALL camera control signals")
-        if self.usb_controller and self._usb_signal_handlers:
-            # Ensure disconnection before reconnecting to prevent duplicate connections
-            try:
-                self.usb_controller.prev_camera.disconnect()
-                self.usb_controller.next_camera.disconnect()
-                self.usb_controller.movement_direction.disconnect()
-                self.usb_controller.zoom_in.disconnect()
-                self.usb_controller.zoom_out.disconnect()
-                self.usb_controller.zoom_stop.disconnect()
-                self.usb_controller.stop_movement.disconnect()
-                self.usb_controller.brightness_increase.disconnect()
-                self.usb_controller.brightness_decrease.disconnect()
-                self.usb_controller.focus_one_push.disconnect()
-            except TypeError:
-                pass  # Already disconnected
-
-            # Now reconnect
-            self.usb_controller.prev_camera.connect(self._usb_signal_handlers["prev_camera"])
-            self.usb_controller.next_camera.connect(self._usb_signal_handlers["next_camera"])
-            self.usb_controller.movement_direction.connect(
-                self._usb_signal_handlers["movement_direction"]
-            )
-            self.usb_controller.zoom_in.connect(self._usb_signal_handlers["zoom_in"])
-            self.usb_controller.zoom_out.connect(self._usb_signal_handlers["zoom_out"])
-            self.usb_controller.zoom_stop.connect(self._usb_signal_handlers["zoom_stop"])
-            self.usb_controller.stop_movement.connect(self._usb_signal_handlers["stop_movement"])
-            self.usb_controller.brightness_increase.connect(
-                self._usb_signal_handlers["brightness_increase"]
-            )
-            self.usb_controller.brightness_decrease.connect(
-                self._usb_signal_handlers["brightness_decrease"]
-            )
-            self.usb_controller.focus_one_push.connect(self._usb_signal_handlers["focus_one_push"])
-
+        """Called when preferences dialog is closed - reset flag"""
+        logger.info("Preferences dialog closed")
+        # No need to reconnect signals - UniqueConnection keeps main window handlers active
+        # Dialog's connections are automatically cleaned up when dialog is destroyed
         self._preferences_dialog_open = False
 
     def closeEvent(self, event) -> None:
