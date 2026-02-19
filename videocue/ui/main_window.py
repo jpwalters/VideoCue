@@ -400,6 +400,7 @@ class MainWindow(QMainWindow):
             # Pre-discover all NDI sources once before creating camera widgets
             # This prevents each camera from doing its own 2-second discovery wait
             if camera_configs:
+                from videocue.constants import NetworkConstants
                 from videocue.controllers.ndi_video import (
                     discover_and_cache_all_sources,
                     ndi_available,
@@ -407,11 +408,21 @@ class MainWindow(QMainWindow):
 
                 if ndi_available:
                     logger.info("[Startup] Pre-discovering all NDI sources...")
-                    num_sources = discover_and_cache_all_sources(timeout_ms=2000)
+                    # Use extended discovery timeout for initial startup (10 seconds)
+                    # This matches CamControl's approach for reliable multi-camera discovery
+                    num_sources = discover_and_cache_all_sources(
+                        timeout_ms=NetworkConstants.NDI_DISCOVERY_TIMEOUT_MS
+                    )
                     logger.info(f"[Startup] Cached {num_sources} NDI source(s)")
 
-            # Load cameras with minimal video stagger to prevent NDI connection contention
-            # Widget loads immediately but video starts with 50ms offset per camera
+                    # Short delay after discovery to let sources fully stabilize
+                    # CamControl appears to wait briefly before connecting
+                    import time
+
+                    time.sleep(0.5)  # 500ms stabilization delay
+                    logger.info("[Startup] Sources stabilized, creating camera widgets...")
+
+            # Load cameras immediately - no stagger delay
             for i, cam_config in enumerate(camera_configs, 1):
                 cam_config["_init_delay"] = (
                     i - 1

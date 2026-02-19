@@ -24,6 +24,7 @@ _ndi_initialized = False
 _global_finder = None
 _ndi_lock = threading.Lock()  # Thread safety for global NDI resources
 _source_cache: dict = {}  # Cache of discovered sources {source_name: ndi.Source}
+_last_discovery_time = 0.0  # Track when we last did a full discovery
 
 try:
     from videocue import ndi_wrapper as ndi  # noqa: N813
@@ -55,6 +56,16 @@ def _ensure_ndi_initialized() -> bool:
         if not _ndi_initialized:
             logger.info("[NDI Global] Initializing NDI...")
             try:
+                # Set environment variables for NDI configuration (like CamControl)
+                # RUDP mode provides more reliable connections
+                import os
+
+                if "NDI_RECV_PROTOCOL_MODE" not in os.environ:
+                    os.environ["NDI_RECV_PROTOCOL_MODE"] = (
+                        "RUDP"  # Reliable UDP (same as CamControl)
+                    )
+                    logger.info("[NDI Global] Set NDI protocol mode to RUDP")
+
                 if ndi.initialize():
                     _ndi_initialized = True
                     logger.info("[NDI Global] Creating global finder...")
@@ -62,7 +73,7 @@ def _ensure_ndi_initialized() -> bool:
                     find_settings.show_local_sources = True
                     _global_finder = ndi.find_create_v2(find_settings)
                     if _global_finder:
-                        logger.info("[NDI Global] NDI initialized successfully")
+                        logger.info("[NDI Global] NDI initialized successfully with RUDP")
                     else:
                         logger.error("[NDI Global] Failed to create finder")
                         return False
@@ -113,6 +124,7 @@ def cleanup_ndi() -> None:
 class NDIVideoThread(QThread):
     """
     NDI video receiver thread with automatic frame dropping.
+    Each thread has its own NDI finder for isolation.
     Uses QueuedConnection with implicit queue size of 1 for frame_ready signal.
     """
 
@@ -131,8 +143,9 @@ class NDIVideoThread(QThread):
         self.running = False
         self._stop_event = threading.Event()
         self._receiver = None
-        self._finder = None
-        logger.debug(f"NDI thread created for source: {source_name}, frame_skip: {frame_skip}")
+        self._finder = None  # Per-camera finder
+        self._finder_created_at = None
+        logger.info(f"[{source_name}] NDI thread created with frame_skip={frame_skip}")
 
     def run(self) -> None:
         """Main video reception loop with comprehensive error handling"""
@@ -165,99 +178,134 @@ class NDIVideoThread(QThread):
 
     def _run_reception_loop(self):
         """Internal reception loop (called by run() with error handling)"""
-        global _source_cache
+        import time
+
+        start_time = time.time()
 
         try:
+            # EXPERIMENT: Skip discovery entirely, create source manually first
+            # This tests whether NDI discovery is even necessary when we know the source name
+            logger.info(f"[{self.source_name}] === CONNECTION START ===")
+            logger.info(f"[{self.source_name}] Strategy: Manual source creation (skip discovery)")
+
             target_source = None
+            source_creation_method = "unknown"
 
-            # Check cache with lock (fast operation)
-            with _ndi_lock:
-                # First, check if we have this source cached
-                if self.source_name in _source_cache:
-                    logger.info(f"[NDI] Using cached source for '{self.source_name}'")
-                    target_source = _source_cache[self.source_name]
-
-            # If not cached, discover WITHOUT holding the lock (allows other cameras to proceed)
-            if not target_source:
-                # Release lock during slow discovery so other cameras aren't blocked
-                logger.info(
-                    f"[NDI] Source not cached, discovering sources for '{self.source_name}'..."
+            # METHOD 1: Manual source creation (FASTEST - no discovery)
+            try:
+                logger.info(f"[{self.source_name}] Creating source manually from name...")
+                manual_start = time.time()
+                target_source = ndi.Source()
+                target_source.ndi_name = (
+                    self.source_name.encode("utf-8")
+                    if isinstance(self.source_name, str)
+                    else self.source_name
                 )
-                ndi.find_wait_for_sources(
-                    _global_finder, 1000
-                )  # Reduced to 1s for faster reconnects
-                sources = ndi.find_get_current_sources(_global_finder)
+                manual_elapsed = (time.time() - manual_start) * 1000
+                logger.info(
+                    f"[{self.source_name}] ✓ Manual source created in {manual_elapsed:.1f}ms"
+                )
+                source_creation_method = "manual"
+            except (ImportError, RuntimeError, AttributeError) as e:
+                logger.error(f"[{self.source_name}] ✗ Manual source creation failed: {e}")
 
-                logger.info(f"[NDI] Found {len(sources)} sources during discovery")
-
-                # Find matching source
-                for source in sources:
-                    source_name = (
-                        source.ndi_name.decode("utf-8")
-                        if isinstance(source.ndi_name, bytes)
-                        else str(source.ndi_name)
-                    )
-                    logger.debug(f"[NDI] Checking source: {source_name}")
-                    if source_name == self.source_name:
-                        target_source = source
-                        # Cache it for future use - acquire lock just for cache update
-                        with _ndi_lock:
-                            _source_cache[self.source_name] = source
-                        logger.info(f"[NDI] Found and cached matching source: {source_name}")
-                        break
-
-                if not target_source:
-                    # Try to create source manually - discovery may not work but direct connection might
-                    try:
-                        logger.info(
-                            f"[NDI] Attempting manual source creation for '{self.source_name}'"
-                        )
-                        target_source = ndi.Source()
-                        target_source.ndi_name = (
-                            self.source_name.encode("utf-8")
-                            if isinstance(self.source_name, str)
-                            else self.source_name
-                        )
-                        # Cache the manual source too - acquire lock just for cache update
-                        with _ndi_lock:
-                            _source_cache[self.source_name] = target_source
-                        logger.info("[NDI] Manual source created and cached")
-                    except (ImportError, RuntimeError, AttributeError) as e:
-                        logger.error(f"[NDI] Manual source creation failed: {e}")
-
-            # Check if we got a source (outside the lock now)
+            # METHOD 2: Per-camera finder with discovery (if manual fails)
             if not target_source:
-                logger.warning(f"[NDI] Source '{self.source_name}' not found in discovery")
+                logger.warning(
+                    f"[{self.source_name}] Manual creation failed, trying per-camera finder..."
+                )
+                try:
+                    # Create dedicated finder for this camera
+                    logger.info(f"[{self.source_name}] Creating dedicated NDI finder...")
+                    finder_start = time.time()
+                    find_settings = ndi.FindCreate()
+                    find_settings.show_local_sources = True
+                    self._finder = ndi.find_create_v2(find_settings)
+                    self._finder_created_at = time.time()
+                    finder_elapsed = (time.time() - finder_start) * 1000
+                    logger.info(f"[{self.source_name}] ✓ Finder created in {finder_elapsed:.1f}ms")
+
+                    # Quick discovery with per-camera finder
+                    logger.info(
+                        f"[{self.source_name}] Discovering sources (quick: 1500ms timeout)..."
+                    )
+                    discover_start = time.time()
+                    ndi.find_wait_for_sources(
+                        self._finder, NetworkConstants.NDI_DISCOVERY_QUICK_TIMEOUT_MS
+                    )
+                    sources = ndi.find_get_current_sources(self._finder)
+                    discover_elapsed = (time.time() - discover_start) * 1000
+                    logger.info(
+                        f"[{self.source_name}] Found {len(sources)} sources in {discover_elapsed:.1f}ms"
+                    )
+
+                    for source in sources:
+                        source_name = (
+                            source.ndi_name.decode("utf-8")
+                            if isinstance(source.ndi_name, bytes)
+                            else str(source.ndi_name)
+                        )
+                        logger.debug(f"[{self.source_name}]   - Discovered: {source_name}")
+                        if source_name == self.source_name:
+                            target_source = source
+                            logger.info(f"[{self.source_name}] ✓ Matched source via discovery")
+                            source_creation_method = "per-camera-finder"
+                            break
+
+                except Exception as e:
+                    logger.error(f"[{self.source_name}] ✗ Per-camera finder failed: {e}")
+
+            # Final check
+            if not target_source:
+                elapsed = (time.time() - start_time) * 1000
+                logger.error(
+                    f"[{self.source_name}] ✗ FAILED after {elapsed:.1f}ms - no source obtained"
+                )
                 self.error.emit(f"NDI source '{self.source_name}' not found")
                 return
 
-            # Create receiver with settings optimized for preview
+            logger.info(f"[{self.source_name}] Source obtained via: {source_creation_method}")
+
+            # Create receiver with settings optimized for multiple camera preview
             # Note: bandwidth setting affects both quality and latency
-            # - HIGHEST: Full quality, lowest latency, but high network/CPU usage (may not work with multiple cameras)
-            # - LOWEST: Reduced quality, higher latency, but lowest network/CPU usage
-            # - None (default): Let NDI auto-negotiate based on network conditions (RECOMMENDED)
+            # - HIGHEST: Full quality, lowest latency, but high network/CPU usage (CAUSES ISSUES with multiple cameras)
+            # - LOWEST: Reduced quality, higher latency, but lowest network/CPU usage (BEST for multiple cameras)
+            # - Auto-negotiate: Can cause contention issues with 3+ cameras
+            # CamControl uses LOWEST bandwidth with RUDP protocol for reliable multi-camera streaming
+            logger.info(f"[{self.source_name}] Creating NDI receiver...")
+            receiver_start = time.time()
             try:
                 recv_settings = ndi.RecvCreateV3()  # Correct class name
                 recv_settings.color_format = ndi.RECV_COLOR_FORMAT_UYVY_BGRA  # Default format
-                # Don't set bandwidth - let NDI auto-negotiate for best balance
-                # recv_settings.bandwidth = ndi.RECV_BANDWIDTH_HIGHEST  # Causes issues with multiple cameras
+                # Use LOWEST bandwidth for multiple camera stability (like CamControl)
+                recv_settings.bandwidth = ndi.RECV_BANDWIDTH_LOWEST  # Best for multiple cameras
                 recv_settings.allow_video_fields = False  # Progressive only for simplicity
                 self._receiver = ndi.recv_create_v3(recv_settings)
+                receiver_elapsed = (time.time() - receiver_start) * 1000
                 logger.info(
-                    f"[NDI] Receiver created with auto bandwidth (default), frame_skip={self.frame_skip}"
+                    f"[{self.source_name}] ✓ Receiver created in {receiver_elapsed:.1f}ms (LOWEST bandwidth, frame_skip={self.frame_skip})"
                 )
             except (AttributeError, TypeError) as e:
                 # If settings not supported, fall back to defaults
-                logger.warning(f"[NDI] RecvCreateV3 failed: {e}, using defaults")
+                logger.warning(f"[{self.source_name}] RecvCreateV3 failed: {e}, using defaults")
                 self._receiver = ndi.recv_create_v3()
+                receiver_elapsed = (time.time() - receiver_start) * 1000
+                logger.info(
+                    f"[{self.source_name}] Receiver created in {receiver_elapsed:.1f}ms (defaults)"
+                )
 
             if not self._receiver:
                 self.error.emit("Failed to create NDI receiver")
                 return
 
             # Connect to source
+            logger.info(f"[{self.source_name}] Calling recv_connect()...")
+            connect_start = time.time()
             ndi.recv_connect(self._receiver, target_source)
-            logger.debug("Connected to receiver")
+            connect_elapsed = (time.time() - connect_start) * 1000
+            logger.info(
+                f"[{self.source_name}] ✓ recv_connect() returned in {connect_elapsed:.1f}ms"
+            )
 
             # Reception loop
             self.running = True
@@ -265,10 +313,17 @@ class NDIVideoThread(QThread):
             frame_count = 0
             skip_count = 0
             no_frame_count = 0
-            max_no_frame_attempts = 150  # 15 seconds (150 * 100ms) - some cameras are slow to start
+            max_no_frame_attempts = (
+                NetworkConstants.NDI_NO_FRAME_THRESHOLD
+            )  # Use constant (10 seconds)
             current_resolution = None  # Track resolution to detect changes
+            first_frame_time = None
 
-            logger.debug("Starting reception loop...")
+            total_elapsed = (time.time() - start_time) * 1000
+            logger.info(
+                f"[{self.source_name}] Starting frame reception loop (setup took {total_elapsed:.1f}ms)..."
+            )
+            logger.info(f"[{self.source_name}] Waiting for first frame (10s timeout)...")
 
             try:
                 while self.running:
@@ -282,8 +337,16 @@ class NDIVideoThread(QThread):
 
                             # Extract web control URL on first frame
                             if first_frame:
-                                if frame_count == 1:
-                                    logger.debug(f"Connected: {v.xres}x{v.yres}")
+                                if not first_frame_time:
+                                    first_frame_time = time.time()
+                                    first_frame_elapsed = (first_frame_time - start_time) * 1000
+                                    logger.info(
+                                        f"[{self.source_name}] ✓✓✓ FIRST FRAME received after {first_frame_elapsed:.1f}ms ✓✓✓"
+                                    )
+                                    logger.info(
+                                        f"[{self.source_name}] Resolution: {v.xres}x{v.yres}"
+                                    )
+                                    logger.info(f"[{self.source_name}] === CONNECTION SUCCESS ===")
                                 web_url = self._extract_web_control()  # pylint: disable=assignment-from-none
                                 if web_url:
                                     self.connected.emit(web_url)
@@ -324,8 +387,26 @@ class NDIVideoThread(QThread):
                             # No data received, increment timeout counter
                             no_frame_count += 1
                             if no_frame_count >= max_no_frame_attempts:
+                                elapsed_total = (time.time() - start_time) * 1000
+                                timeout_seconds = (
+                                    max_no_frame_attempts * NetworkConstants.NDI_FRAME_TIMEOUT_MS
+                                ) // 1000
+                                logger.error(
+                                    f"[{self.source_name}] ✗✗✗ NO FRAMES after {max_no_frame_attempts} attempts ({timeout_seconds}s) ✗✗✗"
+                                )
+                                logger.error(
+                                    f"[{self.source_name}] Total time: {elapsed_total:.1f}ms"
+                                )
+                                logger.error(
+                                    f"[{self.source_name}] Source method: {source_creation_method}"
+                                )
+                                logger.error(
+                                    f"[{self.source_name}] recv_connect() succeeded but no video data received"
+                                )
+                                logger.error(f"[{self.source_name}] === CONNECTION FAILED ===")
                                 self.error.emit(
-                                    f"NDI source '{self.source_name}' not responding after 15 seconds. Check source name and network connectivity."
+                                    f"NDI source '{self.source_name}' not responding after {timeout_seconds} seconds. "
+                                    "Check source name and network connectivity. Try reconnecting."
                                 )
                                 break
                         elif t == ndi.FRAME_TYPE_ERROR:
@@ -562,32 +643,45 @@ class NDIVideoThread(QThread):
         try:
             if self._receiver:
                 try:
+                    logger.debug(f"[{self.source_name}] Destroying receiver...")
                     ndi.recv_destroy(self._receiver)
                 except Exception:
-                    logger.exception("Error destroying receiver")
+                    logger.exception(f"[{self.source_name}] Error destroying receiver")
                 finally:
                     self._receiver = None
 
-            # Don't destroy global finder - it's shared
-            self._finder = None
+            # Destroy per-camera finder
+            if self._finder:
+                try:
+                    logger.debug(f"[{self.source_name}] Destroying per-camera finder...")
+                    ndi.find_destroy(self._finder)
+                except Exception:
+                    logger.exception(f"[{self.source_name}] Error destroying finder")
+                finally:
+                    self._finder = None
 
             # Don't call ndi.destroy() - keep NDI initialized globally
         except Exception:
             # Catch ANY exception during cleanup
-            logger.exception("Unexpected error during cleanup")
+            logger.exception(f"[{self.source_name}] Unexpected error during cleanup")
 
 
-def discover_and_cache_all_sources(timeout_ms: int = 2000) -> int:
+def discover_and_cache_all_sources(timeout_ms: int = None) -> int:
     """
     Discover all NDI sources once and cache them for immediate use by camera threads.
     This should be called once at app startup before creating camera widgets.
     Returns the number of sources found and cached.
     """
-    global _source_cache
+    global _source_cache, _last_discovery_time
+    import time
 
     if not _ensure_ndi_initialized():
         logger.warning("[NDI] Cannot discover sources - NDI not initialized")
         return 0
+
+    # Use default discovery timeout if not specified
+    if timeout_ms is None:
+        timeout_ms = NetworkConstants.NDI_DISCOVERY_TIMEOUT_MS
 
     try:
         with _ndi_lock:
@@ -606,9 +700,12 @@ def discover_and_cache_all_sources(timeout_ms: int = 2000) -> int:
                         else str(source.ndi_name)
                     )
                     _source_cache[source_name] = source
-                    logger.debug(f"[NDI] Cached source: {source_name}")
+                    logger.info(f"[NDI Discovery] ✓ Cached source: '{source_name}'")
                 except Exception as e:
                     logger.warning(f"[NDI] Error caching source: {e}")
+
+            # Update discovery timestamp
+            _last_discovery_time = time.time()
 
             logger.info(f"[NDI] Cached {len(_source_cache)} sources")
             return len(_source_cache)

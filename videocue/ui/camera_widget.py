@@ -1221,6 +1221,9 @@ class CameraWidget(QWidget):
         # Emit initialized signal
         self.initialized.emit()
 
+        # Reset auto-retry flag on successful connection
+        self._auto_retry_attempted = False
+
         # Update status indicator and mark as connected
         self.is_connected = True
         self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
@@ -1242,8 +1245,26 @@ class CameraWidget(QWidget):
         self.reconnect_button.setVisible(True)
         self.set_controls_enabled(False)
 
+        # Auto-retry connection after delay (only once automatically)
+        if not hasattr(self, "_auto_retry_attempted") or not self._auto_retry_attempted:
+            from videocue.constants import NetworkConstants
+
+            logger.info(
+                f"[{self._format_camera_display_name()}] Scheduling auto-retry in {NetworkConstants.NDI_CONNECTION_RETRY_DELAY_MS}ms..."
+            )
+            self._auto_retry_attempted = True
+            QTimer.singleShot(
+                NetworkConstants.NDI_CONNECTION_RETRY_DELAY_MS, self._auto_retry_connection
+            )
+
         # Emit initialized signal even on error
         self.initialized.emit()
+
+    def _auto_retry_connection(self):
+        """Automatically retry NDI connection once after initial failure"""
+        if not self.ndi_thread and self.ndi_source_name:  # Only retry if not already connected
+            logger.info(f"[{self._format_camera_display_name()}] Auto-retrying NDI connection...")
+            self.reconnect_camera()
 
     def move_camera(self, direction: str, speed: float = 0.7):
         """Move camera in specified direction"""
@@ -2054,6 +2075,9 @@ class CameraWidget(QWidget):
         """Attempt to reconnect to camera (non-blocking)"""
         try:
             logger.debug(f"Attempting to reconnect to {self.visca_ip}...")
+
+            # Reset auto-retry flag so it can try again on next error
+            self._auto_retry_attempted = False
 
             # Hide reconnect button and show loading indicator
             self.reconnect_button.setVisible(False)
