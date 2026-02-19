@@ -1307,17 +1307,50 @@ class CameraWidget(QWidget):
                 results = {}
 
                 try:
+                    # Query focus mode
                     results["focus_mode"] = self.visca.query_focus_mode()
+                    logger.debug(f"[QueryThread] focus_mode = {results['focus_mode']}")
+
+                    # Query exposure mode
                     results["exposure_mode"] = self.visca.query_exposure_mode()
+                    logger.debug(f"[QueryThread] exposure_mode = {results['exposure_mode']}")
+
+                    # Query iris
                     results["iris"] = self.visca.query_iris()
+                    logger.debug(f"[QueryThread] iris = {results['iris']}")
+
+                    # Query shutter
                     results["shutter"] = self.visca.query_shutter()
+                    logger.debug(f"[QueryThread] shutter = {results['shutter']}")
+
+                    # Query gain
                     results["gain"] = self.visca.query_gain()
+                    logger.debug(f"[QueryThread] gain = {results['gain']}")
+
+                    # Query brightness
                     results["brightness"] = self.visca.query_brightness()
+                    logger.debug(f"[QueryThread] brightness = {results['brightness']}")
+
+                    # Query white balance mode
                     results["wb_mode"] = self.visca.query_white_balance_mode()
+                    logger.debug(f"[QueryThread] wb_mode = {results['wb_mode']}")
+
+                    # Query red gain
                     results["red_gain"] = self.visca.query_red_gain()
+                    logger.debug(f"[QueryThread] red_gain = {results['red_gain']}")
+
+                    # Query blue gain
                     results["blue_gain"] = self.visca.query_blue_gain()
+                    logger.debug(f"[QueryThread] blue_gain = {results['blue_gain']}")
+
+                    # Query backlight comp
                     results["backlight"] = self.visca.query_backlight_comp()
-                    logger.info(f"[QueryThread] Finished querying for camera {self.visca_ip}")
+                    logger.debug(f"[QueryThread] backlight = {results['backlight']}")
+
+                    logger.info(
+                        f"[QueryThread] Finished querying for camera {self.visca_ip}. "
+                        f"Results: {len([v for v in results.values() if v is not None])}/{len(results)} successful"
+                    )
                 except Exception:
                     logger.exception(
                         f"[QueryThread] Error querying settings for camera {self.visca_ip}"
@@ -1335,7 +1368,11 @@ class CameraWidget(QWidget):
 
     def _apply_queried_settings(self, results: dict):
         """Apply queried settings to UI (called on main thread after background query)"""
-        logger.info(f"Applying queried settings for camera {self.visca_ip}...")
+        logger.info(
+            f"Applying queried settings for camera {self.visca_ip}... "
+            f"Received {len(results)} results"
+        )
+        logger.debug(f"Query results summary: {results}")
 
         # Apply focus mode
         if "focus_mode" in results:
@@ -1405,6 +1442,7 @@ class CameraWidget(QWidget):
 
         # Apply brightness
         if "brightness" in results and results["brightness"] is not None:
+            logger.debug(f"Applying brightness value: {results['brightness']}")
             self.brightness_slider.blockSignals(True)
             self.brightness_slider.setValue(results["brightness"])
             self.brightness_slider.blockSignals(False)
@@ -1413,6 +1451,12 @@ class CameraWidget(QWidget):
             self.brightness_slider_vertical.setValue(results["brightness"])
             self.brightness_slider_vertical.blockSignals(False)
             self.brightness_value_vertical.setText(str(results["brightness"]))
+        else:
+            logger.warning(
+                f"Brightness not applied - "
+                f"in results: {'brightness' in results}, "
+                f"value: {results.get('brightness', 'N/A')}"
+            )
 
         # Apply white balance mode
         if "wb_mode" in results:

@@ -56,6 +56,12 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Play/Pause Controls**: Toggle video streaming per camera
 - **Reconnect Button**: One-click reconnection for failed cameras
 - **Comprehensive Error Handling**: Graceful error recovery prevents crashes
+- **Automatic Settings Sync**: Camera settings (exposure, focus, white balance) queried and synced on connection
+
+### Application Settings
+- **Preferences Dialog**: Configure USB controller mappings, application behavior, and video settings
+- **Single Instance Mode**: Optional enforcement to prevent multiple app instances (default: enabled)
+- **NDI Video Toggle**: Enable/disable NDI video streaming globally
 
 ## Requirements
 
@@ -340,7 +346,7 @@ videocue/
 │   ├── main_window.py       # Main application window with deferred loading
 │   ├── camera_widget.py     # Individual camera control widget with reconnect
 │   ├── camera_add_dialog.py # Camera discovery/add dialog
-│   └── controller_preferences_dialog.py  # USB controller settings
+│   └── preferences_dialog.py  # USB controller settings
 └── utils.py                  # Resource path helpers and utility functions
 
 resources/

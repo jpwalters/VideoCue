@@ -5,7 +5,7 @@ Main application window
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSlot  # type: ignore
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSlot  # type: ignore
 from PyQt6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QHBoxLayout,
@@ -1073,7 +1073,7 @@ class MainWindow(QMainWindow):
 
     def show_controller_preferences(self):
         """Show controller preferences dialog (non-modal, stays open)"""
-        from videocue.ui.controller_preferences_dialog import ControllerPreferencesDialog
+        from videocue.ui.preferences_dialog import PreferencesDialog
 
         logger.info(
             f"show_controller_preferences called. dialog_open={self._preferences_dialog_open}"
@@ -1120,9 +1120,7 @@ class MainWindow(QMainWindow):
 
         # Always create fresh dialog
         logger.debug(f"Creating dialog with usb_controller={self.usb_controller}")
-        self.preferences_dialog = ControllerPreferencesDialog(
-            self.config, self, self.usb_controller
-        )
+        self.preferences_dialog = PreferencesDialog(self.config, self, self.usb_controller)
 
         # Connect finished signal to reset flag when dialog closes
         self.preferences_dialog.finished.connect(self._on_preferences_dialog_closed)
@@ -1134,13 +1132,22 @@ class MainWindow(QMainWindow):
 
     def _on_preferences_dialog_closed(self):
         """Called when preferences dialog is closed - reconnect camera control handlers"""
-        logger.info("Preferences dialog closed, reconnecting main window handlers")
+        logger.info("Preferences dialog closed, scheduling handler reconnection")
+
+        # Add a small delay before reconnecting handlers to allow any pending button events
+        # from the dialog close action (e.g., A button press) to fully complete.
+        # This prevents the close button from triggering camera commands.
+        QTimer.singleShot(150, self._reconnect_usb_handlers)
+
+        self._preferences_dialog_open = False
+
+    def _reconnect_usb_handlers(self):
+        """Reconnect USB controller handlers after preferences dialog closes"""
+        logger.debug("Reconnecting main window camera control handlers (after delay)")
 
         # Reconnect main window camera control handlers using UniqueConnection
         # UniqueConnection can raise TypeError if connection already exists, so we handle it gracefully
         if self.usb_controller and self._usb_signal_handlers:
-            logger.debug("Reconnecting main window camera control handlers")
-
             # Helper to safely reconnect with UniqueConnection
             def safe_connect(signal, handler, name=""):
                 try:
@@ -1196,8 +1203,6 @@ class MainWindow(QMainWindow):
                 "focus_one_push",
             )
             logger.debug("Successfully reconnected all main window camera control handlers")
-
-        self._preferences_dialog_open = False
 
     def closeEvent(self, event) -> None:
         """Handle window close event"""

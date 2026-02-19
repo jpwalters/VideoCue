@@ -6,13 +6,14 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 ## Architecture
 
 ### Key Components
-- **videocue.py**: Application entry point, initializes PyQt6 app with qdarkstyle theme, **global exception handler** prevents crashes
-- **ui/main_window.py**: Main window (QTabWidget), **deferred camera loading** via showEvent, progress bar with 3-step tracking per camera
-- **ui/camera_widget.py**: Per-camera widget (QTreeWidget sections: video, PTZ controls, exposure, white balance, focus, presets), **connection state tracking** (is_connected), **reconnect button**, **play/pause video controls**
+- **videocue.py**: Application entry point, initializes PyQt6 app with qdarkstyle theme, **global exception handler** prevents crashes, **SingleInstanceLock** for optional single-instance mode
+- **ui/main_window.py**: Main window (QTabWidget), **deferred camera loading** via showEvent, progress bar with 3-step tracking per camera, **USB signal management** with UniqueConnection pattern
+- **ui/camera_widget.py**: Per-camera widget (QTreeWidget sections: video, PTZ controls, exposure, white balance, focus, presets), **connection state tracking** (is_connected), **reconnect button**, **play/pause video controls**, **automatic settings query** on connection
+- **ui/preferences_dialog.py**: Preferences dialog with USB controller settings, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
 - **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, UYVY422→RGB, frame dropping), **5-second timeout**, **comprehensive error handling**
-- **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens controller preferences**
+- **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens preferences dialog**
 - **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix)
 - **models/video.py**: Video size and camera preset data models
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
@@ -158,7 +159,7 @@ pyinstaller VideoCue.spec
 
 ### Configuration
 - Stored at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) or `~/.config/VideoCue/config.json` (Unix)
-- Schema: cameras array (id, ndi_source, ip, port, presets), preferences (video_size_default, theme), usb_controller (mappings, speeds)
+- Schema: cameras array (id, ndi_source, ip, port, presets), preferences (video_size_default, theme, **single_instance_mode**, **ndi_video_enabled**), usb_controller (mappings, speeds, **brightness_enabled**, **brightness_step**)
 - See [config_schema.json](config_schema.json) for full JSON structure
 - ConfigManager uses `uuid.uuid4()` for camera IDs
 - Auto-saves on camera add/delete, preset changes, video size changes, app exit
@@ -280,6 +281,85 @@ if success:
 else:
     self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
     self.reconnect_button.setVisible(True)
+```
+
+### USB Signal Management Pattern (Preferences Dialog)
+```python
+# Disconnect handlers when preferences dialog opens
+if self.usb_controller and self._usb_signal_handlers:
+    self.usb_controller.brightness_increase.disconnect(
+        self._usb_signal_handlers["brightness_increase"]
+    )
+    # ... disconnect other handlers
+
+# Reconnect with 150ms delay when dialog closes (prevents button bleed-through)
+def _on_preferences_dialog_closed(self):
+    QTimer.singleShot(150, self._reconnect_usb_handlers)
+    self._preferences_dialog_open = False
+
+def _reconnect_usb_handlers(self):
+    # Use UniqueConnection to prevent duplicate connections
+    def safe_connect(signal, handler, name=""):
+        try:
+            signal.connect(handler, Qt.ConnectionType.UniqueConnection)
+        except TypeError as e:
+            if "unique" in str(e).lower():
+                logger.debug(f"Connection for {name} already exists")
+    
+    safe_connect(self.usb_controller.brightness_increase, 
+                 self._usb_signal_handlers["brightness_increase"], 
+                 "brightness_increase")
+```
+
+### Single Instance Mode
+```python
+# In videocue.py - SingleInstanceLock class
+class SingleInstanceLock:
+    """Platform-specific file locking for single instance enforcement"""
+    def __init__(self):
+        self.lock_file = get_app_data_dir() / "videocue.lock"
+        self.lock_fd = None
+    
+    def acquire(self) -> bool:
+        # Windows: msvcrt.locking()
+        # Unix: fcntl.flock()
+        # Returns True if lock acquired, False if another instance running
+    
+    def release(self):
+        # Release lock on app exit
+
+# Usage in main()
+if config.get_single_instance_mode():
+    lock = SingleInstanceLock()
+    if not lock.acquire():
+        # Show warning dialog, exit
+```
+
+### Camera Settings Query Pattern
+```python
+# Query all settings asynchronously after connection
+def _query_all_settings_async(self):
+    """Background thread queries all camera settings"""
+    class QueryThread(QThread):
+        finished = pyqtSignal(dict)
+        def run(self):
+            results = {}
+            results["focus_mode"] = self.visca.query_focus_mode()
+            results["exposure_mode"] = self.visca.query_exposure_mode()
+            results["brightness"] = self.visca.query_brightness()
+            # ... query all settings
+            self.finished.emit(results)
+    
+    self._query_thread = QueryThread(self.visca, self.visca_ip)
+    self._query_thread.finished.connect(self._apply_queried_settings)
+    self._query_thread.start()
+
+def _apply_queried_settings(self, results: dict):
+    """Apply queried settings to UI sliders/combos"""
+    if "brightness" in results and results["brightness"] is not None:
+        self.brightness_slider.blockSignals(True)
+        self.brightness_slider.setValue(results["brightness"])
+        self.brightness_slider.blockSignals(False)
 ```
 
 ## Common Tasks

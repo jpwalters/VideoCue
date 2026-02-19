@@ -5,7 +5,10 @@
     "video_size_default": [512, 288],
     "video_frame_skip": 6,
     "theme": "dark",
-    "auto_discover_ndi": true
+    "auto_discover_ndi": true,
+    "ndi_video_enabled": true,
+    "file_logging_enabled": false,
+    "single_instance_mode": true
   },
   "usb_controller": {
     "enabled": true,
@@ -15,10 +18,14 @@
     "zoom_speed": 0.7,
     "invert_vertical": false,
     "joystick_mode": "single",
+    "stop_on_camera_switch": true,
     "brightness_enabled": true,
+    "brightness_step": 1,
     "brightness_increase_button": 3,
     "brightness_decrease_button": 0,
-    "brightness_step": 1,
+    "focus_one_push_button": 1,
+    "stop_movement_button": 2,
+    "menu_button": 7,
     "button_mappings": {
       "button_4": "prev_camera",
       "button_5": "next_camera",

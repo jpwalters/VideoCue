@@ -48,7 +48,7 @@ python/
 │       ├── main_window.py    # Main application window with deferred loading
 │       ├── camera_widget.py  # Camera control widget with query-based sync
 │       ├── camera_add_dialog.py # Camera discovery dialog
-│       └── controller_preferences_dialog.py # USB controller settings
+│       └── preferences_dialog.py # USB controller settings
 ├── requirements.txt
 ├── build.ps1               # Automated PowerShell build script
 ├── config_schema.json
