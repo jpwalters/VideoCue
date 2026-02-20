@@ -60,9 +60,9 @@ class ViscaConnectionTestThread(QThread):
             focus_mode = self.visca.query_focus_mode()
             success = focus_mode != FocusMode.UNKNOWN
             if success:
-                logger.debug(f"VISCA connection test passed for {self.visca.ip}")
+                logger.debug("VISCA connection test passed for %s", self.visca.ip)
             else:
-                logger.warning(f"VISCA connection test failed for {self.visca.ip}")
+                logger.warning("VISCA connection test failed for %s", self.visca.ip)
             self.test_complete.emit(success, "" if success else "Connection failed")
         except ViscaTimeoutError as e:
             logger.error(f"VISCA connection timeout for {self.visca.ip}: {e}")
@@ -256,7 +256,7 @@ class CameraWidget(QWidget):
 
         # Cache the result
         self._cached_display_name = result
-        logger.debug(f"Formatted camera display name: {result}")
+        logger.debug("Formatted camera display name: %s", result)
         return result
 
     def init_ui(self):
@@ -974,7 +974,7 @@ class CameraWidget(QWidget):
 
     def _test_visca_connection(self):
         """Test VISCA connection for IP-only cameras using background thread"""
-        logger.debug(f"Testing VISCA connection to {self.visca_ip}...")
+        logger.debug("Testing VISCA connection to %s...", self.visca_ip)
 
         # Emit connection starting signal
         self.connection_starting.emit()
@@ -1013,6 +1013,10 @@ class CameraWidget(QWidget):
         # Mark as initialized
         QTimer.singleShot(100, self.initialized.emit)
 
+    def cleanup(self) -> None:
+        """Public cleanup method - call before widget deletion."""
+        self._cleanup_threads()
+
     def _cleanup_threads(self) -> None:
         """Clean up background threads when widget is destroyed"""
         # Stop NDI thread
@@ -1021,7 +1025,7 @@ class CameraWidget(QWidget):
                 self.ndi_thread.running = False
                 self.ndi_thread.wait(1000)  # Wait up to 1 second for thread to finish
             except Exception as e:
-                logger.warning(f"Error stopping NDI thread: {e}")
+                logger.warning("Error stopping NDI thread: %s", e)
             finally:
                 self.ndi_thread = None
 
@@ -1030,16 +1034,16 @@ class CameraWidget(QWidget):
             try:
                 self.visca_test_thread.wait(1000)  # Wait up to 1 second for thread to finish
             except Exception as e:
-                logger.warning(f"Error stopping VISCA test thread: {e}")
+                logger.warning("Error stopping VISCA test thread: %s", e)
             finally:
                 self.visca_test_thread = None
 
     def __del__(self):
-        """Cleanup threads when widget is destroyed"""
+        """Cleanup threads when widget is destroyed."""
         try:
             self._cleanup_threads()
         except Exception as e:
-            logger.warning(f"Error in __del__: {e}")
+            logger.warning("Error in __del__: %s", e)
 
     def try_discover_ndi_source(self):
         """Try to discover NDI source matching the VISCA IP address"""
@@ -1058,15 +1062,15 @@ class CameraWidget(QWidget):
         # Emit connection starting signal
         self.connection_starting.emit()
 
-        logger.debug(f"Attempting to discover NDI source for IP {self.visca_ip}")
+        logger.debug("Attempting to discover NDI source for IP %s", self.visca_ip)
         cameras = find_ndi_cameras(timeout_ms=5000)
 
-        logger.debug(f"Found {len(cameras)} NDI sources: {cameras}")
+        logger.debug("Found %d NDI sources: %s", len(cameras), cameras)
 
         # Try to find a source containing this IP
         for camera_name in cameras:
             if self.visca_ip in camera_name:
-                logger.debug(f"Matched NDI source: {camera_name}")
+                logger.debug("Matched NDI source: %s", camera_name)
                 self.ndi_source_name = camera_name
                 # Update label with formatted name (avoids redundancy)
                 self.name_label.setText(self._format_camera_display_name())
@@ -1079,7 +1083,7 @@ class CameraWidget(QWidget):
                 self.start_video()
                 return
 
-        logger.debug(f"No NDI source found matching IP {self.visca_ip}")
+        logger.debug("No NDI source found matching IP %s", self.visca_ip)
         self.video_label.setText("No NDI source\n(IP control only)")
 
         # Test VISCA connection for IP-only control
@@ -1203,7 +1207,7 @@ class CameraWidget(QWidget):
             match = re.search(r"(\d+\.\d+\.\d+\.\d+)", web_url)
             if match:
                 extracted_ip = match.group(1)
-                logger.debug(f"Extracted IP {extracted_ip} from NDI web control URL")
+                logger.debug("Extracted IP %s from NDI web control URL", extracted_ip)
 
                 # Update IP address if it was unknown or different
                 if self.visca_ip != extracted_ip:
@@ -1213,11 +1217,11 @@ class CameraWidget(QWidget):
                     # Update UI label with formatted name (avoids redundancy)
                     display_text = self._format_camera_display_name()
                     self.name_label.setText(display_text)
-                    logger.debug(f"Updated UI label to: {display_text}")
+                    logger.debug("Updated UI label to: %s", display_text)
 
                     # Save IP to config
                     self.config.update_camera(self.camera_id, visca_ip=self.visca_ip)
-                    logger.debug(f"Saved IP {self.visca_ip} to config")
+                    logger.debug("Saved IP %s to config", self.visca_ip)
 
         # Emit initialized signal
         self.initialized.emit()
@@ -1331,15 +1335,15 @@ class CameraWidget(QWidget):
                 try:
                     # Query focus mode
                     results["focus_mode"] = self.visca.query_focus_mode()
-                    logger.debug(f"[QueryThread] focus_mode = {results['focus_mode']}")
+                    logger.debug("[QueryThread] focus_mode = %s", results["focus_mode"])
 
                     # Query exposure mode
                     results["exposure_mode"] = self.visca.query_exposure_mode()
-                    logger.debug(f"[QueryThread] exposure_mode = {results['exposure_mode']}")
+                    logger.debug("[QueryThread] exposure_mode = %s", results["exposure_mode"])
 
                     # Query iris
                     results["iris"] = self.visca.query_iris()
-                    logger.debug(f"[QueryThread] iris = {results['iris']}")
+                    logger.debug("[QueryThread] iris = %s", results["iris"])
 
                     # Query shutter
                     results["shutter"] = self.visca.query_shutter()
@@ -1391,11 +1395,11 @@ class CameraWidget(QWidget):
     def _apply_queried_settings(self, results: dict):
         """Apply queried settings to UI (called on main thread after background query)"""
         logger.info(
-            f"Applying queried settings for camera {self.visca_ip}... "
-            f"Received {len(results)} results"
+            "Applying queried settings for camera %s... Received %d results",
+            self.visca_ip,
+            len(results),
         )
-        logger.debug(f"Query results summary: {results}")
-
+        logger.debug("Query results summary: %s", results)
         # Apply focus mode
         if "focus_mode" in results:
             mode = results["focus_mode"]
@@ -1778,7 +1782,7 @@ class CameraWidget(QWidget):
         self.config.update_camera(
             self.camera_id, auto_pan_left_preset=left_preset, auto_pan_right_preset=right_preset
         )
-        logger.debug(f"Saved preset selections: Left='{left_preset}', Right='{right_preset}'")
+        logger.debug("Saved preset selections: Left='%s', Right='%s'", left_preset, right_preset)
 
     def on_start_auto_pan(self):
         """Start preset-based auto pan"""

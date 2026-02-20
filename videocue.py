@@ -156,6 +156,9 @@ class SingleInstanceLock:
 
                 try:
                     # Create or open the lock file
+                    # Note: Cannot use context manager (with statement) here because the file
+                    # must remain open for the lifetime of the application to maintain the lock.
+                    # The lock is released in release() method when app exits.
                     self.lock_fd = self.lock_file.open("w")  # noqa: SIM115
                     # Try to lock it exclusively (non-blocking)
                     msvcrt.locking(self.lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
@@ -174,6 +177,9 @@ class SingleInstanceLock:
 
                 try:
                     # Create or open the lock file
+                    # Note: Cannot use context manager (with statement) here because the file
+                    # must remain open for the lifetime of the application to maintain the lock.
+                    # The lock is released in release() method when app exits.
                     self.lock_fd = self.lock_file.open("w")  # noqa: SIM115
                     # Try to lock it exclusively (non-blocking)
                     fcntl.flock(self.lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

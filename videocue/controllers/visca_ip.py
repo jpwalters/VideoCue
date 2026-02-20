@@ -89,7 +89,7 @@ class ViscaIP:
         self._socket: socket.socket | None = None
         self._socket_lock = threading.Lock()
         self._last_error: str | None = None
-        logger.info(f"ViscaIP initialized for {ip}:{port}")
+        logger.info("ViscaIP initialized for %s:%s", ip, port)
 
     def __del__(self) -> None:
         """Cleanup socket on destruction"""
@@ -101,9 +101,9 @@ class ViscaIP:
             if self._socket:
                 try:
                     self._socket.close()
-                    logger.debug(f"Socket closed for {self.ip}:{self.port}")
+                    logger.debug("Socket closed for %s:%s", self.ip, self.port)
                 except Exception as e:
-                    logger.warning(f"Error closing socket: {e}")
+                    logger.warning("Error closing socket: %s", e)
                 finally:
                     self._socket = None
 
@@ -114,9 +114,9 @@ class ViscaIP:
                 try:
                     self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     self._socket.settimeout(ViscaLimits.COMMAND_TIMEOUT)
-                    logger.debug(f"Socket created for {self.ip}:{self.port}")
+                    logger.debug("Socket created for %s:%s", self.ip, self.port)
                 except OSError as e:
-                    logger.error(f"Failed to create socket: {e}")
+                    logger.error("Failed to create socket: %s", e)
                     raise ViscaConnectionError(f"Socket creation failed: {e}") from e
             return self._socket
 
@@ -150,7 +150,7 @@ class ViscaIP:
             sock = self._get_socket()
             packet = self._build_packet(command)
             sock.sendto(packet, (self.ip, self.port))
-            logger.debug(f"Sent command to {self.ip}: {command[:20]}...")
+            logger.debug("Sent command to %s: %s...", self.ip, command[:20])
             return True
         except ViscaConnectionError:
             raise
@@ -202,7 +202,7 @@ class ViscaIP:
             packet = self._build_packet(command)
             sock.sendto(packet, (self.ip, self.port))
             response, _ = sock.recvfrom(1024)
-            logger.debug(f"Query response from {self.ip}: {response.hex()[:40]}...")
+            logger.debug("Query response from %s: %s...", self.ip, response.hex()[:40])
             return response
         except TimeoutError:
             self._last_error = "Query timeout"

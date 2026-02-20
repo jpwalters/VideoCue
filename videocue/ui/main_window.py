@@ -375,7 +375,7 @@ class MainWindow(QMainWindow):
             logger.info("[Network] No camera IPs found, using default network interface")
             return
 
-        logger.info(f"[Network] Camera IPs: {camera_ips}")
+        logger.info("[Network] Camera IPs: %s", camera_ips)
 
         # Step 2: Check for saved preference
         preferred_ip = self.config.get_preferred_network_interface()
@@ -386,7 +386,7 @@ class MainWindow(QMainWindow):
             preferred_ip = get_preferred_interface_ip(camera_ips)
 
             if preferred_ip:
-                logger.info(f"[Network] Auto-detected interface: {preferred_ip}")
+                logger.info("[Network] Auto-detected interface: %s", preferred_ip)
                 # Save the auto-detected preference
                 self.config.set_preferred_network_interface(preferred_ip)
             else:
@@ -400,7 +400,7 @@ class MainWindow(QMainWindow):
                 selected = show_interface_selection_dialog(interfaces, camera_ips, self)
                 if selected:
                     preferred_ip = selected.ip
-                    logger.info(f"[Network] User selected interface: {preferred_ip}")
+                    logger.info("[Network] User selected interface: %s", preferred_ip)
                     # Save user's selection
                     self.config.set_preferred_network_interface(preferred_ip)
                 else:
@@ -408,12 +408,12 @@ class MainWindow(QMainWindow):
             elif len(interfaces) == 1:
                 # Only one interface, use it
                 preferred_ip = interfaces[0].ip
-                logger.info(f"[Network] Single interface detected: {preferred_ip}")
+                logger.info("[Network] Single interface detected: %s", preferred_ip)
                 self.config.set_preferred_network_interface(preferred_ip)
 
         # Step 5: Configure NDI to use selected interface
         if preferred_ip:
-            logger.info(f"[Network] Configuring NDI to use interface: {preferred_ip}")
+            logger.info("[Network] Configuring NDI to use interface: %s", preferred_ip)
             set_preferred_network_interface(preferred_ip)
         else:
             logger.info("[Network] Using NDI default network interface selection")
@@ -669,7 +669,7 @@ class MainWindow(QMainWindow):
             start = ndi_name.index("(") + 1
             end = ndi_name.index(")")
             return ndi_name[start:end].strip()
-        return "192.168.1.100"  # Default
+        return ""
 
     def remove_camera(self, camera: "CameraWidget"):
         """Remove camera widget with confirmation"""
@@ -689,8 +689,9 @@ class MainWindow(QMainWindow):
             return
 
         if camera in self.cameras:
-            # Stop video
+            # Stop video and cleanup threads explicitly before deletion
             camera.stop_video()
+            camera.cleanup()
 
             # Remove from config
             self.config.remove_camera(camera.camera_id)

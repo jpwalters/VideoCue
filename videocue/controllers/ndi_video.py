@@ -56,9 +56,11 @@ def set_preferred_network_interface(interface_ip: str | None) -> None:
                      or None to use NDI default behavior (all interfaces)
     """
     global _preferred_network_interface
-    _preferred_network_interface = interface_ip
+    # Thread-safe modification of global state
+    with _ndi_lock:
+        _preferred_network_interface = interface_ip
     if interface_ip:
-        logger.info(f"[NDI Config] Preferred network interface set to: {interface_ip}")
+        logger.info("[NDI Config] Preferred network interface set to: %s", interface_ip)
     else:
         logger.info("[NDI Config] Using NDI default network interface selection")
 
