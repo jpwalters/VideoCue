@@ -1,4 +1,4 @@
-# VideoCue v0.1.0 - Portable Distribution
+# VideoCue v0.6.16 - Portable Distribution
 
 ## Quick Start
 
@@ -20,6 +20,7 @@
 1. Application window appears immediately
 2. Camera connections happen in background (progress bar shown)
 3. Use **File → Add Camera** to add your PTZ cameras
+4. Cameras auto-discover via NDI or enter IP manually
 
 ## Requirements
 
@@ -32,41 +33,110 @@
 
 - **VISCA-over-IP Control**: Industry-standard PTZ camera protocol
 - **Multi-Camera Support**: Control multiple cameras simultaneously
-- **NDI Streaming**: Live video preview (requires NDI Runtime)
+- **NDI Streaming**: Live video preview with bandwidth control (requires NDI Runtime)
 - **USB Controller**: Gamepad support for hands-free operation
-- **Camera Presets**: Store and recall positions
+  - X button: Emergency stop (halts camera movement)
+  - B button: One-push autofocus
+  - L1/R1: Switch cameras with auto-stop safety
+  - Menu button: Open controller preferences
+- **Camera Presets**: Store and recall pan/tilt/zoom positions
+- **Exposure Control**: 5 modes (Auto, Manual, Shutter/Iris Priority, Bright)
+- **White Balance**: 5 modes including manual color temperature
+- **Focus Control**: Auto/Manual/One-Push AF modes
 - **Dark Theme**: Professional appearance
+- **Automatic Settings Sync**: Camera settings queried and synced on connection
+
+## Video Performance
+
+Access via **View → Video Performance** menu:
+- **High Bandwidth**: Maximum quality, higher network usage
+- **Low Bandwidth**: Compressed video, lower network usage (default)
+
+Access via **View → Video Size** menu for resolution presets.
 
 ## Tested With
 
-- BirdDog P400/P200 cameras
-- Xbox Series X controller
+- BirdDog P400/P200/P202/P403/P404 cameras
+- Xbox Series X/One controllers
+- PlayStation DualShock 4/DualSense controllers
 - Windows 11
 
 ## Configuration
 
 Settings stored at: `%LOCALAPPDATA%\VideoCue\config.json`
 
-## Firewall Note
+Includes:
+- Camera configurations with presets
+- USB controller mappings and speeds
+- Video size and bandwidth preferences
+- Single instance mode (default: enabled)
 
-If NDI camera discovery doesn't work:
-- Allow UDP port 5353 (mDNS) in Windows Firewall
-- Or use manual NDI source name entry in Add Camera dialog
+## Network & Firewall Notes
+
+**NDI Discovery:**
+- NDI uses mDNS (UDP port 5353) for auto-discovery
+- If camera discovery doesn't work:
+  1. Allow UDP port 5353 in Windows Firewall, OR
+  2. Use manual NDI source name entry (enter exact name like "BIRDDOG-12345 (Channel 1)")
+- Manual entry works even when firewall blocks discovery
+
+**Multi-Homed Systems:**
+- Application auto-detects correct network interface
+- Binds NDI to camera subnet automatically (v0.6.14+)
+
+**VISCA Control:**
+- UDP port 52381 (default)
+- Ensure firewall allows UDP traffic on this port
+
+## Troubleshooting
+
+**Cameras show red status:**
+- Verify IP address is correct
+- Check VISCA port (usually 52381)
+- Use Reconnect button or web interface link
+
+**Video not showing:**
+- Ensure NDI Runtime is installed
+- Check bandwidth setting (View → Video Performance)
+- Use play/pause button to toggle streaming
+
+**USB controller not detected:**
+- Wait up to 5 seconds for hotplug detection
+- Verify controller recognized by Windows
+- Check controller status in toolbar
 
 ## Support
 
 - Documentation: See README.md in source repository
 - Issues: Report on GitHub
-- Camera not responding? Check IP address and VISCA port (default: 52381)
+- Logs: `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
 
-## What's New in v0.1.0
+## What's New in v0.6.16
 
-- Initial public release
+**Video & Network:**
+- Bandwidth control menu (High/Low quality modes)
+- Automatic network interface detection and binding (v0.6.14)
+- Improved NDI discovery with polling (v0.6.15)
+- Manual NDI source name entry for firewall-restricted networks
+
+**Camera Control:**
+- Automatic settings sync on connection (exposure, focus, WB queried)
+- One-push autofocus via B button on controller
+- Emergency stop via X button on controller
+- Safe camera switching (auto-stops previous camera)
+
+**User Experience:**
+- Single instance mode prevents multiple app instances
+- Comprehensive error handling prevents crashes
 - Deferred camera loading (UI appears instantly)
-- Connection state management with reconnect button
-- Comprehensive error handling
-- Play/pause video controls
-- B button on controller for quick reconnect
+- Red/green connection status indicators
+- Play/pause video streaming controls
+
+**Technical:**
+- NumPy-based UYVY→RGB conversion (~100x faster)
+- Thread-safe VISCA sequence numbers
+- USB button mapping cache for responsive input
+- Comprehensive logging to file
 
 ## License
 

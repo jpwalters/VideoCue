@@ -81,3 +81,12 @@ def extract_ip_from_url(url: str) -> str | None:
     """
     match = IP_PATTERN.search(url)
     return match.group(1) if match else None
+
+
+# Re-export network_interface module for convenience
+from videocue.utils.network_interface import (  # noqa: E402, F401
+    NetworkInterface,
+    find_interface_for_camera,
+    get_network_interfaces,
+    get_preferred_interface_ip,
+)

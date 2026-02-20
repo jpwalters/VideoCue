@@ -121,9 +121,11 @@ The configuration includes:
 - BirdDog P200/P400 non-standard value support (exposure=15, WB modes)
 
 ✅ NDI video streaming
-- Network camera discovery
+- Network camera discovery with polling-based reliability (v0.6.15)
 - Manual NDI source name entry (firewall workaround)
+- Automatic network interface detection and binding (v0.6.14-15)
 - Live video display with frame dropping for performance
+- Configurable bandwidth modes: High (max quality) or Low (compressed) - v0.6.16
 - 5-second connection timeout prevents app freeze
 - Play/pause video controls per camera
 

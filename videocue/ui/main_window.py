@@ -178,36 +178,31 @@ class MainWindow(QMainWindow):
         performance_menu = QMenu("Video Performance", self)
         view_menu.addMenu(performance_menu)
 
-        # Create radio group for frame rates
-        framerate_group = QActionGroup(self)
-        framerate_group.setExclusive(True)
+        # Create radio group for NDI bandwidth
+        bandwidth_group = QActionGroup(self)
+        bandwidth_group.setExclusive(True)
 
-        current_skip = self.config.get_video_frame_skip()
+        current_bandwidth = self.config.get_ndi_bandwidth()
 
-        # Frame skip options: (skip_value, label, description)
-        # Lower skip = more frames processed = better quality but slower
-        # Higher skip = fewer frames processed = worse quality but faster
-        framerate_options = [
-            (20, "Maximum Performance", "Fastest - ~3 FPS (skips most frames)"),
-            (8, "High Performance", "Very fast - ~7.5 FPS"),
-            (6, "Balanced", "Good balance - ~10 FPS (recommended)"),
-            (4, "Good Quality", "Better quality - ~15 FPS"),
-            (2, "Best Quality", "Highest quality - ~30 FPS (may lag)"),
+        # NDI bandwidth options: (bandwidth_value, label, description)
+        bandwidth_options = [
+            ("high", "High Bandwidth", "Maximum quality, higher network usage"),
+            ("low", "Low Bandwidth", "Lower network usage, more compression"),
         ]
 
-        for skip_value, label, tooltip in framerate_options:
+        for bandwidth_value, label, tooltip in bandwidth_options:
             action = QAction(label, self)
             action.setCheckable(True)
             action.setToolTip(tooltip)
-            action.setData(skip_value)
+            action.setData(bandwidth_value)
 
-            if skip_value == current_skip:
+            if bandwidth_value == current_bandwidth:
                 action.setChecked(True)
 
             action.triggered.connect(
-                lambda checked, skip=skip_value: self.on_frame_rate_changed(skip)
+                lambda checked, bw=bandwidth_value: self.on_bandwidth_changed(bw)
             )
-            framerate_group.addAction(action)
+            bandwidth_group.addAction(action)
             performance_menu.addAction(action)
 
         # Help menu
@@ -357,6 +352,73 @@ class MainWindow(QMainWindow):
         except (ImportError, RuntimeError, OSError) as e:
             logger.error(f"USB controller initialization error: {e}")
 
+    def _configure_network_interface(self, camera_configs: list[dict]) -> None:
+        """
+        Detect and configure network interface for NDI binding.
+        Called before NDI initialization to ensure consistent interface selection.
+        """
+        from videocue.controllers.ndi_video import set_preferred_network_interface
+        from videocue.ui.network_interface_dialog import show_interface_selection_dialog
+        from videocue.utils.network_interface import (
+            get_network_interfaces,
+            get_preferred_interface_ip,
+        )
+
+        # Step 1: Extract camera IP addresses from config (using visca_ip field)
+        camera_ips = [
+            cam.get("visca_ip")
+            for cam in camera_configs
+            if cam.get("visca_ip") and cam.get("visca_ip") != ""
+        ]
+
+        if not camera_ips:
+            logger.info("[Network] No camera IPs found, using default network interface")
+            return
+
+        logger.info(f"[Network] Camera IPs: {camera_ips}")
+
+        # Step 2: Check for saved preference
+        preferred_ip = self.config.get_preferred_network_interface()
+
+        # Step 3: Auto-detect if no saved preference
+        if not preferred_ip:
+            logger.info("[Network] No saved preference, attempting auto-detection...")
+            preferred_ip = get_preferred_interface_ip(camera_ips)
+
+            if preferred_ip:
+                logger.info(f"[Network] Auto-detected interface: {preferred_ip}")
+                # Save the auto-detected preference
+                self.config.set_preferred_network_interface(preferred_ip)
+            else:
+                logger.warning("[Network] Auto-detection failed or ambiguous")
+
+        # Step 4: Show dialog if detection failed or ambiguous
+        if not preferred_ip:
+            interfaces = get_network_interfaces()
+            if len(interfaces) > 1:
+                logger.info("[Network] Multiple interfaces detected, showing selection dialog...")
+                selected = show_interface_selection_dialog(interfaces, camera_ips, self)
+                if selected:
+                    preferred_ip = selected.ip
+                    logger.info(f"[Network] User selected interface: {preferred_ip}")
+                    # Save user's selection
+                    self.config.set_preferred_network_interface(preferred_ip)
+                else:
+                    logger.warning("[Network] User cancelled interface selection")
+            elif len(interfaces) == 1:
+                # Only one interface, use it
+                preferred_ip = interfaces[0].ip
+                logger.info(f"[Network] Single interface detected: {preferred_ip}")
+                self.config.set_preferred_network_interface(preferred_ip)
+
+        # Step 5: Configure NDI to use selected interface
+        if preferred_ip:
+            logger.info(f"[Network] Configuring NDI to use interface: {preferred_ip}")
+            set_preferred_network_interface(preferred_ip)
+        else:
+            logger.info("[Network] Using NDI default network interface selection")
+            set_preferred_network_interface(None)
+
     def showEvent(self, event):
         """Override showEvent to load cameras after UI is visible"""
         try:
@@ -397,6 +459,9 @@ class MainWindow(QMainWindow):
         try:
             camera_configs = self.config.get_cameras()
 
+            # Detect and configure network interface BEFORE NDI initialization
+            self._configure_network_interface(camera_configs)
+
             # Pre-discover all NDI sources once before creating camera widgets
             # This prevents each camera from doing its own 2-second discovery wait
             if camera_configs:
@@ -408,15 +473,20 @@ class MainWindow(QMainWindow):
 
                 if ndi_available:
                     logger.info("[Startup] Pre-discovering all NDI sources...")
-                    # Use extended discovery timeout for initial startup (10 seconds)
-                    # This matches CamControl's approach for reliable multi-camera discovery
+                    # Count expected NDI sources from config
+                    expected_sources = sum(
+                        1 for cam in camera_configs if cam.get("ndi_source_name")
+                    )
+                    logger.info(f"[Startup] Expecting {expected_sources} NDI sources...")
+
+                    # Use extended discovery timeout and poll until all sources found
                     num_sources = discover_and_cache_all_sources(
-                        timeout_ms=NetworkConstants.NDI_DISCOVERY_TIMEOUT_MS
+                        timeout_ms=NetworkConstants.NDI_DISCOVERY_TIMEOUT_MS,
+                        expected_count=expected_sources,
                     )
                     logger.info(f"[Startup] Cached {num_sources} NDI source(s)")
 
                     # Short delay after discovery to let sources fully stabilize
-                    # CamControl appears to wait briefly before connecting
                     import time
 
                     time.sleep(0.5)  # 500ms stabilization delay
@@ -878,21 +948,23 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("Error changing video size")
 
-    def on_frame_rate_changed(self, skip_value: int) -> None:
-        """Handle video performance/frame rate menu selection"""
+    def on_bandwidth_changed(self, bandwidth: str) -> None:
+        """Handle NDI bandwidth menu selection"""
         try:
             # Update preference
-            self.config.set_video_frame_skip(skip_value)
+            self.config.set_ndi_bandwidth(bandwidth)
 
-            # Restart video on all cameras to apply new setting
+            # Restart video on all cameras to apply new bandwidth setting
             for camera in self.cameras:
                 if camera.ndi_thread and camera.ndi_thread.isRunning():
-                    # Update the frame skip on the running thread
-                    camera.ndi_thread.frame_skip = skip_value
+                    # Stop current video
+                    camera.stop_video()
+                    # Small delay to ensure thread fully stopped
+                    QTimer.singleShot(100, camera.start_video)
 
-            logger.debug(f"Video frame skip set to {skip_value}")
+            logger.info(f"NDI bandwidth set to {bandwidth}")
         except Exception:
-            logger.exception("Error handling frame rate change")
+            logger.exception("Error handling bandwidth change")
 
     def on_file_logging_toggled(self, checked: bool) -> None:
         """Handle file logging preference toggle"""

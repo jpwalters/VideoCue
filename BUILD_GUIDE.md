@@ -30,8 +30,9 @@ The PyInstaller build completed successfully!
 ### Build Output
 - **Location**: `dist/VideoCue/`
 - **Executable**: `dist/VideoCue/VideoCue.exe`
-- **Size**: ~120-150 MB (includes PyQt6, pygame, NDI wrapper module)
+- **Size**: ~110-120 MB (includes PyQt6, pygame, NDI wrapper module, NumPy for video conversion)
 - **Warnings**: Minor Qt6 plugin warnings (non-critical, 3D/WebView features not used)
+- **Latest Version**: 0.6.16 (bandwidth menu, network interface binding, NDI polling improvements)
 
 ### Testing the Build
 ```powershell

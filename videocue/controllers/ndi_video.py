@@ -25,6 +25,7 @@ _global_finder = None
 _ndi_lock = threading.Lock()  # Thread safety for global NDI resources
 _source_cache: dict = {}  # Cache of discovered sources {source_name: ndi.Source}
 _last_discovery_time = 0.0  # Track when we last did a full discovery
+_preferred_network_interface: str | None = None  # Preferred network interface IP for NDI binding
 
 try:
     from videocue import ndi_wrapper as ndi  # noqa: N813
@@ -45,6 +46,23 @@ except Exception as e:
     logger.warning(f"NDI Error: {e}")
 
 
+def set_preferred_network_interface(interface_ip: str | None) -> None:
+    """
+    Set preferred network interface IP for NDI binding.
+    Must be called BEFORE any NDI initialization (_ensure_ndi_initialized).
+
+    Args:
+        interface_ip: IP address of the network interface to use (e.g., "192.168.1.235")
+                     or None to use NDI default behavior (all interfaces)
+    """
+    global _preferred_network_interface
+    _preferred_network_interface = interface_ip
+    if interface_ip:
+        logger.info(f"[NDI Config] Preferred network interface set to: {interface_ip}")
+    else:
+        logger.info("[NDI Config] Using NDI default network interface selection")
+
+
 def _ensure_ndi_initialized() -> bool:
     """Ensure NDI is initialized globally (call once) - thread-safe"""
     global _ndi_initialized, _global_finder
@@ -56,24 +74,25 @@ def _ensure_ndi_initialized() -> bool:
         if not _ndi_initialized:
             logger.info("[NDI Global] Initializing NDI...")
             try:
-                # Set environment variables for NDI configuration (like CamControl)
-                # RUDP mode provides more reliable connections
-                import os
-
-                if "NDI_RECV_PROTOCOL_MODE" not in os.environ:
-                    os.environ["NDI_RECV_PROTOCOL_MODE"] = (
-                        "RUDP"  # Reliable UDP (same as CamControl)
-                    )
-                    logger.info("[NDI Global] Set NDI protocol mode to RUDP")
+                # Use NDI default protocol (TCP) - proven reliable by CamControl
+                # Removed RUDP as it may cause connection instability
 
                 if ndi.initialize():
                     _ndi_initialized = True
                     logger.info("[NDI Global] Creating global finder...")
                     find_settings = ndi.FindCreate()
                     find_settings.show_local_sources = True
+
+                    # Apply network interface binding if configured
+                    if _preferred_network_interface:
+                        find_settings.extra_ips = _preferred_network_interface
+                        logger.info(
+                            f"[NDI Global] Binding to network interface: {_preferred_network_interface}"
+                        )
+
                     _global_finder = ndi.find_create_v2(find_settings)
                     if _global_finder:
-                        logger.info("[NDI Global] NDI initialized successfully with RUDP")
+                        logger.info("[NDI Global] NDI initialized successfully")
                     else:
                         logger.error("[NDI Global] Failed to create finder")
                         return False
@@ -134,18 +153,21 @@ class NDIVideoThread(QThread):
     error = pyqtSignal(str)  # Emits error message
     resolution_changed = pyqtSignal(int, int, float)  # Emits width, height, frame rate
 
-    def __init__(self, source_name: str, frame_skip: int = 6):
+    def __init__(self, source_name: str, frame_skip: int = 6, bandwidth: str = "low"):
         super().__init__()
         self.source_name = source_name
         self.frame_skip = (
             frame_skip  # How many frames to skip between displays (higher = faster/lower quality)
         )
+        self.bandwidth = bandwidth  # "high" or "low" - NDI receiver bandwidth mode
         self.running = False
         self._stop_event = threading.Event()
         self._receiver = None
         self._finder = None  # Per-camera finder
         self._finder_created_at = None
-        logger.info(f"[{source_name}] NDI thread created with frame_skip={frame_skip}")
+        logger.info(
+            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}"
+        )
 
     def run(self) -> None:
         """Main video reception loop with comprehensive error handling"""
@@ -220,6 +242,14 @@ class NDIVideoThread(QThread):
                     finder_start = time.time()
                     find_settings = ndi.FindCreate()
                     find_settings.show_local_sources = True
+
+                    # Apply network interface binding if configured
+                    if _preferred_network_interface:
+                        find_settings.extra_ips = _preferred_network_interface
+                        logger.info(
+                            f"[{self.source_name}] Binding to network interface: {_preferred_network_interface}"
+                        )
+
                     self._finder = ndi.find_create_v2(find_settings)
                     self._finder_created_at = time.time()
                     finder_elapsed = (time.time() - finder_start) * 1000
@@ -266,24 +296,29 @@ class NDIVideoThread(QThread):
 
             logger.info(f"[{self.source_name}] Source obtained via: {source_creation_method}")
 
-            # Create receiver with settings optimized for multiple camera preview
-            # Note: bandwidth setting affects both quality and latency
-            # - HIGHEST: Full quality, lowest latency, but high network/CPU usage (CAUSES ISSUES with multiple cameras)
-            # - LOWEST: Reduced quality, higher latency, but lowest network/CPU usage (BEST for multiple cameras)
-            # - Auto-negotiate: Can cause contention issues with 3+ cameras
-            # CamControl uses LOWEST bandwidth with RUDP protocol for reliable multi-camera streaming
+            # Create receiver with SDK-compliant settings
+            # SDK BEST PRACTICES (from official NDI documentation):
+            # - RECV_COLOR_FORMAT_FASTEST: Best performance, no conversion overhead
+            # - RECV_BANDWIDTH_HIGHEST: Maximum quality, higher bandwidth usage
+            # - RECV_BANDWIDTH_LOWEST: Lower bandwidth, more compression
+            # - allow_video_fields=True: Required for FASTEST mode
             logger.info(f"[{self.source_name}] Creating NDI receiver...")
             receiver_start = time.time()
             try:
-                recv_settings = ndi.RecvCreateV3()  # Correct class name
-                recv_settings.color_format = ndi.RECV_COLOR_FORMAT_UYVY_BGRA  # Default format
-                # Use LOWEST bandwidth for multiple camera stability (like CamControl)
-                recv_settings.bandwidth = ndi.RECV_BANDWIDTH_LOWEST  # Best for multiple cameras
-                recv_settings.allow_video_fields = False  # Progressive only for simplicity
+                recv_settings = ndi.RecvCreateV3()
+                recv_settings.color_format = ndi.RECV_COLOR_FORMAT_FASTEST  # SDK: best performance
+                # Set bandwidth based on user preference
+                if self.bandwidth == "high":
+                    recv_settings.bandwidth = ndi.RECV_BANDWIDTH_HIGHEST
+                    bandwidth_label = "HIGHEST"
+                else:
+                    recv_settings.bandwidth = ndi.RECV_BANDWIDTH_LOWEST
+                    bandwidth_label = "LOWEST"
+                recv_settings.allow_video_fields = True  # SDK: required for FASTEST mode
                 self._receiver = ndi.recv_create_v3(recv_settings)
                 receiver_elapsed = (time.time() - receiver_start) * 1000
                 logger.info(
-                    f"[{self.source_name}] ✓ Receiver created in {receiver_elapsed:.1f}ms (LOWEST bandwidth, frame_skip={self.frame_skip})"
+                    f"[{self.source_name}] ✓ Receiver created in {receiver_elapsed:.1f}ms ({bandwidth_label} bandwidth, FASTEST format, frame_skip={self.frame_skip})"
                 )
             except (AttributeError, TypeError) as e:
                 # If settings not supported, fall back to defaults
@@ -328,8 +363,10 @@ class NDIVideoThread(QThread):
             try:
                 while self.running:
                     try:
-                        # Use shorter timeout (100ms) for more responsive shutdown
-                        t, v, _a, _m = ndi.recv_capture_v2(self._receiver, 100)
+                        # SDK RECOMMENDATION: Use recv_capture_v3 to match recv_create_v3
+                        # v3 is thread-safe and provides better audio frame handling
+                        # Use 100ms timeout (SDK: reasonable timeout better than zero-timeout polling)
+                        t, v, _a, _m = ndi.recv_capture_v3(self._receiver, 100)
 
                         if t == ndi.FRAME_TYPE_VIDEO:
                             frame_count += 1
@@ -666,11 +703,16 @@ class NDIVideoThread(QThread):
             logger.exception(f"[{self.source_name}] Unexpected error during cleanup")
 
 
-def discover_and_cache_all_sources(timeout_ms: int = None) -> int:
+def discover_and_cache_all_sources(timeout_ms: int = None, expected_count: int = 0) -> int:
     """
     Discover all NDI sources once and cache them for immediate use by camera threads.
+    Polls repeatedly until expected_count sources found or timeout reached.
     This should be called once at app startup before creating camera widgets.
     Returns the number of sources found and cached.
+
+    Args:
+        timeout_ms: Total timeout in milliseconds
+        expected_count: Number of sources expected (will poll until found or timeout)
     """
     global _source_cache, _last_discovery_time
     import time
@@ -685,24 +727,54 @@ def discover_and_cache_all_sources(timeout_ms: int = None) -> int:
 
     try:
         with _ndi_lock:
-            logger.info(f"[NDI] Discovering all sources (timeout: {timeout_ms}ms)...")
-            ndi.find_wait_for_sources(_global_finder, timeout_ms)
-            sources = ndi.find_get_current_sources(_global_finder)
+            if expected_count > 0:
+                logger.info(
+                    f"[NDI] Polling for {expected_count} sources (timeout: {timeout_ms}ms)..."
+                )
+            else:
+                logger.info(f"[NDI] Discovering all sources (timeout: {timeout_ms}ms)...")
 
-            logger.info(f"[NDI] Found {len(sources)} sources, caching them...")
+            start_time = time.time()
+            poll_interval_ms = 200  # Poll every 200ms
 
-            # Cache all discovered sources
-            for source in sources:
-                try:
-                    source_name = (
-                        source.ndi_name.decode("utf-8")
-                        if isinstance(source.ndi_name, bytes)
-                        else str(source.ndi_name)
-                    )
-                    _source_cache[source_name] = source
-                    logger.info(f"[NDI Discovery] ✓ Cached source: '{source_name}'")
-                except Exception as e:
-                    logger.warning(f"[NDI] Error caching source: {e}")
+            while True:
+                # Poll for sources
+                ndi.find_wait_for_sources(_global_finder, poll_interval_ms)
+                sources = ndi.find_get_current_sources(_global_finder)
+
+                # Cache discovered sources
+                for source in sources:
+                    try:
+                        source_name = (
+                            source.ndi_name.decode("utf-8")
+                            if isinstance(source.ndi_name, bytes)
+                            else str(source.ndi_name)
+                        )
+                        if source_name not in _source_cache:
+                            _source_cache[source_name] = source
+                            logger.info(f"[NDI Discovery] ✓ Cached source: '{source_name}'")
+                    except Exception as e:
+                        logger.warning(f"[NDI] Error caching source: {e}")
+
+                # Check if we found all expected sources
+                if expected_count > 0 and len(_source_cache) >= expected_count:
+                    logger.info(f"[NDI] Found all {expected_count} expected sources")
+                    break
+
+                # Check timeout
+                elapsed_ms = (time.time() - start_time) * 1000
+                if elapsed_ms >= timeout_ms:
+                    if expected_count > 0 and len(_source_cache) < expected_count:
+                        logger.warning(
+                            f"[NDI] Timeout: Found {len(_source_cache)}/{expected_count} "
+                            f"sources after {int(elapsed_ms)}ms"
+                        )
+                    break
+
+                # Continue polling if we haven't found all sources yet
+                if expected_count == 0:
+                    # No expected count - just do one poll
+                    break
 
             # Update discovery timestamp
             _last_discovery_time = time.time()

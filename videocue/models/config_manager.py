@@ -69,11 +69,13 @@ class ConfigManager:
                     UIConstants.VIDEO_DEFAULT_HEIGHT,
                 ],
                 "video_frame_skip": 6,
+                "ndi_bandwidth": "low",  # "high" or "low" - NDI receiver bandwidth mode
                 "theme": "dark",
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
                 "file_logging_enabled": False,
                 "single_instance_mode": True,
+                "preferred_network_interface": None,  # Auto-detected or user-selected interface IP
             },
             "usb_controller": {
                 "enabled": True,
@@ -283,6 +285,15 @@ class ConfigManager:
         """Get video frame skip rate (default 6 = ~10 FPS from 60 FPS source)"""
         return self.config["preferences"].get("video_frame_skip", 6)
 
+    def set_ndi_bandwidth(self, bandwidth: str):
+        """Set NDI bandwidth mode ('high' or 'low')"""
+        self.config["preferences"]["ndi_bandwidth"] = bandwidth
+        self.save()
+
+    def get_ndi_bandwidth(self) -> str:
+        """Get NDI bandwidth mode (default 'low')"""
+        return self.config["preferences"].get("ndi_bandwidth", "low")
+
     def set_ndi_video_enabled(self, enabled: bool):
         """Set NDI video enabled/disabled globally"""
         self.config["preferences"]["ndi_video_enabled"] = enabled
@@ -300,6 +311,15 @@ class ConfigManager:
     def get_single_instance_mode(self) -> bool:
         """Get single instance mode preference (default True)"""
         return self.config["preferences"].get("single_instance_mode", True)
+
+    def set_preferred_network_interface(self, interface_ip: str | None):
+        """Set preferred network interface IP for NDI binding"""
+        self.config["preferences"]["preferred_network_interface"] = interface_ip
+        self.save()
+
+    def get_preferred_network_interface(self) -> str | None:
+        """Get preferred network interface IP (default None = auto-detect)"""
+        return self.config["preferences"].get("preferred_network_interface", None)
 
     def set_usb_controller_name(self, name: str):
         """Set USB controller device name"""

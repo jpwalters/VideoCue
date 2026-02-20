@@ -12,12 +12,13 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **ui/preferences_dialog.py**: Preferences dialog with USB controller settings, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
-- **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, UYVY422→RGB, frame dropping), **5-second timeout**, **comprehensive error handling**
+- **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, UYVY422→RGB conversion via NumPy, frame dropping), **5-second timeout**, **configurable bandwidth** (HIGHEST/LOWEST), **network interface binding**, **comprehensive error handling**
 - **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens preferences dialog**
-- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix)
+- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference** (v0.6.16)
 - **models/video.py**: Video size and camera preset data models
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
-- **utils.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
+- **utils/__init__.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
+- **utils/network_interface.py**: Network interface detection and subnet matching for NDI binding (v0.6.14)
 
 ### Camera Discovery Architecture
 **VISCA has no built-in discovery** - requires knowing IP address beforehand. The app uses NDI for discovery:
@@ -52,9 +53,18 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - **Firewall Workaround**: Manual NDI source name entry field available in camera add dialog
   - Users can enter exact NDI source name (e.g., "BIRDDOG-12345 (Channel 1)") to bypass discovery
   - Useful in corporate/restricted network environments where mDNS is blocked
+- **Network Interface Binding** (v0.6.14-15): Auto-detects correct network interface based on camera IPs, binds NDI via `extra_ips` property
+- **NDI Discovery Polling** (v0.6.15): Polls every 200ms until all expected cameras found (dynamic count from config), eliminates random timeouts
 - Each camera spawns separate QThread with NDI receiver loop
 - **Connection Timeout**: If no frames received within 5 seconds, thread exits with error message (prevents app slowdown from invalid source names)
-- UYVY422 → RGB conversion using ITU-R BT.601 coefficients (CPU-intensive)
+- **Bandwidth Control** (v0.6.16): User-configurable via View → Video Performance menu
+  - High Bandwidth: `RECV_BANDWIDTH_HIGHEST` - maximum quality, higher network usage
+  - Low Bandwidth: `RECV_BANDWIDTH_LOWEST` - compression, lower network usage (default)
+- **Video Conversion Architecture**:
+  - Current: UYVY422 → RGB conversion using NumPy with ITU-R BT.601 coefficients (~100x faster than pure Python)
+  - NDI receiver uses `RECV_COLOR_FORMAT_FASTEST` (UYVY) to minimize SDK overhead
+  - **Optimization Opportunity**: NDI SDK can convert to RGB natively via `RECV_COLOR_FORMAT_RGBX_RGBA` (likely faster with SIMD/GPU)
+  - Scaling: Done in PyQt6 via `QPixmap.scaled()` with `FastTransformation` (adequate performance for current use)
 - Frame dropping via PyQt signal queuing (Qt auto-drops old queued frames)
 - **Graceful degradation**: App continues in IP-only mode if NDI unavailable (no crash)
 - Requires NDI Runtime installed from https://ndi.tv/tools/ on end-user system
@@ -460,10 +470,14 @@ def _apply_queried_settings(self, results: dict):
 - Use reconnect button or B button on controller
 - Check console output for error details
 
-### Video Frame Rate Issues
-- Reduce video size via View → Video Size menu
-- Use play/pause button to stop video when not needed
-- Check CPU usage (UYVY→RGB conversion is CPU-intensive)
+### Video Performance Issues
+- **Bandwidth Control**: View → Video Performance menu
+  - Switch to Low Bandwidth to reduce network usage (enables compression)
+  - Switch to High Bandwidth for maximum quality
+- **Video Size**: View → Video Size menu to reduce resolution
+- **Pause Streams**: Use play/pause button to stop video when not needed
+- **CPU Usage**: UYVY→RGB conversion uses NumPy (efficient but CPU-bound)
+  - Future optimization: Could use NDI SDK's native RGB conversion (`RECV_COLOR_FORMAT_RGBX_RGBA`)
 - Frame dropping should prevent UI lag
 
 ### Application Crashes/Errors

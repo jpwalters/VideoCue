@@ -49,7 +49,8 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Multi-tab Layout**: Organized camera and cue management
 - **Collapsible Sections**: Clean, organized control panels
 - **Status Indicators**: Real-time connection status with red/green indicators
-- **Video Size Options**: Multiple preview size presets
+- **Video Size Options**: Multiple preview size presets (View → Video Size)
+- **Video Performance Control**: High/Low bandwidth modes (View → Video Performance)
 - **Controller Status**: Visual USB controller connection indicator
 - **Loading Progress**: Granular progress bar during camera initialization
 - **Deferred Loading**: UI appears immediately before network connections
@@ -62,6 +63,8 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Preferences Dialog**: Configure USB controller mappings, application behavior, and video settings
 - **Single Instance Mode**: Optional enforcement to prevent multiple app instances (default: enabled)
 - **NDI Video Toggle**: Enable/disable NDI video streaming globally
+- **Video Performance**: Choose between High Bandwidth (max quality) or Low Bandwidth (compressed) for NDI streaming
+- **Network Interface Binding**: Automatic detection and binding to correct network interface for multi-homed systems (v0.6.14+)
 
 ## Requirements
 
@@ -315,9 +318,13 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Check pygame compatibility with your controller
 - Windows may require Xbox controller drivers
 
-### Video Frame Rate Issues
-- Reduce video size: **View → Video Size** menu
-- Lower resolution reduces CPU load for UYVY→RGB conversion
+### Video Performance Issues
+- **Bandwidth Control**: **View → Video Performance** menu
+  - High Bandwidth: Maximum quality, higher network usage
+  - Low Bandwidth: Lower network usage with compression (default)
+- **Video Size**: **View → Video Size** menu to reduce resolution
+  - Lower resolution reduces CPU load for UYVY→RGB conversion
+- **Pause Streams**: Use play/pause button to stop video when not needed
 - Frame dropping is intentional to prevent UI lag
 
 ### Application Crashes/Errors

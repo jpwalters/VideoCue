@@ -1019,7 +1019,7 @@ class CameraWidget(QWidget):
         if self.ndi_thread:
             try:
                 self.ndi_thread.running = False
-                self.ndi_thread.wait(timeout=1000)  # Wait up to 1 second for thread to finish
+                self.ndi_thread.wait(1000)  # Wait up to 1 second for thread to finish
             except Exception as e:
                 logger.warning(f"Error stopping NDI thread: {e}")
             finally:
@@ -1028,9 +1028,7 @@ class CameraWidget(QWidget):
         # Stop VISCA test thread
         if self.visca_test_thread:
             try:
-                self.visca_test_thread.wait(
-                    timeout=1000
-                )  # Wait up to 1 second for thread to finish
+                self.visca_test_thread.wait(1000)  # Wait up to 1 second for thread to finish
             except Exception as e:
                 logger.warning(f"Error stopping VISCA test thread: {e}")
             finally:
@@ -1110,12 +1108,15 @@ class CameraWidget(QWidget):
             # Emit connection starting signal
             self.connection_starting.emit()
 
-            # Get frame_skip preference from config (default 6)
+            # Get frame_skip and bandwidth preferences from config
             frame_skip = self.config.config.get("preferences", {}).get("video_frame_skip", 6)
+            bandwidth = self.config.get_ndi_bandwidth()
             logger.info(
-                f"[Camera] Starting NDI video with frame_skip={frame_skip} for {self.ndi_source_name}"
+                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth} for {self.ndi_source_name}"
             )
-            self.ndi_thread = NDIVideoThread(self.ndi_source_name, frame_skip=frame_skip)
+            self.ndi_thread = NDIVideoThread(
+                self.ndi_source_name, frame_skip=frame_skip, bandwidth=bandwidth
+            )
             self.ndi_thread.frame_ready.connect(self.on_video_frame)
             self.ndi_thread.connected.connect(self.on_ndi_connected)
             self.ndi_thread.error.connect(self.on_ndi_error)
