@@ -2,6 +2,8 @@
 Video size model and presets
 """
 
+import uuid
+
 
 class VideoSize:
     """Video display size preset"""
@@ -36,28 +38,43 @@ class VideoSize:
 
 
 class CameraPreset:
-    """Camera preset storing PTZ position"""
+    """
+    Camera preset for VISCA memory recall
 
-    def __init__(self, name: str, pan: int = 0, tilt: int = 0, zoom: int = 0):
+    The camera stores the actual PTZ position in its firmware memory.
+    This class only tracks metadata for the UI.
+
+    Attributes:
+        uuid: Unique identifier for Cue tab references
+        name: User-friendly display name
+        preset_number: Camera memory slot (0-127 for Birddog, 0-254 for VISCA)
+    """
+
+    def __init__(self, name: str, preset_number: int, preset_uuid: str = None):
+        self.uuid = preset_uuid if preset_uuid else str(uuid.uuid4())
         self.name = name
-        self.pan = pan
-        self.tilt = tilt
-        self.zoom = zoom
+        self.preset_number = preset_number
 
     def to_dict(self):
-        """Convert preset to dictionary"""
+        """Convert preset to dictionary for JSON storage"""
         return {
-            'name': self.name,
-            'pan': self.pan,
-            'tilt': self.tilt,
-            'zoom': self.zoom
+            "uuid": self.uuid,
+            "name": self.name,
+            "preset_number": self.preset_number,
         }
 
     @staticmethod
     def from_dict(data: dict):
+        """Create preset from dictionary (supports legacy format)"""
+        # Support legacy format without uuid/preset_number
+        if "uuid" not in data or "preset_number" not in data:
+            # Legacy format - generate new UUID and use 0 as preset number
+            return CameraPreset(
+                name=data["name"],
+                preset_number=data.get("preset_number", 0),
+                preset_uuid=data.get("uuid", str(uuid.uuid4())),
+            )
+
         return CameraPreset(
-            name=data['name'],
-            pan=data.get('pan', 0),
-            tilt=data.get('tilt', 0),
-            zoom=data.get('zoom', 0)
+            name=data["name"], preset_number=data["preset_number"], preset_uuid=data["uuid"]
         )

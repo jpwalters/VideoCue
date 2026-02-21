@@ -39,7 +39,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - **Connection Testing**: Uses `query_focus_mode()` which requires response (returns FocusMode.UNKNOWN on failure)
 - Example commands: PTZ (8 directions + stop), zoom (variable speed 0-7), focus (auto/manual/one-push)
 - **Key Distinction**: Control commands use `send_command()` (fast), connection tests use `query_command()` (reliable)
-- **Limitation**: Position queries not implemented, presets store placeholder (0,0,0) values
+- **Presets**: Camera firmware stores PTZ positions in memory slots (0-127 for Birddog, 0-254 for VISCA). App sends store/recall commands without needing to query positions.
 
 ### NDI Video Streaming
 - Uses **bundled ndi_wrapper module** (in `videocue/ndi_wrapper/`), based on ndi-python by Naoto Kondo (MIT License)
@@ -91,7 +91,41 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **White Balance**: 5 modes (Auto, Indoor, Outdoor, One Push, Manual) with red/blue gain adjustment (0-255)
 - **Focus**: Auto/Manual/One-Push AF modes controlled via FocusMode enum
 - **PTZ**: 8 directional movements + stop, variable zoom speed (0-7)
-- **Presets**: Store/recall positions (note: position queries not yet implemented)
+- **Presets**: Store/recall camera positions (up to 128 slots for Birddog, 254 for VISCA standard)
+  - Each preset has UUID for Cue tab references and permanent preset_number (camera memory slot)
+  - Camera stores actual PTZ coordinates in firmware
+  - App stores preset metadata (UUID, name, preset_number) in JSON config
+  - Reordering presets only changes display order - preset_number remains permanent
+  - Position queries not implemented - camera firmware manages positions
+
+### Camera Preset Architecture
+- **UUID-based identification**: Each preset has unique UUID for future Cue tab (ordered preset sequences across cameras)
+- **Permanent preset numbers**: Each preset assigned to camera memory slot (0-127 for Birddog, 0-254 for VISCA)
+  - Preset number never changes, even when reordering display list
+  - Deleting preset frees up that memory slot for reuse
+  - `get_next_available_preset_number()` finds first gap in 0-127 range
+- **Simple VISCA commands** (like mini project):
+  - Store: `81 01 04 3F 01 {preset_hex} FF` - saves current position to camera memory
+  - Recall: `81 01 04 3F 02 {preset_hex} {pan_speed} {tilt_speed} FF` - moves to stored position
+  - Camera firmware handles all position storage - app doesn't track PTZ values
+- **CameraPreset model** (videocue/models/video.py):
+  - `uuid`: Unique identifier for Cue tab cross-references
+  - `name`: User-friendly display name
+  - `preset_number`: Camera memory slot (0-127)
+  - Legacy format support: Auto-generates UUID for old configs without uuid/preset_number
+- **ConfigManager methods** (videocue/models/config_manager.py):
+  - `add_preset(camera_id, name, preset_number, preset_uuid)` - Create with UUID and slot
+  - `remove_preset(camera_id, preset_uuid)` - Delete by UUID
+  - `update_preset_name(camera_id, preset_uuid, new_name)` - Rename by UUID
+  - `get_next_available_preset_number(camera_id, max_presets=128)` - Find free slot
+  - `reorder_preset(camera_id, preset_uuid, direction)` - Change display order only
+- **UI Features** (camera_widget.py):
+  - Display shows: [slot#] Name (e.g., "[3] Wide Shot")
+  - GO button: Recalls preset from permanent camera memory slot
+  - Update button: Re-saves current position to same slot
+  - Delete button: Removes from app, frees camera memory slot
+  - Reorder (↑↓): Changes list order without affecting camera memory
+  - No complex re-storing workflow - reordering is instant
 
 ### Deferred Loading Architecture
 - **Problem**: Camera connections (especially NDI) block UI from appearing
@@ -431,13 +465,11 @@ def _apply_queried_settings(self, results: dict):
 
 ## Known Limitations
 
-1. **Preset Positioning**: VISCA query commands for current PTZ position not implemented. Presets store placeholder (0,0,0) values. Requires VISCA protocol research.
+1. **NDI Web Control URL**: `ndi-python` library API for extracting web control URLs needs verification. Currently returns None, may need metadata XML parsing.
 
-2. **NDI Web Control URL**: `ndi-python` library API for extracting web control URLs needs verification. Currently returns None, may need metadata XML parsing.
+2. **Build Size**: PyInstaller executable ~100-120 MB (includes PyQt6, NDI SDK, pygame DLLs).
 
-3. **Build Size**: PyInstaller executable ~100-120 MB (includes PyQt6, NDI SDK, pygame DLLs).
-
-4. **Platform Support**: Primary target is Windows (bundles NDI DLL). Mac/Linux require separate NDI Runtime installation.
+3. **Platform Support**: Primary target is Windows (bundles NDI DLL). Mac/Linux require separate NDI Runtime installation.
 
 ## Troubleshooting
 

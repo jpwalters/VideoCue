@@ -415,6 +415,25 @@ class NDIVideoThread(QThread):
                                         logger.debug(
                                             f"[NDI] {self.source_name}: Processed {frame_count} frames, displayed ~{frame_count // (self.frame_skip + 1)} (skip={self.frame_skip})"
                                         )
+                                        # MEMORY OPTIMIZATION: Periodic garbage collection
+                                        # Helps Python clean up accumulated frame data (every ~3 seconds at 30fps)
+                                        import gc
+
+                                        gc.collect(
+                                            generation=0
+                                        )  # Quick collection of young objects
+
+                                    # Full garbage collection every 1000 frames (~30 seconds) to catch slow leaks
+                                    if frame_count % 1000 == 0:
+                                        import gc
+
+                                        gc.collect()  # Full collection
+                                        logger.debug(
+                                            f"[NDI] {self.source_name}: Full GC at {frame_count} frames"
+                                        )
+
+                                # Explicitly delete QImage to help memory cleanup
+                                del qimage
 
                                 # Reset skip counter to prevent overflow
                                 skip_count = 0
@@ -552,17 +571,19 @@ class NDIVideoThread(QThread):
                 logger.debug("RGB conversion returned empty data")
                 return None
 
-            # Create QImage - use bytearray to ensure data ownership
-            # QImage constructor doesn't take ownership of bytes, so we need to ensure
-            # the data persists long enough for copy() to complete
-            rgb_bytearray = bytearray(rgb_data)
-            qimage = QImage(rgb_bytearray, width, height, width * 3, QImage.Format.Format_RGB888)
+            # MEMORY OPTIMIZATION: Create QImage directly from rgb_data without intermediate bytearray
+            # QImage.Format_RGB888 expects data in the format: R, G, B, R, G, B, ...
+            # We use copy() immediately to ensure QImage owns its data, then release rgb_data
+            qimage = QImage(rgb_data, width, height, width * 3, QImage.Format.Format_RGB888)
 
-            # Make a copy so it persists independently
-            # We need to explicitly keep rgb_bytearray alive until copy() completes
+            # Make a deep copy so QImage owns the data independently
             result = qimage.copy()
-            # Force Python to not optimize away rgb_bytearray before copy() completes
-            _ = len(rgb_bytearray)
+
+            # Explicitly release intermediate data to help garbage collector
+            del rgb_data
+            del frame_data
+            del qimage
+
             return result
 
         except (ValueError, TypeError, MemoryError, AttributeError):
@@ -583,6 +604,7 @@ class NDIVideoThread(QThread):
         """
         Convert UYVY422 to RGB888 using NumPy for performance (100x+ faster than Python loops).
         Each UYVY macropixel (4 bytes) encodes 2 pixels: U Y0 V Y1
+        Memory optimization: Explicitly delete intermediate arrays to help GC.
         """
         try:
             import numpy as np
@@ -604,6 +626,10 @@ class NDIVideoThread(QThread):
             v = uyvy[:, :, 2].astype(np.int16) - 128
             y1 = uyvy[:, :, 3].astype(np.int16)
 
+            # Delete uyvy and frame arrays early to free memory
+            del uyvy
+            del frame
+
             # ITU-R BT.601 conversion (vectorized)
             # Pixel 0
             r0 = y0 + 1.402 * v
@@ -614,6 +640,9 @@ class NDIVideoThread(QThread):
             r1 = y1 + 1.402 * v
             g1 = y1 - 0.344 * u - 0.714 * v
             b1 = y1 + 1.772 * u
+
+            # Delete intermediate arrays
+            del u, v, y0, y1
 
             # Clip to [0, 255] and convert to uint8
             r0 = np.clip(r0, 0, 255).astype(np.uint8)
@@ -632,7 +661,14 @@ class NDIVideoThread(QThread):
             rgb[:, 1::2, 1] = g1
             rgb[:, 1::2, 2] = b1
 
-            return rgb.tobytes()
+            # Delete color channel arrays
+            del r0, g0, b0, r1, g1, b1
+
+            # Convert to bytes and delete numpy array
+            result = rgb.tobytes()
+            del rgb
+
+            return result
 
         except ImportError:
             # Fallback to simpler conversion if NumPy not available (shouldn't happen)

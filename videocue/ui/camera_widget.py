@@ -2,6 +2,7 @@
 Camera widget displaying video and controls
 """
 
+import contextlib
 import logging
 
 from PyQt6.QtCore import Qt, QThread, QTime, QTimer, pyqtSignal, pyqtSlot  # type: ignore
@@ -192,6 +193,8 @@ class CameraWidget(QWidget):
         self.red_gain_layout_widget = None
         self.blue_gain_layout_widget = None
         self._last_frame_time = None
+        self._frame_drop_counter = 0  # Track dropped frames to prevent memory buildup
+        self._last_pixmap = None  # Keep reference to last pixmap for explicit cleanup
 
         self.init_ui()
 
@@ -929,45 +932,60 @@ class CameraWidget(QWidget):
         up_btn = QPushButton("↑")
         up_btn.setFixedSize(24, 24)
         up_btn.setToolTip("Move preset up in list")
-        up_btn.clicked.connect(lambda: self.reorder_preset(preset.name, "up"))
+        up_btn.clicked.connect(lambda: self.reorder_preset(preset.uuid, "up"))
         layout.addWidget(up_btn)
 
         down_btn = QPushButton("↓")
         down_btn.setFixedSize(24, 24)
         down_btn.setToolTip("Move preset down in list")
-        down_btn.clicked.connect(lambda: self.reorder_preset(preset.name, "down"))
+        down_btn.clicked.connect(lambda: self.reorder_preset(preset.uuid, "down"))
         layout.addWidget(down_btn)
 
-        # Preset name label (double-click to rename)
-        label = QLabel(preset.name)
+        # Preset name label with slot number (double-click to rename)
+        slot_display = f"[{preset.preset_number}] {preset.name}"
+        label = QLabel(slot_display)
         label.setStyleSheet("padding: 4px; background-color: #333; border-radius: 3px;")
-        label.setToolTip("Double-click to rename")
-        label.mouseDoubleClickEvent = lambda event: self.rename_preset_dialog(preset.name)
+        label.setToolTip(f"Slot #{preset.preset_number} - Double-click to rename")
+        label.mouseDoubleClickEvent = lambda event: self.rename_preset_dialog(preset.uuid)
         layout.addWidget(label)
         layout.addStretch()
 
         # GO button (renamed from Recall)
         go_btn = QPushButton("GO")
         go_btn.setMinimumWidth(40)
-        go_btn.setStyleSheet("background-color: #228B22; color: white; font-weight: bold;")
-        go_btn.setToolTip("Recall this preset position")
+        go_btn.setStyleSheet(
+            "QPushButton { background-color: #228B22; color: white; font-weight: bold; }"
+            "QPushButton:hover { background-color: #32CD32; }"
+            "QPushButton:pressed { background-color: #2E8B57; }"
+        )
+        go_btn.setToolTip(f"Recall preset from camera memory slot #{preset.preset_number}")
         go_btn.clicked.connect(lambda: self.recall_preset(preset))
         layout.addWidget(go_btn)
 
         # Update button
         update_btn = QPushButton("Update")
         update_btn.setMinimumWidth(50)
-        update_btn.setStyleSheet("background-color: #4169E1; color: white;")
-        update_btn.setToolTip("Update preset to current camera position")
-        update_btn.clicked.connect(lambda: self.update_preset(preset.name))
+        update_btn.setStyleSheet(
+            "QPushButton { background-color: #4169E1; color: white; }"
+            "QPushButton:hover { background-color: #5A7FEC; }"
+            "QPushButton:pressed { background-color: #6A9BF4; }"
+        )
+        update_btn.setToolTip(
+            f"Save current position to camera memory slot #{preset.preset_number}"
+        )
+        update_btn.clicked.connect(lambda: self.update_preset(preset.uuid))
         layout.addWidget(update_btn)
 
         # Delete button
         delete_btn = QPushButton("Delete")
         delete_btn.setMinimumWidth(50)
-        delete_btn.setStyleSheet("background-color: #8B0000; color: white;")
+        delete_btn.setStyleSheet(
+            "QPushButton { background-color: #8B0000; color: white; }"
+            "QPushButton:hover { background-color: #A50000; }"
+            "QPushButton:pressed { background-color: #CD5C5C; }"
+        )
         delete_btn.setToolTip("Delete this preset")
-        delete_btn.clicked.connect(lambda: self.delete_preset(preset.name))
+        delete_btn.clicked.connect(lambda: self.delete_preset(preset.uuid))
         layout.addWidget(delete_btn)
 
         self.presets_layout.addWidget(widget)
@@ -1022,17 +1040,44 @@ class CameraWidget(QWidget):
         # Stop NDI thread
         if self.ndi_thread:
             try:
+                # CRITICAL: Disconnect all signals before cleanup to prevent memory leaks
+                try:
+                    self.ndi_thread.frame_ready.disconnect()
+                    self.ndi_thread.connected.disconnect()
+                    self.ndi_thread.error.disconnect()
+                    self.ndi_thread.resolution_changed.disconnect()
+                except TypeError:
+                    # Signal already disconnected or never connected
+                    pass
+
                 self.ndi_thread.running = False
                 self.ndi_thread.wait(1000)  # Wait up to 1 second for thread to finish
+                self.ndi_thread.deleteLater()  # Properly schedule for deletion
             except Exception as e:
                 logger.warning("Error stopping NDI thread: %s", e)
             finally:
                 self.ndi_thread = None
 
+        # Stop cache refresh thread
+        if hasattr(self, "cache_refresh_thread") and self.cache_refresh_thread:
+            try:
+                with contextlib.suppress(TypeError):
+                    self.cache_refresh_thread.finished.disconnect()
+                if self.cache_refresh_thread.isRunning():
+                    self.cache_refresh_thread.wait(1000)
+                self.cache_refresh_thread.deleteLater()
+            except Exception as e:
+                logger.warning("Error stopping cache refresh thread: %s", e)
+            finally:
+                self.cache_refresh_thread = None
+
         # Stop VISCA test thread
         if self.visca_test_thread:
             try:
+                with contextlib.suppress(TypeError):
+                    self.visca_test_thread.test_complete.disconnect()
                 self.visca_test_thread.wait(1000)  # Wait up to 1 second for thread to finish
+                self.visca_test_thread.deleteLater()
             except Exception as e:
                 logger.warning("Error stopping VISCA test thread: %s", e)
             finally:
@@ -1143,17 +1188,39 @@ class CameraWidget(QWidget):
     def stop_video(self):
         """Stop NDI video reception"""
         if self.ndi_thread:
+            # CRITICAL: Disconnect all signals BEFORE stopping to prevent memory leaks
+            with contextlib.suppress(TypeError, RuntimeError):
+                self.ndi_thread.frame_ready.disconnect(self.on_video_frame)
+            with contextlib.suppress(TypeError, RuntimeError):
+                self.ndi_thread.connected.disconnect(self.on_ndi_connected)
+            with contextlib.suppress(TypeError, RuntimeError):
+                self.ndi_thread.error.disconnect(self.on_ndi_error)
+            with contextlib.suppress(TypeError, RuntimeError):
+                self.ndi_thread.resolution_changed.disconnect(self.on_resolution_changed)
+
             self.ndi_thread.stop()
+            # Wait briefly for thread to stop
+            if self.ndi_thread.isRunning():
+                self.ndi_thread.wait(500)
+            self.ndi_thread.deleteLater()
             self.ndi_thread = None
 
-        # Clear video display and show stopped message
+        # Clear video display and release pixmap memory
+        if self._last_pixmap:
+            self._last_pixmap = None
         self.video_label.clear()
         self.video_label.setText(UIStrings.STATUS_VIDEO_STOPPED)
+        self.resolution_label.setVisible(False)
 
         # Update button state
         if hasattr(self, "video_toggle_button"):
             self.video_toggle_button.setText(UIStrings.BTN_PLAY)
             self.video_toggle_button.setToolTip(UIStrings.TOOLTIP_PLAY_VIDEO)
+
+        # Force garbage collection after stopping video
+        import gc
+
+        gc.collect()
 
     def toggle_video_streaming(self):
         """Toggle video streaming on/off"""
@@ -1164,7 +1231,7 @@ class CameraWidget(QWidget):
 
     @pyqtSlot(QImage)
     def on_video_frame(self, image: QImage):
-        """Handle new video frame with throttling"""
+        """Handle new video frame with throttling and aggressive memory management"""
         # Throttle to ~30 FPS max (33ms between frames)
         current_time = QTime.currentTime()
 
@@ -1173,9 +1240,21 @@ class CameraWidget(QWidget):
 
         elapsed = self._last_frame_time.msecsTo(current_time)
         if elapsed < 33:  # Skip frame if less than 33ms elapsed
+            self._frame_drop_counter += 1
+            # Every 100 dropped frames, force garbage collection of generation 0
+            if self._frame_drop_counter >= 100:
+                import gc
+
+                gc.collect(generation=0)
+                self._frame_drop_counter = 0
             return
 
         self._last_frame_time = current_time
+
+        # MEMORY FIX: Explicitly delete previous pixmap before creating new one
+        if self._last_pixmap:
+            self._last_pixmap = None
+        self.video_label.clear()
 
         # Scale to fit video label using FAST transformation
         pixmap = QPixmap.fromImage(image)
@@ -1186,6 +1265,12 @@ class CameraWidget(QWidget):
             Qt.TransformationMode.FastTransformation,  # Much faster than SmoothTransformation
         )
         self.video_label.setPixmap(scaled)
+
+        # Keep reference for cleanup on next frame
+        self._last_pixmap = scaled
+
+        # Delete intermediate pixmap explicitly
+        del pixmap
 
     @pyqtSlot(int, int, float)
     def on_resolution_changed(self, width: int, height: int, fps: float):
@@ -1839,15 +1924,13 @@ class CameraWidget(QWidget):
 
         logger.debug(f"Going to {target_label} position: '{preset_name}'")
 
-        # Find and recall preset
+        # Find and recall preset by name
         presets = self.config.get_presets(self.camera_id)
         for preset_data in presets:
             preset = CameraPreset.from_dict(preset_data)
             if preset.name == preset_name:
-                # Use VISCA preset recall (preset numbers 0-254)
-                # We'll use the index in the list as the preset number
-                preset_index = presets.index(preset_data)
-                self.visca.recall_preset_position(preset_index)
+                # Use the preset's permanent camera memory slot number
+                self.visca.recall_preset_position(preset.preset_number)
                 break
 
     def on_auto_pan_speed_changed(self, value: int):
@@ -2111,12 +2194,28 @@ class CameraWidget(QWidget):
             self._cleanup_and_reconnect()
 
     def _cleanup_and_reconnect(self):
+        """Clean up old thread and attempt reconnection"""
         # Stop video stream and clean up resources
         self.stop_video()
 
-        """Clean up old thread and attempt reconnection"""
-        # Ensure thread is fully stopped
+        # Ensure thread is fully stopped and cleaned up
         if self.ndi_thread:
+            # Disconnect any remaining signals
+            try:
+                self.ndi_thread.frame_ready.disconnect()
+                self.ndi_thread.connected.disconnect()
+                self.ndi_thread.error.disconnect()
+                self.ndi_thread.resolution_changed.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+
+            # Wait for thread to finish
+            if self.ndi_thread.isRunning():
+                self.ndi_thread.running = False
+                self.ndi_thread.wait(1000)
+
+            # Schedule for deletion
+            self.ndi_thread.deleteLater()
             self.ndi_thread = None
 
         # Try to reconnect
@@ -2157,6 +2256,13 @@ class CameraWidget(QWidget):
     def _attempt_video_reconnect(self):
         """Attempt to reconnect video stream"""
         try:
+            # Cleanup the cache refresh thread
+            if hasattr(self, "cache_refresh_thread") and self.cache_refresh_thread:
+                with contextlib.suppress(TypeError):
+                    self.cache_refresh_thread.finished.disconnect()
+                self.cache_refresh_thread.deleteLater()
+                self.cache_refresh_thread = None
+
             self.loading_label.setVisible(False)
             self.start_video()
         except Exception as e:
@@ -2253,25 +2359,27 @@ class CameraWidget(QWidget):
         name, ok = QInputDialog.getText(self, "Store Preset", "Enter preset name:")
 
         if ok and name:
-            # Get next preset number (use index in list)
-            presets = self.config.get_presets(self.camera_id)
-            preset_number = len(presets)  # Next available slot
+            # Get next available preset number (0-127 for Birddog)
+            preset_number = self.config.get_next_available_preset_number(
+                self.camera_id, max_presets=128
+            )
+
+            if preset_number is None:
+                QMessageBox.warning(
+                    self,
+                    "Preset Limit Reached",
+                    "Maximum number of presets (128) reached.\n\n"
+                    "Please delete an existing preset first.",
+                )
+                return
 
             # Store preset in camera memory using VISCA
             success = self.visca.store_preset_position(preset_number)
 
             if success:
-                # Store preset info in config (with placeholder PTZ values)
-                self.config.add_preset(self.camera_id, name, 0, 0, 0)
+                # Store preset metadata in config with UUID
+                self.config.add_preset(self.camera_id, name, preset_number)
                 self.update_presets_widget()
-
-                QMessageBox.information(
-                    self,
-                    "Preset Stored",
-                    f"Preset '{name}' has been stored to camera memory.\n\n"
-                    f"Preset number: {preset_number}\n\n"
-                    "The camera will recall this exact position when selected.",
-                )
             else:
                 QMessageBox.warning(
                     self,
@@ -2280,45 +2388,45 @@ class CameraWidget(QWidget):
                 )
 
     def recall_preset(self, preset: CameraPreset):
-        """Recall preset position"""
-        # Find preset index (which corresponds to camera memory slot)
-        presets = self.config.get_presets(self.camera_id)
-        preset_index = None
+        """Recall preset position from camera memory"""
+        success = self.visca.recall_preset_position(preset.preset_number)
+        if not success:
+            QMessageBox.warning(
+                self,
+                "Recall Failed",
+                f"Failed to recall preset '{preset.name}' from slot #{preset.preset_number}.\n\n"
+                "Please check camera connection.",
+            )
 
-        for i, preset_data in enumerate(presets):
-            p = CameraPreset.from_dict(preset_data)
-            if p.name == preset.name:
-                preset_index = i
-                break
+    def delete_preset(self, preset_uuid: str):
+        """Delete preset by UUID"""
+        preset_data = self.config.get_preset_by_uuid(self.camera_id, preset_uuid)
+        if not preset_data:
+            return
 
-        if preset_index is not None:
-            success = self.visca.recall_preset_position(preset_index)
-            self.update_status_indicator(success)
-            if not success:
-                QMessageBox.warning(
-                    self,
-                    "Recall Failed",
-                    f"Failed to recall preset '{preset.name}'.\n\n"
-                    "The preset may not be stored in camera memory.",
-                )
+        preset = CameraPreset.from_dict(preset_data)
 
-    def delete_preset(self, name: str):
-        """Delete preset"""
         reply = QMessageBox.question(
             self,
             "Delete Preset",
-            f"Delete preset '{name}'?\n\n"
-            "Note: This removes the preset from the app, but the \n"
-            "position remains stored in camera memory.",
+            f"Delete preset '{preset.name}' (slot #{preset.preset_number})?\n\n"
+            "This removes the preset from the app.\nCamera memory slot will be available for reuse.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            self.config.remove_preset(self.camera_id, name)
+            self.config.remove_preset(self.camera_id, preset_uuid)
             self.update_presets_widget()
 
-    def rename_preset_dialog(self, old_name: str):
-        """Show dialog to rename a preset"""
+    def rename_preset_dialog(self, preset_uuid: str):
+        """Show dialog to rename a preset by UUID"""
+        preset_data = self.config.get_preset_by_uuid(self.camera_id, preset_uuid)
+        if not preset_data:
+            return
+
+        preset = CameraPreset.from_dict(preset_data)
+        old_name = preset.name
+
         new_name, ok = QInputDialog.getText(
             self, "Rename Preset", "Enter new preset name:", text=old_name
         )
@@ -2326,7 +2434,9 @@ class CameraWidget(QWidget):
         if ok and new_name and new_name != old_name:
             # Check if name already exists
             presets = self.config.get_presets(self.camera_id)
-            existing_names = [CameraPreset.from_dict(p).name for p in presets]
+            existing_names = [
+                CameraPreset.from_dict(p).name for p in presets if p.get("uuid") != preset_uuid
+            ]
 
             if new_name in existing_names:
                 QMessageBox.warning(
@@ -2338,78 +2448,39 @@ class CameraWidget(QWidget):
                 return
 
             # Update the preset name
-            success = self.config.update_preset_name(self.camera_id, old_name, new_name)
+            success = self.config.update_preset_name(self.camera_id, preset_uuid, new_name)
 
             if success:
                 self.update_presets_widget()
             else:
                 QMessageBox.warning(self, "Rename Failed", f"Failed to rename preset '{old_name}'.")
 
-    def update_preset(self, name: str):
+    def update_preset(self, preset_uuid: str):
         """Update preset to current camera position"""
-        # Find preset index (camera memory slot)
-        presets = self.config.get_presets(self.camera_id)
-        preset_index = None
+        preset_data = self.config.get_preset_by_uuid(self.camera_id, preset_uuid)
+        if not preset_data:
+            return
 
-        for i, preset_data in enumerate(presets):
-            p = CameraPreset.from_dict(preset_data)
-            if p.name == name:
-                preset_index = i
-                break
+        preset = CameraPreset.from_dict(preset_data)
 
-        if preset_index is not None:
-            # Store current position to camera memory at the same slot
-            success = self.visca.store_preset_position(preset_index)
+        # Store current position to camera memory at the same permanent slot
+        success = self.visca.store_preset_position(preset.preset_number)
 
-            if success:
-                # Update config (keep placeholder values since we can't query position)
-                self.config.update_preset(self.camera_id, name, 0, 0, 0)
-
-                QMessageBox.information(
-                    self,
-                    "Preset Updated",
-                    f"Preset '{name}' has been updated to the current camera position.\n\n"
-                    f"Preset slot: {preset_index}",
-                )
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Update Failed",
-                    f"Failed to update preset '{name}' in camera memory.\n\n"
-                    "Please check camera connection.",
-                )
-
-    def reorder_preset(self, name: str, direction: str):
-        """Reorder preset in the list"""
-        success = self.config.reorder_preset(self.camera_id, name, direction)
-
-        if success:
-            # Need to re-store all presets to camera memory in new order
-            # since preset number = list index
-            presets = self.config.get_presets(self.camera_id)
-
-            reply = QMessageBox.question(
+        if not success:
+            QMessageBox.warning(
                 self,
-                "Re-store Presets?",
-                f"Preset '{name}' has been moved {direction}.\n\n"
-                "The preset order has changed, which means preset slot numbers \n"
-                "in camera memory need to be updated.\n\n"
-                "Would you like to re-store all presets to camera memory now?\n\n"
-                "(You'll need to position the camera at each preset location)",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                "Update Failed",
+                f"Failed to update preset '{preset.name}' in camera memory.\n\n"
+                "Please check camera connection.",
             )
 
-            if reply == QMessageBox.StandardButton.Yes:
-                # Show instructions for re-storing
-                preset_names = [CameraPreset.from_dict(p).name for p in presets]
-                msg = "Please re-store each preset in order:\n\n"
-                for i, pname in enumerate(preset_names):
-                    msg += f"{i + 1}. {pname}\n"
-                msg += "\nPosition the camera and click 'Update' for each preset."
+    def reorder_preset(self, preset_uuid: str, direction: str):
+        """Reorder preset in the DISPLAY list (does not affect camera memory)"""
+        success = self.config.reorder_preset(self.camera_id, preset_uuid, direction)
 
-                QMessageBox.information(self, "Re-store Instructions", msg)
-
-            # Refresh the widget to show new order
+        if success:
+            # Just refresh the widget - no camera memory changes needed!
+            # Each preset keeps its permanent preset_number
             self.update_presets_widget()
 
     # USB controller handlers

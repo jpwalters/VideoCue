@@ -198,56 +198,103 @@ class ConfigManager:
                 cam["ndi_source_name"] = ndi_name
                 break
 
-    def add_preset(self, camera_id: str, name: str, pan: int, tilt: int, zoom: int):
-        """Add preset to camera"""
+    def add_preset(self, camera_id: str, name: str, preset_number: int, preset_uuid: str = None):
+        """
+        Add preset to camera
+
+        Args:
+            camera_id: Camera identifier
+            name: Preset display name
+            preset_number: Camera memory slot (0-127)
+            preset_uuid: Optional UUID (generated if not provided)
+        """
         for cam in self.config["cameras"]:
             if cam["id"] == camera_id:
-                preset = {"name": name, "pan": pan, "tilt": tilt, "zoom": zoom}
+                preset = {
+                    "uuid": preset_uuid if preset_uuid else str(uuid.uuid4()),
+                    "name": name,
+                    "preset_number": preset_number,
+                }
                 cam["presets"].append(preset)
                 self.save()
                 break
 
-    def remove_preset(self, camera_id: str, preset_name: str):
-        """Remove preset from camera"""
+    def remove_preset(self, camera_id: str, preset_uuid: str):
+        """Remove preset from camera by UUID"""
         for cam in self.config["cameras"]:
             if cam["id"] == camera_id:
-                cam["presets"] = [p for p in cam["presets"] if p["name"] != preset_name]
+                cam["presets"] = [p for p in cam["presets"] if p.get("uuid") != preset_uuid]
                 self.save()
                 break
 
-    def update_preset_name(self, camera_id: str, old_name: str, new_name: str):
-        """Rename a preset"""
+    def get_preset_by_uuid(self, camera_id: str, preset_uuid: str) -> dict | None:
+        """Get preset by UUID"""
         for cam in self.config["cameras"]:
             if cam["id"] == camera_id:
                 for preset in cam["presets"]:
-                    if preset["name"] == old_name:
+                    if preset.get("uuid") == preset_uuid:
+                        return preset
+                break
+        return None
+
+    def update_preset_name(self, camera_id: str, preset_uuid: str, new_name: str):
+        """Rename a preset by UUID"""
+        for cam in self.config["cameras"]:
+            if cam["id"] == camera_id:
+                for preset in cam["presets"]:
+                    if preset.get("uuid") == preset_uuid:
                         preset["name"] = new_name
                         self.save()
                         return True
                 break
         return False
 
-    def update_preset(self, camera_id: str, preset_name: str, pan: int, tilt: int, zoom: int):
-        """Update preset position values"""
+    def update_preset(self, camera_id: str, preset_uuid: str, **kwargs):
+        """Update preset fields by UUID"""
         for cam in self.config["cameras"]:
             if cam["id"] == camera_id:
                 for preset in cam["presets"]:
-                    if preset["name"] == preset_name:
-                        preset["pan"] = pan
-                        preset["tilt"] = tilt
-                        preset["zoom"] = zoom
+                    if preset.get("uuid") == preset_uuid:
+                        preset.update(kwargs)
                         self.save()
                         return True
                 break
         return False
 
-    def reorder_preset(self, camera_id: str, preset_name: str, direction: str):
-        """Move preset up or down in the list"""
+    def get_next_available_preset_number(
+        self, camera_id: str, max_presets: int = 128
+    ) -> int | None:
+        """
+        Find next available preset number for camera (0-based)
+
+        Args:
+            camera_id: Camera identifier
+            max_presets: Maximum preset slots (128 for Birddog, 254 for VISCA)
+
+        Returns:
+            Next available preset number (0-127), or None if all slots used
+        """
+        presets = self.get_presets(camera_id)
+        used_numbers = {p.get("preset_number", -1) for p in presets}
+
+        for i in range(max_presets):
+            if i not in used_numbers:
+                return i
+
+        return None  # All slots used
+
+    def reorder_preset(self, camera_id: str, preset_uuid: str, direction: str):
+        """
+        Move preset up or down in the DISPLAY list
+
+        Note: This only changes UI display order, not camera memory slots.
+        The preset_number field remains unchanged.
+        """
         for cam in self.config["cameras"]:
             if cam["id"] == camera_id:
                 presets = cam["presets"]
                 for i, preset in enumerate(presets):
-                    if preset["name"] == preset_name:
+                    if preset.get("uuid") == preset_uuid:
                         if direction == "up" and i > 0:
                             # Swap with previous
                             presets[i], presets[i - 1] = presets[i - 1], presets[i]
