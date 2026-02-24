@@ -27,8 +27,9 @@ class NDIDiscoveryThread(QThread):
     cameras_found = pyqtSignal(list)  # List of camera names
     error_occurred = pyqtSignal(str)  # Error message
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self):  # NO parent parameter - standalone object
+        super().__init__(None)  # Explicitly pass None as parent
+        self.setObjectName("NDIDiscoveryThread")
         self.timeout_ms = 5000
         self._should_run = False
 
@@ -251,8 +252,10 @@ class CameraAddDialog(QDialog):
                     logger.debug("Old thread cleaned up")
 
                 # Always create a fresh thread
+                # NOTE: Create thread WITHOUT parent (self) so it can be deleted independently
+                # When parent=self, thread deletion is tied to dialog lifetime, causing threads to linger
                 logger.debug("Creating new discovery thread...")
-                self.discovery_thread = NDIDiscoveryThread(self)
+                self.discovery_thread = NDIDiscoveryThread()  # No parent - independent object
                 logger.debug(f"Thread object ID: {id(self.discovery_thread)}")
                 logger.debug("Connecting signals...")
                 self.discovery_thread.cameras_found.connect(self._on_cameras_discovered)
@@ -435,6 +438,39 @@ class CameraAddDialog(QDialog):
             # Always reset both flags
             self._search_in_progress = False
             self._processing_results = False
+
+            # Clean up the discovery thread now that it's finished
+            # This prevents accumulation of thread objects on the call stack
+            # NOTE: We clean up REGARDLESS of isRunning() status because:
+            # - The signal is emitted WHILE run() is still executing
+            # - So isRunning() returns True even though run() is finishing
+            # - We need to force cleanup to prevent thread accumulation in call stack
+            if self.discovery_thread:
+                thread_id = id(self.discovery_thread)
+
+                logger.debug(f"Cleaning up discovery thread {thread_id}...")
+                try:
+                    # NOTE: NDIDiscoveryThread.run() has no exec() call, so no event loop
+                    # Therefore quit() is a no-op. Just wait for run() to finish.
+                    wait_result = self.discovery_thread.wait(1000)
+                    logger.debug(f"Discovery thread wait() returned {wait_result} for {thread_id}")
+
+                    # Disconnect signals AFTER wait completes
+                    try:
+                        self.discovery_thread.cameras_found.disconnect()
+                        self.discovery_thread.error_occurred.disconnect()
+                    except (TypeError, RuntimeError):
+                        pass  # Already disconnected
+
+                except Exception:
+                    logger.exception("Error during thread cleanup")
+
+                # Delete the thread object - CRITICAL STEP
+                self.discovery_thread.deleteLater()
+
+                self.discovery_thread = None
+                logger.debug("Discovery thread cleaned up")
+
             logger.debug("Flags reset, _on_cameras_discovered complete")
 
     def _on_discovery_error(self, error_msg: str):
@@ -469,6 +505,38 @@ class CameraAddDialog(QDialog):
         except Exception:
             logger.exception("Error handling discovery error")
             self._search_in_progress = False
+        finally:
+            # Clean up the discovery thread after error handling
+            # This prevents accumulation of thread objects on the call stack
+            # NOTE: We clean up REGARDLESS of isRunning() status because:
+            # - The signal is emitted WHILE run() is still executing
+            # - So isRunning() returns True even though run() is finishing
+            # - We need to force cleanup to prevent thread accumulation in call stack
+            if self.discovery_thread:
+                thread_id = id(self.discovery_thread)
+
+                logger.debug(f"Cleaning up errored discovery thread {thread_id}...")
+                try:
+                    # NOTE: NDIDiscoveryThread.run() has no exec() call, so no event loop
+                    # Therefore quit() is a no-op. Just wait for run() to finish.
+                    wait_result = self.discovery_thread.wait(1000)
+                    logger.debug(f"Errored discovery thread wait() returned {wait_result} for {thread_id}")
+
+                    # Disconnect signals AFTER wait completes
+                    try:
+                        self.discovery_thread.cameras_found.disconnect()
+                        self.discovery_thread.error_occurred.disconnect()
+                    except (TypeError, RuntimeError):
+                        pass  # Already disconnected
+
+                except Exception:
+                    logger.exception("Error during thread cleanup in error handler")
+
+                # Delete the thread object
+                self.discovery_thread.deleteLater()
+                self.discovery_thread = None
+                logger.debug("Discovery thread cleaned up after error")
+
 
     def _is_camera_already_added(self, ndi_name: str) -> bool:
         """Check if camera with this NDI name is already added"""
@@ -576,3 +644,41 @@ class CameraAddDialog(QDialog):
             # No port specified, return just host
             return (text, None)
         return None
+    def done(self, result):
+        """Override done() to ensure discovery thread is stopped before closing
+
+        This is called by both accept() and reject(), ensuring cleanup happens
+        regardless of how the dialog is closed.
+        """
+        try:
+            logger.debug("Dialog closing, cleaning up discovery thread...")
+
+            # Stop loading animation
+            if self.loading_timer:
+                self.loading_timer.stop()
+                self.loading_timer = None
+
+            # Stop and wait for discovery thread if running
+            if self.discovery_thread:
+                if self.discovery_thread.isRunning():
+                    logger.debug(f"Stopping discovery thread {id(self.discovery_thread)}...")
+                    # Disconnect signals before waiting (prevents callbacks during shutdown)
+                    try:
+                        self.discovery_thread.cameras_found.disconnect()
+                        self.discovery_thread.error_occurred.disconnect()
+                    except (TypeError, RuntimeError):
+                        pass  # Already disconnected
+
+                    # Wait for thread to finish gracefully (max 2 seconds)
+                    logger.debug("Waiting for thread to finish...")
+                    if not self.discovery_thread.wait(2000):
+                        logger.warning("Discovery thread did not finish within timeout - forcing exit")
+
+                self.discovery_thread.deleteLater()
+                self.discovery_thread = None
+                logger.debug("Discovery thread cleaned up")
+        except Exception:
+            logger.exception("Error cleaning up discovery thread")
+        finally:
+            # Always call parent done() to complete the dialog close
+            super().done(result)

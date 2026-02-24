@@ -126,6 +126,8 @@ The configuration includes:
 - Automatic network interface detection and binding (v0.6.14-15)
 - Live video display with frame dropping for performance
 - Configurable bandwidth modes: High (max quality) or Low (compressed) - v0.6.16
+- Configurable color format: UYVY, BGRA, or RGBA - v0.6.17
+- Timer-driven rendering prevents frame queue buildup
 - 5-second connection timeout prevents app freeze
 - Play/pause video controls per camera
 
@@ -285,7 +287,9 @@ The configuration includes:
 - Verify controller is DirectInput/XInput compatible
 
 ### Video Lag
+- Switch color format (View → Video Color Format) - BGRA/RGBA use NDI SDK native conversion
 - Reduce video size (View → Video Size menu)
+- Switch to Low Bandwidth (View → Video Performance)
 - Use play/pause button to stop video when not needed
 - Close unused cameras
 - Frame dropping should prevent UI lag, but high CPU usage may indicate issue

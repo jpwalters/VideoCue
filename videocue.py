@@ -224,7 +224,7 @@ class SingleInstanceLock:
             pass  # Ignore errors during cleanup
 
 
-def main() -> None:
+def main() -> int:
     """Main application entry point"""
     # Load config first to get logging preference
     from videocue.models.config_manager import ConfigManager

@@ -70,6 +70,7 @@ class ConfigManager:
                 ],
                 "video_frame_skip": 6,
                 "ndi_bandwidth": "low",  # "high" or "low" - NDI receiver bandwidth mode
+                "ndi_color_format": "uyvy",  # "uyvy", "bgra", or "rgba" - NDI color format
                 "theme": "dark",
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
@@ -340,6 +341,15 @@ class ConfigManager:
     def get_ndi_bandwidth(self) -> str:
         """Get NDI bandwidth mode (default 'low')"""
         return self.config["preferences"].get("ndi_bandwidth", "low")
+
+    def set_ndi_color_format(self, color_format: str):
+        """Set NDI color format ('uyvy', 'bgra', or 'rgba')"""
+        self.config["preferences"]["ndi_color_format"] = color_format
+        self.save()
+
+    def get_ndi_color_format(self) -> str:
+        """Get NDI color format (default 'uyvy')"""
+        return self.config["preferences"].get("ndi_color_format", "uyvy")
 
     def set_ndi_video_enabled(self, enabled: bool):
         """Set NDI video enabled/disabled globally"""

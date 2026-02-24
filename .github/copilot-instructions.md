@@ -12,9 +12,9 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **ui/preferences_dialog.py**: Preferences dialog with USB controller settings, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
-- **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, UYVY422→RGB conversion via NumPy, frame dropping), **5-second timeout**, **configurable bandwidth** (HIGHEST/LOWEST), **network interface binding**, **comprehensive error handling**
+- **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, **configurable color format** UYVY/BGRA/RGBA, frame dropping), **5-second timeout**, **configurable bandwidth** (HIGHEST/LOWEST), **network interface binding**, **comprehensive error handling**, **persistent NumPy buffers for UYVY conversion**
 - **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens preferences dialog**
-- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference** (v0.6.16)
+- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference**, **ndi_color_format preference** (default: uyvy)
 - **models/video.py**: Video size and camera preset data models
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
 - **utils/__init__.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
@@ -60,11 +60,22 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **Bandwidth Control** (v0.6.16): User-configurable via View → Video Performance menu
   - High Bandwidth: `RECV_BANDWIDTH_HIGHEST` - maximum quality, higher network usage
   - Low Bandwidth: `RECV_BANDWIDTH_LOWEST` - compression, lower network usage (default)
+- **Color Format Selection** (v0.6.17+): Configurable via View → Video Color Format menu
+  - UYVY: Native camera format, requires NumPy conversion (CPU-bound)
+  - BGRA: NDI SDK converts natively, optimal for Windows (ARGB32 format)
+  - RGBA: NDI SDK converts natively, cross-platform compatible
 - **Video Conversion Architecture**:
-  - Current: UYVY422 → RGB conversion using NumPy with ITU-R BT.601 coefficients (~100x faster than pure Python)
-  - NDI receiver uses `RECV_COLOR_FORMAT_FASTEST` (UYVY) to minimize SDK overhead
-  - **Optimization Opportunity**: NDI SDK can convert to RGB natively via `RECV_COLOR_FORMAT_RGBX_RGBA` (likely faster with SIMD/GPU)
-  - Scaling: Done in PyQt6 via `QPixmap.scaled()` with `FastTransformation` (adequate performance for current use)
+  - UYVY path: Uses persistent NumPy buffers with ITU-R BT.601 coefficients
+  - BGRA/RGBA path: NDI SDK handles conversion natively (uses SIMD/GPU when available)
+  - Scaling: Done in PyQt6 via `QPixmap.scaled()` with `FastTransformation`
+- **Timer-Driven Rendering**: 33ms cadence timer limits UI work and prevents frame queue buildup
+- **Frame Memory Management (CRITICAL)**:
+  - `recv_capture_v3()` returns `(type, video, audio, metadata)` tuple
+  - ALL frame types MUST be freed to prevent memory leaks:
+    - `recv_free_video_v2(receiver, video)` for FRAME_TYPE_VIDEO
+    - `recv_free_audio_v3(receiver, audio)` for FRAME_TYPE_AUDIO  
+    - `recv_free_metadata(receiver, metadata)` for FRAME_TYPE_METADATA
+  - Failure to free audio/metadata frames causes ~30 MB/min memory growth
 - Frame dropping via PyQt signal queuing (Qt auto-drops old queued frames)
 - **Graceful degradation**: App continues in IP-only mode if NDI unavailable (no crash)
 - Requires NDI Runtime installed from https://ndi.tv/tools/ on end-user system
@@ -147,7 +158,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - IP-only cameras: `_test_visca_connection()` uses `query_focus_mode()` (requires response)
   - NDI cameras: Connection verified when first frame received
 - **Reconnect Functionality**:
-  - Reconnect button appears when status is red when status is red
+  - Reconnect button appears when status is red
   - Reconnect button and menu dialog available for manual reconnection
   - `reconnect_camera()` method: stops video thread, waits 500ms, attempts reconnection
 - **USB Controller Protection**: All USB handlers check `camera.is_connected` before sending commands
@@ -503,14 +514,15 @@ def _apply_queried_settings(self, results: dict):
 - Check console output for error details
 
 ### Video Performance Issues
+- **Color Format**: View → Video Color Format menu
+  - BGRA/RGBA use NDI SDK's native conversion (recommended for lower CPU usage)
+  - UYVY uses NumPy conversion (higher CPU, useful for debugging)
 - **Bandwidth Control**: View → Video Performance menu
   - Switch to Low Bandwidth to reduce network usage (enables compression)
   - Switch to High Bandwidth for maximum quality
 - **Video Size**: View → Video Size menu to reduce resolution
 - **Pause Streams**: Use play/pause button to stop video when not needed
-- **CPU Usage**: UYVY→RGB conversion uses NumPy (efficient but CPU-bound)
-  - Future optimization: Could use NDI SDK's native RGB conversion (`RECV_COLOR_FORMAT_RGBX_RGBA`)
-- Frame dropping should prevent UI lag
+- Frame dropping and timer-driven rendering prevent UI lag
 
 ### Application Crashes/Errors
 - Global exception handler shows error dialog instead of crash

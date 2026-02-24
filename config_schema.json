@@ -4,6 +4,8 @@
   "preferences": {
     "video_size_default": [512, 288],
     "video_frame_skip": 6,
+    "ndi_bandwidth": "low",
+    "ndi_color_format": "uyvy",
     "theme": "dark",
     "auto_discover_ndi": true,
     "ndi_video_enabled": true,

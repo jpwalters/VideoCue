@@ -205,6 +205,38 @@ class MainWindow(QMainWindow):
             bandwidth_group.addAction(action)
             performance_menu.addAction(action)
 
+        # Color format submenu
+        color_format_menu = QMenu(UIStrings.MENU_COLOR_FORMAT, self)
+        view_menu.addMenu(color_format_menu)
+
+        # Create radio group for color format
+        format_group = QActionGroup(self)
+        format_group.setExclusive(True)
+
+        current_format = self.config.get_ndi_color_format()
+
+        # Color format options: (format_value, label, tooltip)
+        format_options = [
+            ("uyvy", "UYVY (Default)", "Native camera format with NumPy conversion"),
+            ("bgra", "BGRA", "Qt-native format, minimal conversion overhead"),
+            ("rgba", "RGBA", "Standard RGBA format"),
+        ]
+
+        for format_value, label, tooltip in format_options:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setToolTip(tooltip)
+            action.setData(format_value)
+
+            if format_value == current_format:
+                action.setChecked(True)
+
+            action.triggered.connect(
+                lambda checked, fmt=format_value: self.on_color_format_changed(fmt)
+            )
+            format_group.addAction(action)
+            color_format_menu.addAction(action)
+
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
@@ -966,6 +998,24 @@ class MainWindow(QMainWindow):
             logger.info(f"NDI bandwidth set to {bandwidth}")
         except Exception:
             logger.exception("Error handling bandwidth change")
+
+    def on_color_format_changed(self, color_format: str) -> None:
+        """Handle NDI color format menu selection"""
+        try:
+            # Update preference
+            self.config.set_ndi_color_format(color_format)
+
+            # Restart video on all cameras to apply new color format
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    # Stop current video
+                    camera.stop_video()
+                    # Small delay to ensure thread fully stopped
+                    QTimer.singleShot(100, camera.start_video)
+
+            logger.info(f"NDI color format set to {color_format}")
+        except Exception:
+            logger.exception("Error handling color format change")
 
     def on_file_logging_toggled(self, checked: bool) -> None:
         """Handle file logging preference toggle"""

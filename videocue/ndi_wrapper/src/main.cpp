@@ -1,9 +1,33 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
+#include <atomic>
+
 #include <Processing.NDI.Lib.h>
 
 namespace py = pybind11;
+
+static std::atomic<uint64_t> g_find_instances_created{0};
+static std::atomic<uint64_t> g_find_instances_destroyed{0};
+static std::atomic<uint64_t> g_recv_instances_created{0};
+static std::atomic<uint64_t> g_recv_instances_destroyed{0};
+static std::atomic<uint64_t> g_send_instances_created{0};
+static std::atomic<uint64_t> g_send_instances_destroyed{0};
+static std::atomic<uint64_t> g_routing_instances_created{0};
+static std::atomic<uint64_t> g_routing_instances_destroyed{0};
+static std::atomic<uint64_t> g_framesync_instances_created{0};
+static std::atomic<uint64_t> g_framesync_instances_destroyed{0};
+
+static std::atomic<uint64_t> g_recv_capture_v2_calls{0};
+static std::atomic<uint64_t> g_recv_capture_v3_calls{0};
+static std::atomic<uint64_t> g_recv_video_frames_captured{0};
+static std::atomic<uint64_t> g_recv_audio_frames_captured{0};
+static std::atomic<uint64_t> g_recv_metadata_frames_captured{0};
+
+static std::atomic<uint64_t> g_recv_free_video_calls{0};
+static std::atomic<uint64_t> g_recv_free_audio_v2_calls{0};
+static std::atomic<uint64_t> g_recv_free_audio_v3_calls{0};
+static std::atomic<uint64_t> g_recv_free_metadata_calls{0};
 
 PYBIND11_MODULE(NDIlib, m) {
 
@@ -53,6 +77,89 @@ PYBIND11_MODULE(NDIlib, m) {
   m.attr("SEND_TIMECODE_SYNTHESIZE") = py::int_(INT64_MAX);
 
   m.attr("RECV_TIMESTAMP_UNDEFINED") = py::int_(INT64_MAX);
+
+    m.def("debug_get_counters", []() {
+    const auto find_created = g_find_instances_created.load(std::memory_order_relaxed);
+    const auto find_destroyed = g_find_instances_destroyed.load(std::memory_order_relaxed);
+    const auto recv_created = g_recv_instances_created.load(std::memory_order_relaxed);
+    const auto recv_destroyed = g_recv_instances_destroyed.load(std::memory_order_relaxed);
+    const auto send_created = g_send_instances_created.load(std::memory_order_relaxed);
+    const auto send_destroyed = g_send_instances_destroyed.load(std::memory_order_relaxed);
+    const auto routing_created = g_routing_instances_created.load(std::memory_order_relaxed);
+    const auto routing_destroyed = g_routing_instances_destroyed.load(std::memory_order_relaxed);
+    const auto framesync_created = g_framesync_instances_created.load(std::memory_order_relaxed);
+    const auto framesync_destroyed = g_framesync_instances_destroyed.load(std::memory_order_relaxed);
+
+    py::dict counters;
+    counters["find_instances_created"] = py::int_(find_created);
+    counters["find_instances_destroyed"] = py::int_(find_destroyed);
+    counters["find_instances_outstanding"] =
+      py::int_(find_created >= find_destroyed ? find_created - find_destroyed : 0);
+
+    counters["recv_instances_created"] = py::int_(recv_created);
+    counters["recv_instances_destroyed"] = py::int_(recv_destroyed);
+    counters["recv_instances_outstanding"] =
+      py::int_(recv_created >= recv_destroyed ? recv_created - recv_destroyed : 0);
+
+    counters["send_instances_created"] = py::int_(send_created);
+    counters["send_instances_destroyed"] = py::int_(send_destroyed);
+    counters["send_instances_outstanding"] =
+      py::int_(send_created >= send_destroyed ? send_created - send_destroyed : 0);
+
+    counters["routing_instances_created"] = py::int_(routing_created);
+    counters["routing_instances_destroyed"] = py::int_(routing_destroyed);
+    counters["routing_instances_outstanding"] =
+      py::int_(routing_created >= routing_destroyed ? routing_created - routing_destroyed : 0);
+
+    counters["framesync_instances_created"] = py::int_(framesync_created);
+    counters["framesync_instances_destroyed"] = py::int_(framesync_destroyed);
+    counters["framesync_instances_outstanding"] = py::int_(
+      framesync_created >= framesync_destroyed ? framesync_created - framesync_destroyed : 0);
+
+    counters["recv_capture_v2_calls"] =
+      py::int_(g_recv_capture_v2_calls.load(std::memory_order_relaxed));
+    counters["recv_capture_v3_calls"] =
+      py::int_(g_recv_capture_v3_calls.load(std::memory_order_relaxed));
+    counters["recv_video_frames_captured"] =
+      py::int_(g_recv_video_frames_captured.load(std::memory_order_relaxed));
+    counters["recv_audio_frames_captured"] =
+      py::int_(g_recv_audio_frames_captured.load(std::memory_order_relaxed));
+    counters["recv_metadata_frames_captured"] =
+      py::int_(g_recv_metadata_frames_captured.load(std::memory_order_relaxed));
+
+    counters["recv_free_video_calls"] =
+      py::int_(g_recv_free_video_calls.load(std::memory_order_relaxed));
+    counters["recv_free_audio_v2_calls"] =
+      py::int_(g_recv_free_audio_v2_calls.load(std::memory_order_relaxed));
+    counters["recv_free_audio_v3_calls"] =
+      py::int_(g_recv_free_audio_v3_calls.load(std::memory_order_relaxed));
+    counters["recv_free_metadata_calls"] =
+      py::int_(g_recv_free_metadata_calls.load(std::memory_order_relaxed));
+
+    return counters;
+    });
+
+    m.def("debug_reset_counters", []() {
+    g_find_instances_created.store(0, std::memory_order_relaxed);
+    g_find_instances_destroyed.store(0, std::memory_order_relaxed);
+    g_recv_instances_created.store(0, std::memory_order_relaxed);
+    g_recv_instances_destroyed.store(0, std::memory_order_relaxed);
+    g_send_instances_created.store(0, std::memory_order_relaxed);
+    g_send_instances_destroyed.store(0, std::memory_order_relaxed);
+    g_routing_instances_created.store(0, std::memory_order_relaxed);
+    g_routing_instances_destroyed.store(0, std::memory_order_relaxed);
+    g_framesync_instances_created.store(0, std::memory_order_relaxed);
+    g_framesync_instances_destroyed.store(0, std::memory_order_relaxed);
+    g_recv_capture_v2_calls.store(0, std::memory_order_relaxed);
+    g_recv_capture_v3_calls.store(0, std::memory_order_relaxed);
+    g_recv_video_frames_captured.store(0, std::memory_order_relaxed);
+    g_recv_audio_frames_captured.store(0, std::memory_order_relaxed);
+    g_recv_metadata_frames_captured.store(0, std::memory_order_relaxed);
+    g_recv_free_video_calls.store(0, std::memory_order_relaxed);
+    g_recv_free_audio_v2_calls.store(0, std::memory_order_relaxed);
+    g_recv_free_audio_v3_calls.store(0, std::memory_order_relaxed);
+    g_recv_free_metadata_calls.store(0, std::memory_order_relaxed);
+    });
 
   py::class_<NDIlib_source_t>(m, "Source")
       .def(py::init<const char *, const char *>(),
@@ -363,6 +470,7 @@ PYBIND11_MODULE(NDIlib, m) {
         if (!p_instance) {
           throw std::runtime_error("Failed to create NDI finder. Is NDI initialized?");
         }
+        g_find_instances_created.fetch_add(1, std::memory_order_relaxed);
         return py::capsule(p_instance, "FindInstance");
       },
       py::arg("create_settings") = nullptr);
@@ -376,6 +484,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_find_instance_type *>(instance.get_pointer());
         NDIlib_find_destroy(p_instance);
+        g_find_instances_destroyed.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"));
 
@@ -486,6 +595,7 @@ PYBIND11_MODULE(NDIlib, m) {
         if (!p_instance) {
           throw std::runtime_error("Failed to create NDI receiver. Is NDI initialized?");
         }
+        g_recv_instances_created.fetch_add(1, std::memory_order_relaxed);
         return py::capsule(p_instance, "RecvInstance");
       },
       py::arg("create_settings") = nullptr);
@@ -499,6 +609,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_recv_instance_type *>(instance.get_pointer());
         NDIlib_recv_destroy(p_instance);
+        g_recv_instances_destroyed.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"));
 
@@ -529,6 +640,13 @@ PYBIND11_MODULE(NDIlib, m) {
         auto type =
             NDIlib_recv_capture_v2(p_instance, &video_frame, &audio_frame,
                                    &metadata_frame, timeout_in_ms);
+        g_recv_capture_v2_calls.fetch_add(1, std::memory_order_relaxed);
+        if (type == NDIlib_frame_type_video)
+          g_recv_video_frames_captured.fetch_add(1, std::memory_order_relaxed);
+        else if (type == NDIlib_frame_type_audio)
+          g_recv_audio_frames_captured.fetch_add(1, std::memory_order_relaxed);
+        else if (type == NDIlib_frame_type_metadata)
+          g_recv_metadata_frames_captured.fetch_add(1, std::memory_order_relaxed);
         return std::tuple<NDIlib_frame_type_e, NDIlib_video_frame_v2_t,
                           NDIlib_audio_frame_v2_t, NDIlib_metadata_frame_t>(
             type, video_frame, audio_frame, metadata_frame);
@@ -547,6 +665,13 @@ PYBIND11_MODULE(NDIlib, m) {
         auto type =
             NDIlib_recv_capture_v3(p_instance, &video_frame, &audio_frame,
                                    &metadata_frame, timeout_in_ms);
+        g_recv_capture_v3_calls.fetch_add(1, std::memory_order_relaxed);
+        if (type == NDIlib_frame_type_video)
+          g_recv_video_frames_captured.fetch_add(1, std::memory_order_relaxed);
+        else if (type == NDIlib_frame_type_audio)
+          g_recv_audio_frames_captured.fetch_add(1, std::memory_order_relaxed);
+        else if (type == NDIlib_frame_type_metadata)
+          g_recv_metadata_frames_captured.fetch_add(1, std::memory_order_relaxed);
         return std::tuple<NDIlib_frame_type_e, NDIlib_video_frame_v2_t,
                           NDIlib_audio_frame_v3_t, NDIlib_metadata_frame_t>(
             type, video_frame, audio_frame, metadata_frame);
@@ -559,6 +684,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_recv_instance_type *>(instance.get_pointer());
         NDIlib_recv_free_video_v2(p_instance, p_video_data);
+        g_recv_free_video_calls.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"), py::arg("video_data") = nullptr);
 
@@ -568,6 +694,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_recv_instance_type *>(instance.get_pointer());
         NDIlib_recv_free_audio_v2(p_instance, p_audio_data);
+        g_recv_free_audio_v2_calls.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"), py::arg("audio_data") = nullptr);
 
@@ -577,6 +704,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_recv_instance_type *>(instance.get_pointer());
         NDIlib_recv_free_audio_v3(p_instance, p_audio_data);
+        g_recv_free_audio_v3_calls.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"), py::arg("audio_data") = nullptr);
 
@@ -586,6 +714,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_recv_instance_type *>(instance.get_pointer());
         NDIlib_recv_free_metadata(p_instance, p_metadata);
+        g_recv_free_metadata_calls.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"), py::arg("metadata") = nullptr);
 
@@ -984,6 +1113,7 @@ PYBIND11_MODULE(NDIlib, m) {
         if (!p_instance) {
           throw std::runtime_error("Failed to create NDI sender. Is NDI initialized?");
         }
+        g_send_instances_created.fetch_add(1, std::memory_order_relaxed);
         return py::capsule(p_instance, "SendInstance");
       },
       py::arg("create_settings") = nullptr);
@@ -997,6 +1127,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_send_instance_type *>(instance.get_pointer());
         NDIlib_send_destroy(p_instance);
+        g_send_instances_destroyed.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"));
 
@@ -1166,6 +1297,7 @@ PYBIND11_MODULE(NDIlib, m) {
         if (!p_instance) {
           throw std::runtime_error("Failed to create NDI routing instance. Is NDI initialized?");
         }
+        g_routing_instances_created.fetch_add(1, std::memory_order_relaxed);
         return py::capsule(p_instance, "RoutingInstance");
       },
       py::arg("create_settings"));
@@ -1176,6 +1308,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance =
             static_cast<NDIlib_routing_instance_type *>(instance.get_pointer());
         NDIlib_routing_destroy(p_instance);
+        g_routing_instances_destroyed.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"));
 
@@ -1403,6 +1536,7 @@ PYBIND11_MODULE(NDIlib, m) {
         if (!p_instance) {
           throw std::runtime_error("Failed to create frame sync instance");
         }
+        g_framesync_instances_created.fetch_add(1, std::memory_order_relaxed);
         return py::capsule(p_instance, "FrameSyncInstance");
       },
       py::arg("receiver"));
@@ -1413,6 +1547,7 @@ PYBIND11_MODULE(NDIlib, m) {
         auto p_instance = static_cast<NDIlib_framesync_instance_type *>(
             instance.get_pointer());
         NDIlib_framesync_destroy(p_instance);
+        g_framesync_instances_destroyed.fetch_add(1, std::memory_order_relaxed);
       },
       py::arg("instance"));
 

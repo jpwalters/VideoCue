@@ -18,6 +18,7 @@ class UpdateCheckThread(QThread):
 
     def __init__(self, current_version: str):
         super().__init__()
+        self.setObjectName("UpdateCheckThread")
         self.current_version = current_version
 
     def run(self) -> None:

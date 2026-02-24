@@ -87,6 +87,7 @@ class UIStrings:
     MENU_VIEW = "&View"
     MENU_VIDEO_SIZE = "Video Size"
     MENU_PERFORMANCE = "Video Performance"
+    MENU_COLOR_FORMAT = "Video Format"
     MENU_FILE_LOGGING = "Enable File Logging"
     MENU_HELP = "&Help"
     MENU_CHECK_UPDATES = "Check for &Updates..."

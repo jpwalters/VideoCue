@@ -82,9 +82,13 @@ function Test-Prerequisite {
 }
 
 function Get-MSVCVersion {
+    $vs2026Path = "C:\Program Files\Microsoft Visual Studio\18"
     $vs2022Path = "C:\Program Files\Microsoft Visual Studio\2022"
     $vs2019Path = "C:\Program Files (x86)\Microsoft Visual Studio\2019"
     
+    if (Test-Path $vs2026Path) {
+        return @{ Version = "2026"; Generator = "Visual Studio 18 2026"; Path = $vs2026Path }
+    }
     if (Test-Path $vs2022Path) {
         return @{ Version = "2022"; Generator = "Visual Studio 17 2022"; Path = $vs2022Path }
     }
@@ -220,14 +224,25 @@ if ($PythonVersion -eq 'auto' -or $PythonVersion -eq 'all') {
 
 # Check CMake
 $cmakePath = Get-Command cmake -ErrorAction SilentlyContinue
+$cmakeExe = $null
 if ($cmakePath) {
-    $cmakeVersion = & cmake --version | Select-Object -First 1
+    $cmakeExe = $cmakePath.Source
+    $cmakeVersion = & $cmakeExe --version | Select-Object -First 1
     Write-Success $cmakeVersion
 } else {
-    Write-Error-Custom "CMake not found"
-    Write-Host "    Download from: https://cmake.org/download/" -ForegroundColor Yellow
-    Write-Host "    Or install via: choco install cmake" -ForegroundColor Yellow
-    $prereqsOK = $false
+    # Fallback to project venv CMake
+    $repoRoot = $scriptDir
+    $venvCmake = Join-Path $repoRoot ".venv\Scripts\cmake.exe"
+    if (Test-Path $venvCmake) {
+        $cmakeExe = $venvCmake
+        $cmakeVersion = & $cmakeExe --version | Select-Object -First 1
+        Write-Success "$cmakeVersion`n    Using: $cmakeExe"
+    } else {
+        Write-Error-Custom "CMake not found"
+        Write-Host "    Download from: https://cmake.org/download/" -ForegroundColor Yellow
+        Write-Host "    Or install via: choco install cmake" -ForegroundColor Yellow
+        $prereqsOK = $false
+    }
 }
 
 # Check Visual Studio
@@ -263,6 +278,18 @@ if ($pyInfo) {
     }
 }
 
+# Resolve selected Python executable path (important for pybind11/CMake)
+$pythonExePath = $null
+if ($pyInfo) {
+    $pythonExePath = & $pyInfo.Exe $pyInfo.Args -c 'import sys; print(sys.executable)' 2>$null
+    if ($LASTEXITCODE -eq 0 -and $pythonExePath) {
+        Write-Success "Python executable resolved`n    $pythonExePath"
+    } else {
+        Write-Error-Custom "Failed to resolve Python executable path"
+        $prereqsOK = $false
+    }
+}
+
 if (-not $prereqsOK) {
     Write-Host "`n" -NoNewline
     Write-Error-Custom "Prerequisites check failed. Please install missing components."
@@ -287,25 +314,27 @@ if (-not (Test-Path $buildDir)) {
 # Configure CMake
 Write-Section "Configuring CMake"
 
-$configCmd = @(
-    "cmake ..",
-    "-G `"$($vs.Generator)`"",
-    "-A x64",
-    "-DNDI_PATH=`"$ndiPath`"",
-    "-Dpybind11_DIR=`"$pybind11Dir`"",
+$configArgs = @(
+    "..",
+    "-G", $vs.Generator,
+    "-A", "x64",
+    "-DNDI_PATH=$ndiPath",
+    "-Dpybind11_DIR=$pybind11Dir",
+    "-DPython3_EXECUTABLE=$pythonExePath",
+    "-DPython_EXECUTABLE=$pythonExePath",
+    "-DPYTHON_EXECUTABLE=$pythonExePath",
     "-DCMAKE_BUILD_TYPE=Release"
 )
 
 if ($Verbose) {
-    $configCmd += "--debug-output"
+    $configArgs += "--debug-output"
 }
 
-$configCmdStr = $configCmd -join " "
-Write-Host "Command: $configCmdStr" -ForegroundColor DarkGray
+Write-Host "Command: `"$cmakeExe`" $($configArgs -join ' ')" -ForegroundColor DarkGray
 
 Push-Location $buildDir
 try {
-    Invoke-Expression $configCmdStr
+    & $cmakeExe @configArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Custom "CMake configuration failed"
         exit 1
@@ -318,20 +347,19 @@ try {
 # Build
 Write-Section "Building NDI Wrapper"
 
-$buildCmd = @(
-    "cmake --build . --config Release"
+$buildArgs = @(
+    "--build", ".", "--config", "Release"
 )
 
 if ($Verbose) {
-    $buildCmd += "--verbose"
+    $buildArgs += "--verbose"
 }
 
-$buildCmdStr = $buildCmd -join " "
-Write-Host "Command: $buildCmdStr" -ForegroundColor DarkGray
+Write-Host "Command: `"$cmakeExe`" $($buildArgs -join ' ')" -ForegroundColor DarkGray
 
 Push-Location $buildDir
 try {
-    Invoke-Expression $buildCmdStr
+    & $cmakeExe @buildArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Custom "Build failed"
         exit 1

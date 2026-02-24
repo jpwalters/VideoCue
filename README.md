@@ -51,6 +51,7 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Status Indicators**: Real-time connection status with red/green indicators
 - **Video Size Options**: Multiple preview size presets (View → Video Size)
 - **Video Performance Control**: High/Low bandwidth modes (View → Video Performance)
+- **Video Color Format**: UYVY/BGRA/RGBA options (View → Video Color Format)
 - **Controller Status**: Visual USB controller connection indicator
 - **Loading Progress**: Granular progress bar during camera initialization
 - **Deferred Loading**: UI appears immediately before network connections
@@ -319,11 +320,13 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Windows may require Xbox controller drivers
 
 ### Video Performance Issues
+- **Color Format**: **View → Video Color Format** menu
+  - BGRA/RGBA: NDI SDK handles conversion natively (lower CPU usage)
+  - UYVY: Uses NumPy conversion (higher CPU usage)
 - **Bandwidth Control**: **View → Video Performance** menu
   - High Bandwidth: Maximum quality, higher network usage
   - Low Bandwidth: Lower network usage with compression (default)
 - **Video Size**: **View → Video Size** menu to reduce resolution
-  - Lower resolution reduces CPU load for UYVY→RGB conversion
 - **Pause Streams**: Use play/pause button to stop video when not needed
 - Frame dropping is intentional to prevent UI lag
 

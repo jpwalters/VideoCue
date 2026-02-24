@@ -5,7 +5,7 @@ Camera widget displaying video and controls
 import contextlib
 import logging
 
-from PyQt6.QtCore import Qt, QThread, QTime, QTimer, pyqtSignal, pyqtSlot  # type: ignore
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot  # type: ignore
 from PyQt6.QtGui import QImage, QPixmap  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QButtonGroup,
@@ -52,6 +52,7 @@ class ViscaConnectionTestThread(QThread):
 
     def __init__(self, visca: ViscaIP):
         super().__init__()
+        self.setObjectName(f"ViscaConnectionTestThread-{visca.ip}")
         self.visca = visca
 
     def run(self) -> None:
@@ -194,7 +195,12 @@ class CameraWidget(QWidget):
         self.blue_gain_layout_widget = None
         self._last_frame_time = None
         self._frame_drop_counter = 0  # Track dropped frames to prevent memory buildup
-        self._last_pixmap = None  # Keep reference to last pixmap for explicit cleanup
+        self._display_pixmap = QPixmap()
+        self._latest_frame: QImage | None = None
+        self._render_count = 0  # Counter for periodic GC
+        self._render_timer = QTimer(self)
+        self._render_timer.setInterval(33)  # ~30 FPS max render cadence
+        self._render_timer.timeout.connect(self._render_latest_frame)
 
         self.init_ui()
 
@@ -1157,20 +1163,22 @@ class CameraWidget(QWidget):
             # Emit connection starting signal
             self.connection_starting.emit()
 
-            # Get frame_skip and bandwidth preferences from config
+            # Get frame_skip, bandwidth, and color_format preferences from config
             frame_skip = self.config.config.get("preferences", {}).get("video_frame_skip", 6)
             bandwidth = self.config.get_ndi_bandwidth()
+            color_format = self.config.get_ndi_color_format()
             logger.info(
-                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth} for {self.ndi_source_name}"
+                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format} for {self.ndi_source_name}"
             )
             self.ndi_thread = NDIVideoThread(
-                self.ndi_source_name, frame_skip=frame_skip, bandwidth=bandwidth
+                self.ndi_source_name, frame_skip=frame_skip, bandwidth=bandwidth, color_format=color_format
             )
             self.ndi_thread.frame_ready.connect(self.on_video_frame)
             self.ndi_thread.connected.connect(self.on_ndi_connected)
             self.ndi_thread.error.connect(self.on_ndi_error)
             self.ndi_thread.resolution_changed.connect(self.on_resolution_changed)
             self.ndi_thread.start()
+            self._render_timer.start()
 
             # Update button state
             if hasattr(self, "video_toggle_button"):
@@ -1206,8 +1214,10 @@ class CameraWidget(QWidget):
             self.ndi_thread = None
 
         # Clear video display and release pixmap memory
-        if self._last_pixmap:
-            self._last_pixmap = None
+        self._render_timer.stop()
+        self._latest_frame = None
+        self._render_count = 0
+        self._display_pixmap = QPixmap()
         self.video_label.clear()
         self.video_label.setText(UIStrings.STATUS_VIDEO_STOPPED)
         self.resolution_label.setVisible(False)
@@ -1231,46 +1241,38 @@ class CameraWidget(QWidget):
 
     @pyqtSlot(QImage)
     def on_video_frame(self, image: QImage):
-        """Handle new video frame with throttling and aggressive memory management"""
-        # Throttle to ~30 FPS max (33ms between frames)
-        current_time = QTime.currentTime()
+        """Store latest frame only; actual rendering is timer-driven to bound UI work/memory."""
+        self._latest_frame = image
 
-        if self._last_frame_time is None:
-            self._last_frame_time = current_time
-
-        elapsed = self._last_frame_time.msecsTo(current_time)
-        if elapsed < 33:  # Skip frame if less than 33ms elapsed
-            self._frame_drop_counter += 1
-            # Every 100 dropped frames, force garbage collection of generation 0
-            if self._frame_drop_counter >= 100:
-                import gc
-
-                gc.collect(generation=0)
-                self._frame_drop_counter = 0
+    def _render_latest_frame(self):
+        """Render latest available frame at bounded cadence."""
+        if self._latest_frame is None:
             return
 
-        self._last_frame_time = current_time
+        image = self._latest_frame
+        self._latest_frame = None
 
-        # MEMORY FIX: Explicitly delete previous pixmap before creating new one
-        if self._last_pixmap:
-            self._last_pixmap = None
-        self.video_label.clear()
-
-        # Scale to fit video label using FAST transformation
-        pixmap = QPixmap.fromImage(image)
-        scaled = pixmap.scaled(
+        scaled_image = image.scaled(
             self.video_width,
             self.video_height,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation,  # Much faster than SmoothTransformation
+            Qt.TransformationMode.FastTransformation,
         )
-        self.video_label.setPixmap(scaled)
+        self._display_pixmap.convertFromImage(scaled_image)
+        self.video_label.setPixmap(self._display_pixmap)
 
-        # Keep reference for cleanup on next frame
-        self._last_pixmap = scaled
+        # Explicitly release references to help GC
+        del scaled_image
+        del image
 
-        # Delete intermediate pixmap explicitly
-        del pixmap
+        # Periodic incremental GC on main thread to reclaim QImage buffers
+        self._render_count += 1
+        if self._render_count % 50 == 0:
+            import gc
+            gc.collect(generation=0)
+            # Full GC less frequently
+            if self._render_count % 300 == 0:
+                gc.collect()
 
     @pyqtSlot(int, int, float)
     def on_resolution_changed(self, width: int, height: int, fps: float):
@@ -1408,6 +1410,7 @@ class CameraWidget(QWidget):
 
             def __init__(self, visca, visca_ip):
                 super().__init__()
+                self.setObjectName(f"QueryThread-{visca_ip}")
                 self.visca = visca
                 self.visca_ip = visca_ip
 
@@ -2236,6 +2239,10 @@ class CameraWidget(QWidget):
 
             # Create a worker thread to refresh the cache
             class CacheRefreshThread(QThread):
+                def __init__(self):
+                    super().__init__()
+                    self.setObjectName("CacheRefreshThread")
+
                 def run(self):
                     try:
                         discover_and_cache_all_sources()
