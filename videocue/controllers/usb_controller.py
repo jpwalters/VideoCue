@@ -55,6 +55,7 @@ class USBController(QObject):
     brightness_increase = pyqtSignal()
     brightness_decrease = pyqtSignal()
     menu_button_pressed = pyqtSignal()  # Menu/Start button for controller preferences
+    run_cue_requested = pyqtSignal()  # Right stick press (R3) to run armed cue
 
     def __init__(self, config=None):
         super().__init__()
@@ -183,6 +184,7 @@ class USBController(QObject):
             'focus_one_push': 1,  # B button
             'stop_movement': 2,  # X button
             'menu': 7,  # Menu/Start button
+            'run_cue_buttons': [9, 10],  # Right stick press varies by controller
         }
 
         if not self.config:
@@ -214,6 +216,7 @@ class USBController(QObject):
         focus_one_push_button = self._button_map.get('focus_one_push', 1)
         stop_movement_button = self._button_map.get('stop_movement', 2)
         menu_button = self._button_map.get('menu', 7)
+        run_cue_buttons = self._button_map.get('run_cue_buttons', [9, 10])
 
         # Brightness control (only if enabled)
         if brightness_enabled:
@@ -245,6 +248,10 @@ class USBController(QObject):
         # Menu Button (controller preferences)
         if menu_button is not None and button == menu_button:
             self.menu_button_pressed.emit()
+            return
+
+        if isinstance(run_cue_buttons, list) and button in run_cue_buttons:
+            self.run_cue_requested.emit()
             return
 
     def _handle_button_up(self, button: int):

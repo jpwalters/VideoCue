@@ -83,6 +83,8 @@ class CameraWidget(QWidget):
     delete_requested = pyqtSignal()
     move_left_requested = pyqtSignal()
     move_right_requested = pyqtSignal()
+    selection_requested = pyqtSignal()
+    connection_state_changed = pyqtSignal(bool)
     connection_starting = pyqtSignal()  # Emitted when connection attempt begins
     initialized = pyqtSignal()  # Emitted when camera initialization complete
 
@@ -1014,6 +1016,7 @@ class CameraWidget(QWidget):
             if success:
                 self.is_connected = True
                 self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
+                self.connection_state_changed.emit(True)
                 self.set_controls_enabled(True)
                 self.video_label.setText("IP Control Ready\n(No Video)")
                 # Query settings after a short delay to ensure camera is ready
@@ -1022,6 +1025,7 @@ class CameraWidget(QWidget):
             else:
                 self.is_connected = False
                 self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
+                self.connection_state_changed.emit(False)
                 self.reconnect_button.setVisible(True)
                 self.set_controls_enabled(False)
                 error_text = error_message[:50] if error_message else "Connection Failed"
@@ -1030,6 +1034,7 @@ class CameraWidget(QWidget):
             logger.exception("Connection test handler error")
             self.is_connected = False
             self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
+            self.connection_state_changed.emit(False)
             self.reconnect_button.setVisible(True)
             self.set_controls_enabled(False)
             self.video_label.setText(f"Connection Error\n{str(e)[:50]}")
@@ -1319,6 +1324,7 @@ class CameraWidget(QWidget):
         # Update status indicator and mark as connected
         self.is_connected = True
         self.status_indicator.setStyleSheet("background-color: green; border-radius: 6px;")
+        self.connection_state_changed.emit(True)
         self.reconnect_button.setVisible(False)
         self.set_controls_enabled(True)
 
@@ -1334,6 +1340,7 @@ class CameraWidget(QWidget):
         # Mark as disconnected and show reconnect button
         self.is_connected = False
         self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
+        self.connection_state_changed.emit(False)
         self.reconnect_button.setVisible(True)
         self.set_controls_enabled(False)
 
@@ -2135,6 +2142,11 @@ class CameraWidget(QWidget):
         self.video_label.setStyleSheet(
             f"background-color: black; border: 2px solid {border_color};"
         )
+
+    def mousePressEvent(self, event):
+        """Request camera selection when widget is clicked."""
+        self.selection_requested.emit()
+        super().mousePressEvent(event)
 
     def set_video_size(self, width: int, height: int):
         """Set video display size"""

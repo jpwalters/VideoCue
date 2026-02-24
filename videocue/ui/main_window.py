@@ -3,11 +3,23 @@ Main application window
 """
 
 import logging
+import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSlot  # type: ignore
-from PyQt6.QtGui import QAction, QActionGroup, QDesktopServices, QIcon  # type: ignore
+from PyQt6.QtGui import (  # type: ignore
+    QAction,
+    QActionGroup,
+    QBrush,
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QKeySequence,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (  # type: ignore
+    QHeaderView,
     QHBoxLayout,
     QMainWindow,
     QMenu,
@@ -23,6 +35,7 @@ from videocue.constants import UIConstants
 from videocue.controllers.ndi_video import cleanup_ndi, get_ndi_error_message, ndi_available
 from videocue.controllers.usb_controller import MovementDirection, USBController
 from videocue.models.config_manager import ConfigManager
+from videocue.models.cue_manager import CueManager
 from videocue.models.video import VideoSize
 from videocue.ui.about_dialog import AboutDialog
 from videocue.ui.camera_add_dialog import CameraAddDialog
@@ -32,6 +45,56 @@ from videocue.ui_strings import UIStrings
 from videocue.utils import resource_path
 
 logger = logging.getLogger(__name__)
+
+
+class CueHeaderView(QHeaderView):
+    """Custom header view supporting per-section highlight."""
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self._highlighted_section = -1
+        self._disconnected_sections: set[int] = set()
+
+    def set_highlighted_section(self, section: int) -> None:
+        """Set highlighted logical section index (-1 for none)."""
+        if self._highlighted_section == section:
+            return
+        self._highlighted_section = section
+        self.viewport().update()
+
+    def set_disconnected_sections(self, sections: set[int]) -> None:
+        """Set header sections corresponding to disconnected cameras."""
+        if self._disconnected_sections == sections:
+            return
+        self._disconnected_sections = sections
+        self.viewport().update()
+
+    def paintSection(self, painter, rect, logicalIndex):
+        """Paint header section with optional orange highlight."""
+        super().paintSection(painter, rect, logicalIndex)
+
+        is_disconnected = logicalIndex in self._disconnected_sections
+        is_selected = logicalIndex == self._highlighted_section
+
+        if not is_disconnected and not is_selected:
+            return
+
+        header_text = self.model().headerData(
+            logicalIndex, self.orientation(), Qt.ItemDataRole.DisplayRole
+        )
+
+        painter.save()
+        if is_disconnected:
+            painter.fillRect(rect, QColor("#6B1D1D"))
+            painter.setPen(QColor("#FFB3B3"))
+        else:
+            painter.fillRect(rect, QColor("#2B2B2B"))
+            painter.setPen(QColor("#FF8C00"))
+        font = painter.font()
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(header_text))
+        painter.restore()
 
 
 class MainWindow(QMainWindow):
@@ -47,6 +110,7 @@ class MainWindow(QMainWindow):
 
         # Configuration manager
         self.config = ConfigManager()
+        self.cue_manager = CueManager()
 
         # Camera widgets list
         self.cameras = []
@@ -61,6 +125,23 @@ class MainWindow(QMainWindow):
         self.cameras_layout = None
         self.loading_label = None
         self.loading_progress = None
+        self.cues_tab = None
+        self.cues_table = None
+        self.cues_header = None
+        self.cue_add_button = None
+        self.cue_delete_button = None
+        self.cue_duplicate_button = None
+        self.cue_insert_button = None
+        self.cue_run_button = None
+        self.cue_lock_button = None
+        self.cue_run_shortcut_space = None
+        self.cue_run_shortcut_enter = None
+        self.cue_run_shortcut_return = None
+        self._cue_camera_columns = []
+        self._cue_table_updating = False
+        self._cue_table_locked = False
+        self._armed_cue_id = None
+        self._last_run_cue_id = None
         self.preferences_dialog = None
         self._preferences_dialog_open = False
         self._total_cameras_to_load = 0
@@ -118,6 +199,11 @@ class MainWindow(QMainWindow):
         # Cameras tab
         self.cameras_tab = self.create_cameras_tab()
         self.tab_widget.addTab(self.cameras_tab, UIStrings.TAB_CAMERAS)
+
+        # Cues tab
+        self.cues_tab = self.create_cues_tab()
+        self.tab_widget.addTab(self.cues_tab, UIStrings.TAB_CUES)
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
     def create_menu_bar(self):
         """Create application menu bar"""
@@ -314,6 +400,576 @@ class MainWindow(QMainWindow):
 
         return widget
 
+    def create_cues_tab(self):
+        """Create cues tab content."""
+        from PyQt6.QtWidgets import (
+            QAbstractItemView,
+            QHBoxLayout,
+            QPushButton,
+            QTableWidget,
+        )
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        button_row = QHBoxLayout()
+        self.cue_lock_button = QPushButton(UIStrings.BTN_LOCK)
+        self.cue_lock_button.clicked.connect(self._toggle_cue_lock)
+        self._style_cue_toolbar_button(self.cue_lock_button, "lock")
+        button_row.addWidget(self.cue_lock_button)
+
+        self.cue_run_button = QPushButton(UIStrings.BTN_RUN_CUE)
+        self.cue_run_button.clicked.connect(self._run_selected_cue_row)
+        self._style_cue_toolbar_button(self.cue_run_button, "run")
+        button_row.addWidget(self.cue_run_button)
+
+        button_row.addStretch()
+
+        self.cue_add_button = QPushButton(UIStrings.BTN_ADD_CUE)
+        self.cue_add_button.clicked.connect(self._add_cue_row)
+        self._style_cue_toolbar_button(self.cue_add_button, "add")
+        button_row.addWidget(self.cue_add_button)
+
+        self.cue_insert_button = QPushButton(UIStrings.BTN_INSERT_CUE)
+        self.cue_insert_button.clicked.connect(self._insert_cue_row_after_selected)
+        self._style_cue_toolbar_button(self.cue_insert_button, "insert")
+        button_row.addWidget(self.cue_insert_button)
+
+        self.cue_duplicate_button = QPushButton(UIStrings.BTN_DUPLICATE_CUE)
+        self.cue_duplicate_button.clicked.connect(self._duplicate_selected_cue_row)
+        self._style_cue_toolbar_button(self.cue_duplicate_button, "duplicate")
+        button_row.addWidget(self.cue_duplicate_button)
+
+        self.cue_delete_button = QPushButton(UIStrings.BTN_DELETE_CUE)
+        self.cue_delete_button.clicked.connect(self._delete_selected_cue_row)
+        self._style_cue_toolbar_button(self.cue_delete_button, "delete")
+        button_row.addWidget(self.cue_delete_button)
+
+        layout.addLayout(button_row)
+
+        self.cues_table = QTableWidget()
+        self.cues_header = CueHeaderView(Qt.Orientation.Horizontal, self.cues_table)
+        self.cues_table.setHorizontalHeader(self.cues_header)
+        self.cues_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.cues_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.cues_table.cellChanged.connect(self._on_cue_table_cell_changed)
+        self.cues_table.verticalHeader().sectionDoubleClicked.connect(
+            self._on_cue_row_header_double_clicked
+        )
+
+        self.cue_run_shortcut_space = QShortcut(QKeySequence(Qt.Key.Key_Space), self.cues_table)
+        self.cue_run_shortcut_space.activated.connect(self._run_cue_if_cues_tab_active)
+        self.cue_run_shortcut_enter = QShortcut(QKeySequence(Qt.Key.Key_Enter), self.cues_table)
+        self.cue_run_shortcut_enter.activated.connect(self._run_cue_if_cues_tab_active)
+        self.cue_run_shortcut_return = QShortcut(QKeySequence(Qt.Key.Key_Return), self.cues_table)
+        self.cue_run_shortcut_return.activated.connect(self._run_cue_if_cues_tab_active)
+
+        layout.addWidget(self.cues_table)
+
+        self._refresh_cues_table()
+        self._update_cue_controls_state()
+
+        return widget
+
+    def _style_cue_toolbar_button(self, button: QWidget, button_type: str) -> None:
+        """Apply visual style for cue toolbar buttons."""
+        style_map = {
+            "add": ("#1F6FEB", "#2F81F7", "#1A5DC4"),
+            "insert": ("#8250DF", "#9966FF", "#6D42BF"),
+            "duplicate": ("#0E8A16", "#1BAA27", "#0C7312"),
+            "delete": ("#B62324", "#D73A49", "#9A1B1C"),
+            "run": ("#238636", "#2EA043", "#1D6F2C"),
+            "lock": ("#57606A", "#6E7781", "#4A525B"),
+        }
+        normal, hover, pressed = style_map.get(button_type, style_map["lock"])
+        button.setStyleSheet(
+            "QPushButton {"
+            f"background-color: {normal};"
+            "color: white;"
+            "border: none;"
+            "border-radius: 4px;"
+            "padding: 6px 10px;"
+            "font-weight: 600;"
+            "}"
+            "QPushButton:hover {"
+            f"background-color: {hover};"
+            "}"
+            "QPushButton:pressed {"
+            f"background-color: {pressed};"
+            "}"
+            "QPushButton:disabled {"
+            "background-color: #3B3B3B;"
+            "color: #999999;"
+            "}"
+        )
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Refresh Cues tab state when tab is selected."""
+        if self.tab_widget.widget(index) != self.cues_tab:
+            return
+
+        self._refresh_cues_table()
+
+    def _refresh_cues_table(self) -> None:
+        """Rebuild cue table from cue storage and camera/preset state."""
+        from PyQt6.QtWidgets import QComboBox, QTableWidgetItem
+
+        if not self.cues_table:
+            return
+
+        loaded_camera_ids = [
+            camera.get("id")
+            for camera in self.config.get_cameras()
+            if isinstance(camera.get("id"), str) and camera.get("id")
+        ]
+        self._cue_camera_columns = self.cue_manager.sync_camera_columns(loaded_camera_ids)
+
+        headers = [UIStrings.CUE_COL_NUMBER, UIStrings.CUE_COL_NAME]
+        headers.extend(
+            UIStrings.CUE_COL_CAMERA.format(index=index + 1)
+            for index in range(len(self._cue_camera_columns))
+        )
+
+        self._cue_table_updating = True
+        self.cues_table.blockSignals(True)
+        self.cues_table.setColumnCount(len(headers))
+        self.cues_table.setHorizontalHeaderLabels(headers)
+
+        for index, camera_id in enumerate(self._cue_camera_columns):
+            camera_label = self._get_camera_display_name(camera_id)
+            header_item = self.cues_table.horizontalHeaderItem(index + 2)
+            if header_item:
+                header_item.setToolTip(camera_label)
+
+        cues = self.cue_manager.get_cues()
+        self.cues_table.setRowCount(len(cues))
+
+        row_labels: list[str] = []
+
+        for row_index, cue in enumerate(cues):
+            cue_id = cue.get("id", "")
+            cue_number = str(cue.get("cue_number", ""))
+            cue_name = str(cue.get("name", UIStrings.CUE_DEFAULT_NAME))
+
+            row_bg = QBrush()
+            row_fg = QBrush()
+            if cue_id == self._last_run_cue_id:
+                row_bg = QBrush(QColor("#7A1F1F"))
+                row_fg = QBrush(QColor("#FFFFFF"))
+            elif cue_id == self._armed_cue_id:
+                row_bg = QBrush(QColor("#1F6A3A"))
+                row_fg = QBrush(QColor("#FFFFFF"))
+
+            row_number_text = str(row_index + 1)
+            if cue_id == self._armed_cue_id:
+                row_number_text = f"{UIStrings.CUE_ARMED_MARKER} {row_number_text}"
+            row_labels.append(row_number_text)
+
+            cue_item = QTableWidgetItem(cue_number)
+            cue_item.setData(Qt.ItemDataRole.UserRole, cue_id)
+            if self._cue_table_locked:
+                cue_item.setFlags(cue_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            cue_item.setBackground(row_bg)
+            cue_item.setForeground(row_fg)
+            self.cues_table.setItem(row_index, 0, cue_item)
+
+            name_item = QTableWidgetItem(cue_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, cue_id)
+            if self._cue_table_locked:
+                name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            name_item.setBackground(row_bg)
+            name_item.setForeground(row_fg)
+            self.cues_table.setItem(row_index, 1, name_item)
+
+            for column_index, camera_id in enumerate(self._cue_camera_columns):
+                combo = QComboBox()
+                combo.addItem("", None)
+                for preset in self.config.get_presets(camera_id):
+                    preset_uuid = preset.get("uuid")
+                    preset_name = preset.get("name", UIStrings.CUE_MISSING_PRESET)
+                    preset_number = preset.get("preset_number", 0)
+                    combo.addItem(f"[{preset_number}] {preset_name}", preset_uuid)
+
+                selected_preset_uuid = self.cue_manager.get_preset_for_camera(cue_id, camera_id)
+                if selected_preset_uuid:
+                    for option_index in range(combo.count()):
+                        if combo.itemData(option_index) == selected_preset_uuid:
+                            combo.setCurrentIndex(option_index)
+                            break
+
+                combo.currentIndexChanged.connect(
+                    lambda _index, cid=cue_id, cam_id=camera_id, cmb=combo: self._on_cue_preset_changed(
+                        cid, cam_id, cmb.currentData()
+                    )
+                )
+                combo.setEnabled(not self._cue_table_locked)
+                if cue_id == self._last_run_cue_id:
+                    combo.setStyleSheet(
+                        "QComboBox { background-color: #7A1F1F; color: white; border: 1px solid #9F3A3A; }"
+                    )
+                elif cue_id == self._armed_cue_id:
+                    combo.setStyleSheet(
+                        "QComboBox { background-color: #1F6A3A; color: white; border: 1px solid #2B8A4C; }"
+                    )
+                else:
+                    combo.setStyleSheet("")
+                self.cues_table.setCellWidget(row_index, column_index + 2, combo)
+
+        self.cues_table.setVerticalHeaderLabels(row_labels)
+        self.cues_table.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.cues_table.blockSignals(False)
+        self._cue_table_updating = False
+        self._update_cue_controls_state()
+        self._update_cue_header_highlight()
+
+    def _update_cue_header_highlight(self) -> None:
+        """Highlight cue table camera column that matches selected camera."""
+        if not self.cues_table:
+            return
+
+        selected_camera_id = None
+        if 0 <= self.selected_camera_index < len(self.cameras):
+            selected_camera_id = self.cameras[self.selected_camera_index].camera_id
+
+        highlighted_section = -1
+        disconnected_sections: set[int] = set()
+        for column_index, camera_id in enumerate(self._cue_camera_columns):
+            header_item = self.cues_table.horizontalHeaderItem(column_index + 2)
+            if not header_item:
+                continue
+
+            base_text = UIStrings.CUE_COL_CAMERA.format(index=column_index + 1)
+            header_item.setText(base_text)
+
+            camera_widget = self._get_camera_widget_by_id(camera_id)
+            if camera_widget and not camera_widget.is_connected:
+                disconnected_sections.add(column_index + 2)
+
+            if selected_camera_id and camera_id == selected_camera_id:
+                highlighted_section = column_index + 2
+
+        if self.cues_header:
+            self.cues_header.set_highlighted_section(highlighted_section)
+            self.cues_header.set_disconnected_sections(disconnected_sections)
+
+    def _on_cue_preset_changed(self, cue_id: str, camera_id: str, preset_uuid: str | None) -> None:
+        """Persist selected preset for a camera column in one cue row."""
+        if self._cue_table_updating or self._cue_table_locked:
+            return
+        self.cue_manager.update_camera_preset(cue_id, camera_id, preset_uuid)
+
+    def _update_cue_controls_state(self) -> None:
+        """Apply lock/unlock state to cue controls and table editing."""
+        from PyQt6.QtWidgets import QAbstractItemView
+
+        if self.cues_table:
+            if self._cue_table_locked:
+                self.cues_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            else:
+                self.cues_table.setEditTriggers(
+                    QAbstractItemView.EditTrigger.DoubleClicked
+                    | QAbstractItemView.EditTrigger.EditKeyPressed
+                    | QAbstractItemView.EditTrigger.AnyKeyPressed
+                )
+
+        edit_enabled = not self._cue_table_locked
+        if self.cue_add_button:
+            self.cue_add_button.setEnabled(edit_enabled)
+        if self.cue_delete_button:
+            self.cue_delete_button.setEnabled(edit_enabled)
+        if self.cue_duplicate_button:
+            self.cue_duplicate_button.setEnabled(edit_enabled)
+        if self.cue_insert_button:
+            self.cue_insert_button.setEnabled(edit_enabled)
+
+        if self.cue_lock_button:
+            if self._cue_table_locked:
+                self.cue_lock_button.setText(UIStrings.BTN_LOCK)
+                self.cue_lock_button.setToolTip(UIStrings.TOOLTIP_CUE_LOCKED)
+            else:
+                self.cue_lock_button.setText(UIStrings.BTN_UNLOCK)
+                self.cue_lock_button.setToolTip(UIStrings.TOOLTIP_CUE_UNLOCKED)
+
+    def _toggle_cue_lock(self) -> None:
+        """Toggle lock state for cue table editing."""
+        self._cue_table_locked = not self._cue_table_locked
+        self._refresh_cues_table()
+
+    def _get_cue_id_for_row(self, row: int) -> str | None:
+        """Get cue ID from table row metadata."""
+        if not self.cues_table:
+            return None
+
+        cue_item = self.cues_table.item(row, 0)
+        if not cue_item:
+            return None
+
+        cue_id = cue_item.data(Qt.ItemDataRole.UserRole)
+        return cue_id if isinstance(cue_id, str) and cue_id else None
+
+    def _on_cue_table_cell_changed(self, row: int, column: int) -> None:
+        """Handle cue/Name text cell edits and persist changes."""
+        if self._cue_table_updating or self._cue_table_locked or not self.cues_table:
+            return
+
+        cue_id = self._get_cue_id_for_row(row)
+        if not cue_id:
+            return
+
+        item = self.cues_table.item(row, column)
+        if not item:
+            return
+
+        value = item.text().strip()
+
+        if column == 0:
+            if not re.fullmatch(r"\d+(\.\d+)?", value):
+                QMessageBox.warning(self, UIStrings.TAB_CUES, UIStrings.CUE_INVALID_NUMBER)
+                existing_cue = self.cue_manager.get_cue_by_id(cue_id)
+                previous_value = str(existing_cue.get("cue_number", "")) if existing_cue else ""
+                self._cue_table_updating = True
+                item.setText(previous_value)
+                self._cue_table_updating = False
+                return
+
+            self.cue_manager.update_cue_field(cue_id, "cue_number", value)
+            self._refresh_cues_table()
+            return
+
+        if column == 1:
+            if not value:
+                value = UIStrings.CUE_DEFAULT_NAME
+                self._cue_table_updating = True
+                item.setText(value)
+                self._cue_table_updating = False
+            self.cue_manager.update_cue_field(cue_id, "name", value)
+            self._refresh_cues_table()
+
+    def _on_cue_row_header_double_clicked(self, row: int) -> None:
+        """Arm cue row when user double-clicks the row header index."""
+        cue_id = self._get_cue_id_for_row(row)
+        if not cue_id:
+            return
+
+        self._armed_cue_id = cue_id
+        self._refresh_cues_table()
+
+    def _add_cue_row(self) -> None:
+        """Add a new empty cue row."""
+        if self._cue_table_locked:
+            return
+
+        cue_number = str(len(self.cue_manager.get_cues()) + 1)
+        self.cue_manager.add_cue(
+            cue_number=cue_number,
+            name=UIStrings.CUE_DEFAULT_NAME,
+            camera_columns=self._cue_camera_columns,
+        )
+        if self._armed_cue_id is None:
+            cues = self.cue_manager.get_cues()
+            if cues:
+                self._armed_cue_id = cues[0].get("id")
+        self._refresh_cues_table()
+
+    def _get_selected_cue_row(self) -> int | None:
+        """Return selected cue row index, if any."""
+        if not self.cues_table:
+            return None
+
+        selected_ranges = self.cues_table.selectedRanges()
+        if not selected_ranges:
+            return None
+
+        return selected_ranges[0].topRow()
+
+    def _delete_selected_cue_row(self) -> None:
+        """Delete currently selected cue row."""
+        if self._cue_table_locked or not self.cues_table:
+            return
+
+        selected_row = self._get_selected_cue_row()
+        if selected_row is None:
+            return
+
+        cue_id = self._get_cue_id_for_row(selected_row)
+        if not cue_id:
+            return
+
+        cue = self.cue_manager.get_cue_by_id(cue_id)
+        cue_name = cue.get("name", UIStrings.CUE_DEFAULT_NAME) if cue else UIStrings.CUE_DEFAULT_NAME
+
+        reply = QMessageBox.question(
+            self,
+            UIStrings.DIALOG_DELETE_CUE,
+            UIStrings.CUE_DELETE_CONFIRM.format(name=cue_name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes and self.cue_manager.remove_cue(cue_id):
+            if self._armed_cue_id == cue_id:
+                self._armed_cue_id = None
+            if self._last_run_cue_id == cue_id:
+                self._last_run_cue_id = None
+            self._refresh_cues_table()
+
+    def _duplicate_selected_cue_row(self) -> None:
+        """Duplicate selected cue row and insert after it."""
+        if self._cue_table_locked:
+            return
+
+        selected_row = self._get_selected_cue_row()
+        if selected_row is None:
+            return
+
+        cue_id = self._get_cue_id_for_row(selected_row)
+        if not cue_id:
+            return
+
+        inserted_id = self.cue_manager.duplicate_cue_at(
+            cue_id=cue_id,
+            index=selected_row + 1,
+            camera_columns=self._cue_camera_columns,
+        )
+        if inserted_id:
+            if self._armed_cue_id is None:
+                self._armed_cue_id = inserted_id
+            self._refresh_cues_table()
+
+    def _insert_cue_row_after_selected(self) -> None:
+        """Insert cue row after selected with cue number +0.1."""
+        if self._cue_table_locked:
+            return
+
+        selected_row = self._get_selected_cue_row()
+        if selected_row is None:
+            return
+
+        cue_id = self._get_cue_id_for_row(selected_row)
+        if not cue_id:
+            return
+
+        selected_cue = self.cue_manager.get_cue_by_id(cue_id)
+        cue_number = ""
+        if selected_cue:
+            selected_number = str(selected_cue.get("cue_number", "")).strip()
+            try:
+                inserted_number = Decimal(selected_number) + Decimal("0.1")
+                cue_number = format(inserted_number, "f").rstrip("0").rstrip(".")
+            except (InvalidOperation, ValueError):
+                cue_number = str(len(self.cue_manager.get_cues()) + 1)
+
+        if not cue_number:
+            cue_number = str(len(self.cue_manager.get_cues()) + 1)
+
+        self.cue_manager.insert_cue_at(
+            index=selected_row + 1,
+            cue_number=cue_number,
+            name=UIStrings.CUE_DEFAULT_NAME,
+            camera_columns=self._cue_camera_columns,
+        )
+        self._refresh_cues_table()
+
+    def _get_row_by_cue_id(self, cue_id: str) -> int | None:
+        """Find table row index by cue ID."""
+        if not self.cues_table:
+            return None
+
+        for row in range(self.cues_table.rowCount()):
+            row_cue_id = self._get_cue_id_for_row(row)
+            if row_cue_id == cue_id:
+                return row
+        return None
+
+    def _advance_armed_cue(self) -> None:
+        """Advance armed cue marker to next row (wrap to first)."""
+        cues = self.cue_manager.get_cues()
+        if not cues:
+            self._armed_cue_id = None
+            return
+
+        cue_ids = [cue.get("id") for cue in cues if cue.get("id")]
+        if not cue_ids:
+            self._armed_cue_id = None
+            return
+
+        if self._armed_cue_id not in cue_ids:
+            self._armed_cue_id = cue_ids[0]
+            return
+
+        current_index = cue_ids.index(self._armed_cue_id)
+        next_index = (current_index + 1) % len(cue_ids)
+        self._armed_cue_id = cue_ids[next_index]
+
+    def _get_camera_widget_by_id(self, camera_id: str) -> CameraWidget | None:
+        """Find loaded camera widget by camera ID."""
+        for camera in self.cameras:
+            if camera.camera_id == camera_id:
+                return camera
+        return None
+
+    def _run_selected_cue_row(self) -> None:
+        """Run armed cue row across mapped camera columns."""
+        cue_id = self._armed_cue_id
+        if not cue_id:
+            selected_row = self._get_selected_cue_row()
+            if selected_row is None:
+                QMessageBox.warning(self, UIStrings.TAB_CUES, UIStrings.CUE_RUN_NO_SELECTION)
+                return
+            cue_id = self._get_cue_id_for_row(selected_row)
+            self._armed_cue_id = cue_id
+
+        if not cue_id:
+            return
+
+        cue = self.cue_manager.get_cue_by_id(cue_id)
+        if not cue:
+            return
+
+        first_camera_to_select: CameraWidget | None = None
+
+        for camera_id in self._cue_camera_columns:
+            preset_uuid = self.cue_manager.get_preset_for_camera(cue_id, camera_id)
+            if not preset_uuid:
+                continue
+
+            preset_data = self.config.get_preset_by_uuid(camera_id, preset_uuid)
+            if not preset_data:
+                continue
+
+            camera_widget = self._get_camera_widget_by_id(camera_id)
+            if not camera_widget or not camera_widget.is_connected:
+                continue
+
+            preset_number = preset_data.get("preset_number", 0)
+            camera_widget.visca.recall_preset_position(preset_number)
+            if first_camera_to_select is None:
+                first_camera_to_select = camera_widget
+
+        if first_camera_to_select and first_camera_to_select in self.cameras:
+            self.select_camera_at_index(self.cameras.index(first_camera_to_select))
+
+        self._last_run_cue_id = cue_id
+        self._advance_armed_cue()
+        self._refresh_cues_table()
+
+    def _run_cue_if_cues_tab_active(self) -> None:
+        """Run cue only when Cues tab is active."""
+        if self.tab_widget.currentWidget() != self.cues_tab:
+            return
+        self._run_selected_cue_row()
+
+    def _get_camera_display_name(self, camera_id: str) -> str:
+        """Return camera display name for cues tab."""
+        camera = self.config.get_camera(camera_id)
+        if not camera:
+            return UIStrings.CUE_MISSING_CAMERA
+
+        ndi_name = camera.get("ndi_source_name", "")
+        visca_ip = camera.get("visca_ip", "")
+        return ndi_name if ndi_name else visca_ip
+
     def init_usb_controller(self):
         """Initialize USB controller"""
         try:
@@ -331,6 +987,7 @@ class MainWindow(QMainWindow):
             self._usb_signal_handlers["brightness_increase"] = self.on_usb_brightness_increase
             self._usb_signal_handlers["brightness_decrease"] = self.on_usb_brightness_decrease
             self._usb_signal_handlers["focus_one_push"] = self.on_usb_focus_one_push
+            self._usb_signal_handlers["run_cue"] = self._run_cue_if_cues_tab_active
             self._usb_signal_handlers["button_a_pressed"] = lambda: None  # Placeholder for dialog
 
             # Connect signals using UniqueConnection to prevent duplicate connections
@@ -370,6 +1027,9 @@ class MainWindow(QMainWindow):
             )
             self.usb_controller.focus_one_push.connect(
                 self._usb_signal_handlers["focus_one_push"], Qt.ConnectionType.UniqueConnection
+            )
+            self.usb_controller.run_cue_requested.connect(
+                self._usb_signal_handlers["run_cue"], Qt.ConnectionType.UniqueConnection
             )
             self.usb_controller.menu_button_pressed.connect(
                 self.show_controller_preferences, Qt.ConnectionType.UniqueConnection
@@ -575,6 +1235,12 @@ class MainWindow(QMainWindow):
             # Connect reorder signals
             camera.move_left_requested.connect(lambda cam=camera: self.move_camera_left(cam))
             camera.move_right_requested.connect(lambda cam=camera: self.move_camera_right(cam))
+            camera.selection_requested.connect(
+                lambda cam=camera: self.select_camera_at_index(self.cameras.index(cam))
+            )
+            camera.connection_state_changed.connect(
+                lambda _connected, _cam=camera: self._update_cue_header_highlight()
+            )
 
             # Connect initialization signals to track progress
             camera.connection_starting.connect(
@@ -591,6 +1257,8 @@ class MainWindow(QMainWindow):
             # Select first camera
             if len(self.cameras) == 1:
                 self.select_camera_at_index(0)
+
+            self._refresh_cues_table()
 
         except Exception as e:
             error_msg = f"Failed to load camera {camera_num}:\n{str(e)}"
@@ -695,6 +1363,8 @@ class MainWindow(QMainWindow):
                 if cam_config:
                     self.add_camera_from_config(cam_config)
 
+            self._refresh_cues_table()
+
     def extract_ip_from_ndi_name(self, ndi_name: str) -> str:
         """Extract IP address from NDI source name (format: 'Name (IP)')"""
         if "(" in ndi_name and ")" in ndi_name:
@@ -737,6 +1407,8 @@ class MainWindow(QMainWindow):
             if len(self.cameras) > 0:
                 self.selected_camera_index = min(self.selected_camera_index, len(self.cameras) - 1)
                 self.select_camera_at_index(self.selected_camera_index)
+
+            self._refresh_cues_table()
 
     def move_camera_left(self, camera: "CameraWidget"):
         """Move camera one position to the left"""
@@ -837,6 +1509,7 @@ class MainWindow(QMainWindow):
         # Select target
         self.selected_camera_index = index
         self.cameras[index].set_selected(True)
+        self._update_cue_header_highlight()
 
     def get_selected_camera(self) -> "CameraWidget | None":
         """Get currently selected camera"""
@@ -1248,6 +1921,9 @@ class MainWindow(QMainWindow):
                 self.usb_controller.focus_one_push.disconnect(
                     self._usb_signal_handlers["focus_one_push"]
                 )
+                self.usb_controller.run_cue_requested.disconnect(
+                    self._usb_signal_handlers["run_cue"]
+                )
                 logger.debug("Successfully disconnected all main window camera control handlers")
             except TypeError as e:
                 logger.warning(f"Some handlers were already disconnected: {e}")
@@ -1335,6 +2011,11 @@ class MainWindow(QMainWindow):
                 self.usb_controller.focus_one_push,
                 self._usb_signal_handlers["focus_one_push"],
                 "focus_one_push",
+            )
+            safe_connect(
+                self.usb_controller.run_cue_requested,
+                self._usb_signal_handlers["run_cue"],
+                "run_cue",
             )
             logger.debug("Successfully reconnected all main window camera control handlers")
 

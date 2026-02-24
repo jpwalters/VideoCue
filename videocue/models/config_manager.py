@@ -28,8 +28,38 @@ class ConfigManager:
         config_dir.mkdir(parents=True, exist_ok=True)
         self.config_path = config_dir / "config.json"
         self.config = self.load()
+        changed = self._normalize_cameras()
         if self._normalize_presets():
+            changed = True
+        if changed:
             self.save()
+
+    def _normalize_cameras(self) -> bool:
+        """Normalize camera IDs and positions in loaded configuration."""
+        changed = False
+        cameras = self.config.get("cameras", [])
+
+        if not isinstance(cameras, list):
+            self.config["cameras"] = []
+            return True
+
+        seen_ids: set[str] = set()
+        for index, camera in enumerate(cameras):
+            if not isinstance(camera, dict):
+                continue
+
+            camera_id = camera.get("id")
+            if not isinstance(camera_id, str) or not camera_id or camera_id in seen_ids:
+                camera_id = str(uuid.uuid4())
+                camera["id"] = camera_id
+                changed = True
+            seen_ids.add(camera_id)
+
+            if camera.get("position") != index:
+                camera["position"] = index
+                changed = True
+
+        return changed
 
     @staticmethod
     def _next_available_slot(used_slots: set[int], max_slots: int = 128) -> int | None:
