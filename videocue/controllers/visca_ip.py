@@ -461,41 +461,37 @@ class ViscaIP:
         logger.debug("Stopping AUTO PAN")
         return self.stop()
 
-    def recall_preset_position(
-        self, preset_number: int, pan_speed: int = 18, tilt_speed: int = 14
-    ) -> bool:
+    def recall_preset_position(self, preset_number: int) -> bool:
         """
-        Recall preset position (1-254)
-        This command IS supported by BirdDog cameras
+        Recall preset position (0-254)
 
-        pan_speed: 1-24 (default 18 = fast)
-        tilt_speed: 1-20 (default 14 = fast)
-
-        Command format: 81 01 04 3F 02 XX VV WW FF
-        XX = preset number
-        VV = pan speed
-        WW = tilt speed
+        Uses standard VISCA preset recall command.
+        Command format: 81 01 04 3F 02 pp FF
+        pp = preset number (0x00 to 0xFE)
         """
         if preset_number < 0 or preset_number > 254:
+            logger.warning(f"Invalid preset number: {preset_number} (must be 0-254)")
             return False
-        logger.debug(
-            f"Recalling preset #{preset_number} with speed pan={pan_speed}, tilt={tilt_speed}"
-        )
         preset_hex = f"{preset_number:02X}"
-        pan_hex = f"{pan_speed:02X}"
-        tilt_hex = f"{tilt_speed:02X}"
-        return self.send_command(f"81 01 04 3F 02 {preset_hex} {pan_hex} {tilt_hex} FF")
+        cmd = f"81 01 04 3F 02 {preset_hex} FF"
+        logger.info(f"[{self.ip}] Recalling preset #{preset_number} (cmd: {cmd})")
+        return self.send_command(cmd)
 
     def store_preset_position(self, preset_number: int) -> bool:
         """
-        Store current position to preset (1-254)
-        This command IS supported by BirdDog cameras
+        Store current position to preset (0-254)
+
+        Uses standard VISCA preset store command.
+        Command format: 81 01 04 3F 01 pp FF
+        pp = preset number (0x00 to 0xFE)
         """
         if preset_number < 0 or preset_number > 254:
+            logger.warning(f"Invalid preset number: {preset_number} (must be 0-254)")
             return False
-        logger.debug(f"Storing preset #{preset_number}")
         preset_hex = f"{preset_number:02X}"
-        return self.send_command(f"81 01 04 3F 01 {preset_hex} FF")
+        cmd = f"81 01 04 3F 01 {preset_hex} FF"
+        logger.info(f"[{self.ip}] Storing preset #{preset_number} (cmd: {cmd})")
+        return self.send_command(cmd)
 
     def set_exposure_mode(self, mode: ExposureMode) -> bool:
         """Set exposure mode"""

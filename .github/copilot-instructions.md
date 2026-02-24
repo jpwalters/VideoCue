@@ -117,7 +117,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - `get_next_available_preset_number()` finds first gap in 0-127 range
 - **Simple VISCA commands** (like mini project):
   - Store: `81 01 04 3F 01 {preset_hex} FF` - saves current position to camera memory
-  - Recall: `81 01 04 3F 02 {preset_hex} {pan_speed} {tilt_speed} FF` - moves to stored position
+  - Recall: `81 01 04 3F 02 {preset_hex} FF` - moves to stored position
   - Camera firmware handles all position storage - app doesn't track PTZ values
 - **CameraPreset model** (videocue/models/video.py):
   - `uuid`: Unique identifier for Cue tab cross-references

@@ -28,6 +28,60 @@ class ConfigManager:
         config_dir.mkdir(parents=True, exist_ok=True)
         self.config_path = config_dir / "config.json"
         self.config = self.load()
+        if self._normalize_presets():
+            self.save()
+
+    @staticmethod
+    def _next_available_slot(used_slots: set[int], max_slots: int = 128) -> int | None:
+        """Return first available preset slot number."""
+        for slot in range(max_slots):
+            if slot not in used_slots:
+                return slot
+        return None
+
+    def _normalize_presets(self) -> bool:
+        """Normalize legacy/invalid preset data in loaded configuration."""
+        changed = False
+
+        for camera in self.config.get("cameras", []):
+            presets = camera.get("presets", [])
+            if not isinstance(presets, list):
+                camera["presets"] = []
+                changed = True
+                continue
+
+            used_slots: set[int] = set()
+            seen_uuids: set[str] = set()
+
+            for preset in presets:
+                if not isinstance(preset, dict):
+                    continue
+
+                preset_uuid = preset.get("uuid")
+                if not isinstance(preset_uuid, str) or not preset_uuid or preset_uuid in seen_uuids:
+                    preset_uuid = str(uuid.uuid4())
+                    preset["uuid"] = preset_uuid
+                    changed = True
+                seen_uuids.add(preset_uuid)
+
+                preset_name = preset.get("name")
+                if not isinstance(preset_name, str) or not preset_name:
+                    preset["name"] = "Preset"
+                    changed = True
+
+                slot = preset.get("preset_number")
+                slot_valid = isinstance(slot, int) and 0 <= slot < 128 and slot not in used_slots
+                if not slot_valid:
+                    next_slot = self._next_available_slot(used_slots, max_slots=128)
+                    if next_slot is None:
+                        continue
+                    preset["preset_number"] = next_slot
+                    slot = next_slot
+                    changed = True
+
+                used_slots.add(slot)
+
+        return changed
 
     def load(self) -> dict:
         """Load configuration from JSON file"""
