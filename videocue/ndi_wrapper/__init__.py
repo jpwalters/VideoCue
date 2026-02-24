@@ -105,10 +105,8 @@ def __getattr__(name: str):
 def __dir__():
     """Expose extension attributes for introspection/completion when available."""
     base_names = set(globals().keys())
-    try:
+    with contextlib.suppress(ImportError):
         base_names.update(dir(_load_ndilib()))
-    except ImportError:
-        pass
     return sorted(base_names)
 
 
