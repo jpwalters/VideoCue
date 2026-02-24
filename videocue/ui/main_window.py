@@ -914,10 +914,11 @@ class MainWindow(QMainWindow):
         cue_id = self._armed_cue_id
         if not cue_id:
             selected_row = self._get_selected_cue_row()
-            if selected_row is None:
-                QMessageBox.warning(self, UIStrings.TAB_CUES, UIStrings.CUE_RUN_NO_SELECTION)
-                return
-            cue_id = self._get_cue_id_for_row(selected_row)
+            if selected_row is not None:
+                cue_id = self._get_cue_id_for_row(selected_row)
+            if not cue_id:
+                cues = self.cue_manager.get_cues()
+                cue_id = cues[0].get("id") if cues else None
             self._armed_cue_id = cue_id
 
         if not cue_id:
