@@ -4,6 +4,7 @@ Build with: pyinstaller VideoCue.spec
 """
 
 from pathlib import Path
+import sys
 
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
@@ -37,7 +38,11 @@ binaries += collect_dynamic_libs("pygame")
 
 # Collect NDI Python module bindings (.pyd files) - MUST be in binaries not datas!
 ndi_wrapper_dir = Path("videocue/ndi_wrapper")
-for pyd_file in ndi_wrapper_dir.glob("*.pyd"):
+python_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+matching_pyd_files = list(ndi_wrapper_dir.glob(f"NDIlib.{python_tag}-*.pyd"))
+pyd_files_to_add = matching_pyd_files if matching_pyd_files else list(ndi_wrapper_dir.glob("*.pyd"))
+
+for pyd_file in pyd_files_to_add:
     binaries.append((str(pyd_file), "videocue/ndi_wrapper"))
     print(f"[OK] NDI .pyd file added: {pyd_file.name}")
 
@@ -64,6 +69,7 @@ a = Analysis(  # noqa: F821
         "pygame",
         "qdarkstyle",
         "videocue.ndi_wrapper",  # Local NDI wrapper module (bundled)
+        "videocue.ndi_wrapper.NDIlib",  # Native extension loaded lazily at runtime
         # Comprehensive numpy imports for ndi-python compatibility
         "numpy",
         "numpy.core",
@@ -81,7 +87,7 @@ a = Analysis(  # noqa: F821
         "numpy.linalg",
         "numpy.fft",
     ],
-    hookspath=[],
+    hookspath=[str(Path("hooks").resolve())],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[

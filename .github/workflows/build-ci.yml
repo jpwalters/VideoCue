@@ -36,6 +36,11 @@ jobs:
           } else {
             Write-Host "✗ WARNING: NDI bindings not found. NDI features disabled in build."
           }
+
+      - name: NDI binary preflight diagnostics
+        run: |
+          python -c "from pathlib import Path; import sys; w=Path('videocue/ndi_wrapper'); tag=f'cp{sys.version_info.major}{sys.version_info.minor}'; all_pyd=sorted(p.name for p in w.glob('NDIlib*.pyd')); match=sorted(p.name for p in w.glob(f'NDIlib.{tag}-*.pyd')); selected=(match if match else all_pyd); dll=w / 'Processing.NDI.Lib.x64.dll'; print(f'[NDI preflight] python_tag={tag}'); print(f'[NDI preflight] all_pyd={all_pyd}'); print(f'[NDI preflight] selected_pyd={selected}'); print(f'[NDI preflight] dll_present={dll.exists()} path={dll}');"
+          pyinstaller --version
       
       - name: Lint with ruff
         run: |
