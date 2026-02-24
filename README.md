@@ -12,6 +12,14 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **VISCA-over-IP Protocol**: Industry-standard PTZ control via UDP
 - **Camera Presets**: Store and recall pan/tilt/zoom positions per camera
 
+### Cue Tab
+- **Cue Sequencing**: Dedicated Cues tab for building ordered cue rows
+- **Multi-Camera Mapping**: Per-camera preset assignment in each cue row
+- **Cue Row Operations**: Add, Insert, Duplicate, Delete
+- **Run Workflow**: Arm-and-run model with next/last-run row highlighting
+- **Fast Execution**: Run from toolbar button or keyboard (Space/Enter/Return in Cues tab)
+- **Cue Persistence**: Cue list and camera columns saved in `cues.json`
+
 ### Exposure Controls
 - **5 Exposure Modes**: Auto, Manual, Shutter Priority, Iris Priority, Bright
 - **Iris Control**: F-stop adjustment (F16 to F1.4)
@@ -352,13 +360,19 @@ videocue/
 │   └── usb_controller.py    # USB game controller handler
 ├── models/
 │   ├── config_manager.py    # JSON configuration persistence
+│   ├── cue_manager.py       # Cue list persistence and row operations
 │   └── video.py             # Video size and preset models
 ├── ui/
 │   ├── main_window.py       # Main application window with deferred loading
 │   ├── camera_widget.py     # Individual camera control widget with reconnect
 │   ├── camera_add_dialog.py # Camera discovery/add dialog
-│   └── preferences_dialog.py  # USB controller settings
-└── utils.py                  # Resource path helpers and utility functions
+│   ├── preferences_dialog.py # USB controller settings
+│   ├── about_dialog.py       # About dialog
+│   ├── network_interface_dialog.py # Network interface selection
+│   └── update_check_thread.py # Update check worker thread
+└── utils/
+  ├── __init__.py           # Resource path and app-data helpers
+  └── network_interface.py  # Interface detection/subnet matching
 
 resources/
 └── icon.png                  # Application icon (if present)
@@ -373,11 +387,13 @@ ruff.toml                     # Ruff linter configuration
 ```
 
 ### Key Architectural Features
-- **Deferred Initialization**: Camera connections happen after UI loads (500ms delay after VISCA test)
+- **Deferred Initialization**: Camera connections happen after UI loads
 - **Connection State Tracking**: `is_connected` flag enables/disables controls automatically
 - **Query-based Testing**: Connection verification uses commands that require responses
 - **Error Resilience**: Global exception handler + try-except in all critical paths
-- **Progress Tracking**: Signals between widgets and main window for loading feedback
+- **Progress Tracking**: Startup progress advances on completed milestones (create/configure/initialized)
+- **Startup Timeout Watchdog**: Stalled camera initialization transitions to failed state with reconnect
+- **Cue Execution Pipeline**: Arm/run flow with per-camera preset recalls and row auto-advance
 - **Thread Safety**: 
   - NDI threads use Qt signals for cross-thread communication
   - VISCA sequence numbers protected by `_socket_lock` (prevents race conditions)

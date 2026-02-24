@@ -110,7 +110,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - Position queries not implemented - camera firmware manages positions
 
 ### Camera Preset Architecture
-- **UUID-based identification**: Each preset has unique UUID for future Cue tab (ordered preset sequences across cameras)
+- **UUID-based identification**: Each preset has unique UUID for Cue tab ordered preset sequences across cameras
 - **Permanent preset numbers**: Each preset assigned to camera memory slot (0-127 for Birddog, 0-254 for VISCA)
   - Preset number never changes, even when reordering display list
   - Deleting preset frees up that memory slot for reuse

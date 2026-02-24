@@ -77,7 +77,7 @@ We welcome feature requests! Please:
 
 ## Areas for Contribution
 
-- **VISCA position query**: Implement PTZ position queries for accurate presets (current limitation)
+- **Cue tab enhancements**: Additional bulk edit tools, filtering, and run workflow improvements
 - **Additional camera support**: Test with more VISCA-compatible cameras
 - **Keyboard shortcuts**: Add hotkeys for common operations
 - **Camera nicknames**: User-friendly naming separate from NDI source names

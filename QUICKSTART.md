@@ -13,7 +13,7 @@ pip install -r requirements.txt
 pip install ruff  # Recommended for development
 ```
 
-### 2. Install NDI Runtime (Optional)
+### 3. Install NDI Runtime (Optional)
 Download and install NDI Runtime from https://ndi.tv/tools/
 - Windows: NDI DLL will be automatically found at:
   - `C:\Program Files\NDI\NDI 6 Runtime\v6\Processing.NDI.Lib.x64.dll` (recommended)
@@ -29,13 +29,15 @@ python videocue.py
 ## Project Structure
 
 ```
-python/
+VideoCue/
 ├── videocue.py              # Main entry point with global exception handler
 ├── videocue/
 │   ├── __init__.py
 │   ├── constants.py         # Application constants (NetworkConstants, UIConstants, etc.)
 │   ├── ui_strings.py        # Centralized UI text constants (all user-facing strings)
-│   ├── utils.py             # Resource loading utilities
+│   ├── utils/
+│   │   ├── __init__.py      # Resource loading and app-data utilities
+│   │   └── network_interface.py # Network interface detection and subnet matching
 │   ├── controllers/
 │   │   ├── visca_ip.py      # VISCA-over-IP protocol with BirdDog support
 │   │   ├── visca_commands.py # VISCA command definitions
@@ -43,12 +45,15 @@ python/
 │   │   └── usb_controller.py # USB game controller with stop button support
 │   ├── models/
 │   │   ├── video.py         # Video size and preset models
-│   │   └── config_manager.py # JSON configuration persistence
+│   │   ├── config_manager.py # JSON configuration persistence
+│   │   └── cue_manager.py   # Cue row persistence and operations
 │   └── ui/
 │       ├── main_window.py    # Main application window with deferred loading
 │       ├── camera_widget.py  # Camera control widget with query-based sync
 │       ├── camera_add_dialog.py # Camera discovery dialog
-│       └── preferences_dialog.py # USB controller settings
+│       ├── preferences_dialog.py # USB controller settings
+│       ├── about_dialog.py   # About dialog
+│       └── network_interface_dialog.py # Network interface selection dialog
 ├── requirements.txt
 ├── build.ps1               # Automated PowerShell build script
 ├── config_schema.json
@@ -153,6 +158,14 @@ The configuration includes:
 - Automatic control disabling when disconnected
 - One-click reconnect for failed cameras
 
+✅ Cue tab workflow
+- Dedicated Cues tab for ordered cue rows
+- Per-camera preset mapping per cue row
+- Row operations: add, insert, duplicate, delete
+- Cue lock/unlock editing state
+- Arm-and-run workflow with auto-advance to next cue
+- Run shortcuts: Space / Enter / Return (when Cues tab is active)
+
 ✅ User Experience
 - Deferred camera loading (UI appears immediately)
 - Granular progress bar (3 steps per camera)
@@ -189,7 +202,7 @@ The configuration includes:
 
 ## Known Limitations
 
-1. **Preset Position Query**: VISCA commands for querying current PTZ position are not yet implemented. Presets currently store placeholder values (0, 0, 0). This requires additional VISCA protocol research.
+1. **Preset Position Query**: VISCA absolute PTZ position query is not used by the app. Preset positions are stored in camera firmware memory slots and managed via store/recall commands.
 
 2. **BirdDog White Balance Firmware**: BirdDog P200/P400 cameras return identical values for OUTDOOR and MANUAL white balance modes (P200=5, P400=10). This is a camera firmware limitation. The app defaults to showing MANUAL for these values since precise control is typically preferred.
 
@@ -229,6 +242,13 @@ The configuration includes:
 - [ ] Test preset store/recall/delete
 - [ ] Test camera add/delete with confirmation dialog
 - [ ] Test settings cog button (opens web interface)
+
+### Cue Tab
+- [ ] Test add/insert/duplicate/delete cue row actions
+- [ ] Test cue lock/unlock behavior
+- [ ] Test cue run button and Space/Enter/Return shortcuts
+- [ ] Test cue auto-advance and row highlighting
+- [ ] Test per-camera preset mapping persistence in `cues.json`
 
 ### UI/UX
 - [ ] Test deferred loading (UI appears before camera connections)

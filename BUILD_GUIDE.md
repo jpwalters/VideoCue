@@ -11,7 +11,7 @@ pip install -r requirements-build.lock.txt
 
 ```powershell
 # Build everything with version update
-.\build.ps1 -Version "0.4.2"
+.\build.ps1 -Version "1.0.0"
 ```
 
 This single command:
@@ -23,8 +23,8 @@ This single command:
 
 **Output:**
 - `dist/VideoCue/VideoCue.exe` - Standalone executable
-- `installer_output/VideoCue-0.4.1-Setup.exe` - Windows installer (~70 MB)
-- `installer_output/VideoCue-0.4.1-portable.zip` - Portable version (~100 MB)
+- `installer_output/VideoCue-{version}-Setup.exe` - Windows installer (~70 MB)
+- `installer_output/VideoCue-{version}-portable.zip` - Portable version (~100 MB)
 
 ---
 
@@ -37,7 +37,7 @@ The PyInstaller build completed successfully!
 - **Executable**: `dist/VideoCue/VideoCue.exe`
 - **Size**: ~110-120 MB (includes PyQt6, pygame, NDI wrapper module, NumPy for video conversion)
 - **Warnings**: Minor Qt6 plugin warnings (non-critical, 3D/WebView features not used)
-- **Latest Version**: 0.6.16 (bandwidth menu, network interface binding, NDI polling improvements)
+- **Current Version**: 1.0.0
 
 ### Testing the Build
 ```powershell
@@ -53,7 +53,7 @@ The PyInstaller build completed successfully!
 ### Basic Usage
 ```powershell
 # Build with version update (updates __init__.py and installer.iss)
-.\build.ps1 -Version "0.4.1"
+.\build.ps1 -Version "1.0.0"
 
 # Build without version update (uses current version)
 .\build.ps1
@@ -149,13 +149,13 @@ pyinstaller VideoCue.spec --console --clean
 **Manual Creation:**
 ```powershell
 # Simple ZIP
-Compress-Archive -Path "dist\VideoCue\*" -DestinationPath "VideoCue-0.4.1-portable.zip"
+Compress-Archive -Path "dist\VideoCue\*" -DestinationPath "VideoCue-1.0.0-portable.zip"
 
 # With README
 $staging = "dist\VideoCue-Portable"
 Copy-Item "dist\VideoCue\*" -Destination $staging -Recurse
 Copy-Item "PORTABLE_README.txt" -Destination "$staging\README.txt"
-Compress-Archive -Path "$staging\*" -DestinationPath "VideoCue-0.4.1-portable.zip"
+Compress-Archive -Path "$staging\*" -DestinationPath "VideoCue-1.0.0-portable.zip"
 ```
 
 ## Build Configuration
@@ -210,7 +210,7 @@ PyInstaller build specification:
 4. Link to NDI Runtime download (https://ndi.tv/tools/)
 5. Changelog with new features and bug fixes
 
-## File Sizes (v0.4.1)
+## File Sizes (v1.0.0)
 - **dist/VideoCue/**: ~120-150 MB (uncompressed)
 - **VideoCue-Setup.exe**: ~65-75 MB (compressed installer)
 - **VideoCue-portable.zip**: ~95-105 MB (compressed archive)
@@ -220,7 +220,7 @@ PyInstaller build specification:
 ### Automated Build (Recommended)
 ```powershell
 # Full build with version update
-.\build.ps1 -Version "0.4.1"
+.\build.ps1 -Version "1.0.0"
 
 # Build with current version
 .\build.ps1
@@ -248,12 +248,12 @@ Compress-Archive -Path "dist\VideoCue\*" -DestinationPath "VideoCue-portable.zip
 ### If Using the Automated Script:
 ```powershell
 # Just run the build script!
-.\build.ps1 -Version "0.4.1"
+.\build.ps1 -Version "1.0.0"
 
 # Output files will be in:
 # - dist/VideoCue/VideoCue.exe
-# - installer_output/VideoCue-0.4.1-Setup.exe
-# - installer_output/VideoCue-0.4.1-portable.zip
+# - installer_output/VideoCue-1.0.0-Setup.exe
+# - installer_output/VideoCue-1.0.0-portable.zip
 ```
 
 ### If Inno Setup is NOT Installed:
@@ -332,9 +332,9 @@ pyinstaller VideoCue.spec --console --clean
 
 ### GitHub Releases (Recommended)
 1. Update version: `videocue/__init__.py`
-2. Build: `.\build.ps1 -Version "0.4.1"`
-3. Commit changes: `git commit -am "Release v0.4.1"`
-4. Tag version: `git tag v0.4.1`
+2. Build: `.\build.ps1 -Version "1.0.0"`
+3. Commit changes: `git commit -am "Release v1.0.0"`
+4. Tag version: `git tag v1.0.0`
 5. Push: `git push && git push --tags`
 6. Create release on GitHub
 7. Upload both installer and portable ZIP as release assets
