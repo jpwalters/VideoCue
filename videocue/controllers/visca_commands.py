@@ -3,6 +3,7 @@ VISCA protocol command constants
 All commands documented with their function and expected responses
 """
 
+
 # Camera Control Commands
 class ViscaCommands:
     """VISCA command string constants"""
@@ -28,11 +29,13 @@ class ViscaCommands:
     FOCUS_MANUAL = "81 01 04 38 03 FF"
     FOCUS_ONE_PUSH = "81 01 04 18 01 FF"
     FOCUS_NEAR = "81 01 04 08 3{speed} FF"  # speed: 0-7
-    FOCUS_FAR = "81 01 04 08 2{speed} FF"   # speed: 0-7
+    FOCUS_FAR = "81 01 04 08 2{speed} FF"  # speed: 0-7
     FOCUS_STOP = "81 01 04 08 00 FF"
 
     # Exposure Commands
-    EXPOSURE_MODE = "81 01 04 39 {mode} FF"  # mode: 00=Auto, 03=Manual, 0A=Shutter, 0B=Iris, 0D=Bright
+    EXPOSURE_MODE = (
+        "81 01 04 39 {mode} FF"  # mode: 00=Auto, 03=Manual, 0A=Shutter, 0B=Iris, 0D=Bright
+    )
     IRIS_UP = "81 01 04 0B 02 FF"
     IRIS_DOWN = "81 01 04 0B 03 FF"
     IRIS_DIRECT = "81 01 04 4B {value} FF"  # value: 0-17 (4 nibbles: 0p 0q 0r 0s)
@@ -49,7 +52,9 @@ class ViscaCommands:
     BACKLIGHT_OFF = "81 01 04 33 03 FF"
 
     # White Balance Commands
-    WHITE_BALANCE_MODE = "81 01 04 35 {mode} FF"  # mode: 00=Auto, 01=Indoor, 02=Outdoor, 03=OnePush, 05=Manual
+    WHITE_BALANCE_MODE = (
+        "81 01 04 35 {mode} FF"  # mode: 00=Auto, 01=Indoor, 02=Outdoor, 03=OnePush, 05=Manual
+    )
     WHITE_BALANCE_ONE_PUSH = "81 01 04 10 05 FF"
     RED_GAIN_UP = "81 01 04 03 02 FF"
     RED_GAIN_DOWN = "81 01 04 03 03 FF"
@@ -83,6 +88,7 @@ class ViscaCommands:
 # Speed Limits
 class ViscaLimits:
     """VISCA protocol limits and ranges"""
+
     PAN_SPEED_MAX = 0x18  # 24 decimal
     TILT_SPEED_MAX = 0x14  # 20 decimal
     ZOOM_SPEED_MAX = 7
@@ -114,13 +120,13 @@ class ViscaResponse:
     @staticmethod
     def extract_single_nibble(response_hex: str, position: int = 5) -> int:
         """Extract single nibble from VISCA response after header"""
-        visca_response = response_hex[ViscaResponse.HEADER_LENGTH:]
+        visca_response = response_hex[ViscaResponse.HEADER_LENGTH :]
         return int(visca_response[position], 16)
 
     @staticmethod
     def extract_four_nibbles(response_hex: str) -> int:
         """Extract 4-nibble value from VISCA response (positions 5,7,9,11)"""
-        visca_response = response_hex[ViscaResponse.HEADER_LENGTH:]
+        visca_response = response_hex[ViscaResponse.HEADER_LENGTH :]
         p = int(visca_response[5], 16)
         q = int(visca_response[7], 16)
         r = int(visca_response[9], 16)
@@ -130,9 +136,29 @@ class ViscaResponse:
 
 class ViscaConstants:
     """VISCA protocol UI constants"""
+
     SHUTTER_SPEEDS = [
-        "Auto", "Manual", "1/10000", "1/5000", "1/3000", "1/2000",
-        "1/1500", "1/1000", "1/725", "1/500", "1/350", "1/250",
-        "1/180", "1/125", "1/100", "1/90", "1/60", "1/50",
-        "1/30", "1/25", "1/15", "1/8", "1/4"
+        "Auto",
+        "Manual",
+        "1/10000",
+        "1/5000",
+        "1/3000",
+        "1/2000",
+        "1/1500",
+        "1/1000",
+        "1/725",
+        "1/500",
+        "1/350",
+        "1/250",
+        "1/180",
+        "1/125",
+        "1/100",
+        "1/90",
+        "1/60",
+        "1/50",
+        "1/30",
+        "1/25",
+        "1/15",
+        "1/8",
+        "1/4",
     ]

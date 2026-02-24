@@ -6,6 +6,7 @@ Allows user to select which network interface to use for NDI connections.
 
 import logging
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -31,6 +32,8 @@ class NetworkInterfaceDialog(QDialog):
         self.radio_buttons = []
 
         self.setWindowTitle("Network Interface Selection")
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.setMinimumWidth(500)
         self.setup_ui()
 

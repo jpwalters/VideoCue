@@ -67,9 +67,7 @@ def get_rss_mb() -> float | None:
 
         counters = PROCESS_MEMORY_COUNTERS_EX()
         counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS_EX)
-        ok = get_process_memory_info(
-            get_current_process(), ctypes.byref(counters), counters.cb
-        )
+        ok = get_process_memory_info(get_current_process(), ctypes.byref(counters), counters.cb)
         if not ok:
             return None
         return counters.WorkingSetSize / (1024 * 1024)
@@ -90,7 +88,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--probe-timeout-sec", type=int, default=3)
     parser.add_argument("--probe-min-frames", type=int, default=5)
     parser.add_argument("--ndi-interface-ip", type=str, default="")
-    parser.add_argument("--convert", action="store_true", help="Enable UYVY->RGB conversion on each video frame")
+    parser.add_argument(
+        "--convert", action="store_true", help="Enable UYVY->RGB conversion on each video frame"
+    )
     return parser.parse_args()
 
 
@@ -193,7 +193,9 @@ def configure_ndi_interface(args: argparse.Namespace) -> tuple[str | None, list[
 
         interfaces = get_network_interfaces()
         if interfaces:
-            iface_text = ", ".join(f"{iface.name}:{iface.ip}/{iface.netmask}" for iface in interfaces)
+            iface_text = ", ".join(
+                f"{iface.name}:{iface.ip}/{iface.netmask}" for iface in interfaces
+            )
             print(f"Local interfaces: {iface_text}")
     except Exception as exc:
         print(f"Interface selection warning: {exc}")
@@ -288,9 +290,7 @@ def choose_source(ndi: object, cameras: list[str], args: argparse.Namespace) -> 
                 args.probe_timeout_sec,
                 args.capture_timeout_ms,
             )
-            print(
-                f"Probe {name}: video={video_frames} none={none_frames} other={other_frames}"
-            )
+            print(f"Probe {name}: video={video_frames} none={none_frames} other={other_frames}")
 
             if video_frames > best_video_frames:
                 best_video_frames = video_frames
@@ -467,9 +467,7 @@ def main() -> int:
                 none_frames += 1
                 no_frame_attempts += 1
                 if no_frame_attempts >= args.max_no_frame_attempts:
-                    print(
-                        f"No video frames for {no_frame_attempts} attempts; stopping test."
-                    )
+                    print(f"No video frames for {no_frame_attempts} attempts; stopping test.")
                     break
             elif hasattr(ndi, "FRAME_TYPE_ERROR") and t == ndi.FRAME_TYPE_ERROR:
                 error_frames += 1
@@ -535,9 +533,7 @@ def main() -> int:
         )
         if args.convert:
             avg_conv_ms = (
-                (conversion_time_s / converted_frames) * 1000
-                if converted_frames > 0
-                else 0.0
+                (conversion_time_s / converted_frames) * 1000 if converted_frames > 0 else 0.0
             )
             print(
                 f"Final conversion: frames={converted_frames} failures={conversion_failures} "

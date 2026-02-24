@@ -42,6 +42,8 @@ class PreferencesDialog(QDialog):
         logger.debug("PreferencesDialog: Starting initialization...")
 
         self.setWindowTitle(UIStrings.DIALOG_PREFERENCES)
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
 
         self.setModal(False)  # NON-MODAL so signals are processed while dialog is visible
 
@@ -104,9 +106,7 @@ class PreferencesDialog(QDialog):
             # B button to toggle checkboxes
 
             self.usb_controller.focus_one_push.connect(self.on_b_button_pressed)
-            logger.debug(
-                "PreferencesDialog: Connected focus_one_push signal for B button"
-            )
+            logger.debug("PreferencesDialog: Connected focus_one_push signal for B button")
 
         else:
             logger.warning("PreferencesDialog: No USB controller provided!")

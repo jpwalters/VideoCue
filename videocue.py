@@ -10,9 +10,9 @@ import sys
 import traceback
 from pathlib import Path
 
-from PyQt6.QtCore import Qt  # type: ignore
+from PyQt6.QtCore import QEvent, Qt  # type: ignore
 from PyQt6.QtGui import QIcon  # type: ignore
-from PyQt6.QtWidgets import QApplication, QMessageBox  # type: ignore
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox  # type: ignore
 
 from videocue import __version__
 from videocue.exceptions import VideoCueError
@@ -29,6 +29,29 @@ except ImportError:
 
 from videocue.ui.main_window import MainWindow
 from videocue.utils import get_app_data_dir, resource_path
+
+
+def _apply_popup_window_policy(dialog: QDialog) -> None:
+    """Force popup dialogs to show only Close button (no minimize/maximize)."""
+    try:
+        dialog.setWindowFlag(Qt.WindowType.CustomizeWindowHint, True)
+        dialog.setWindowFlag(Qt.WindowType.WindowTitleHint, True)
+        dialog.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, True)
+        dialog.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, False)
+        dialog.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
+        dialog.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, False)
+
+        if os.name == "nt":
+            dialog.setWindowFlag(Qt.WindowType.MSWindowsFixedSizeDialogHint, True)
+
+        if isinstance(dialog, QMessageBox):
+            dialog.setSizeGripEnabled(False)
+
+        # Re-show if needed so updated flags are applied by the window manager.
+        if dialog.isVisible():
+            dialog.show()
+    except Exception:
+        logging.getLogger(__name__).debug("Failed applying popup window policy", exc_info=True)
 
 
 def _show_native_error_dialog(title: str, message: str) -> None:
@@ -222,6 +245,14 @@ class ExceptionHandlingApplication(QApplication):
     def notify(self, receiver, event) -> bool:
         """Override notify to catch exceptions in Qt event handlers"""
         try:
+            # Enforce popup window buttons globally (covers static QMessageBox helpers too).
+            if (
+                isinstance(receiver, QDialog)
+                and event is not None
+                and event.type() in (QEvent.Type.Polish, QEvent.Type.Show)
+            ):
+                _apply_popup_window_policy(receiver)
+
             return super().notify(receiver, event)
         except KeyboardInterrupt:
             # Let Ctrl+C exit cleanly
@@ -397,7 +428,9 @@ def main() -> int:
     app.setOrganizationName(UIStrings.APP_NAME)
 
     if ndi_disabled_for_session:
-        QMessageBox.warning(None, UIStrings.ERROR_NDI_NOT_AVAILABLE, UIStrings.WARN_NDI_SESSION_DISABLED)
+        QMessageBox.warning(
+            None, UIStrings.ERROR_NDI_NOT_AVAILABLE, UIStrings.WARN_NDI_SESSION_DISABLED
+        )
 
     # Set application icon
     icon_path = resource_path("resources/icon.png")
@@ -433,7 +466,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    running_child = os.environ.get("VIDEOCUE_SUPERVISED_CHILD") == "1" or "--child-process" in sys.argv
+    running_child = (
+        os.environ.get("VIDEOCUE_SUPERVISED_CHILD") == "1" or "--child-process" in sys.argv
+    )
     if "--child-process" in sys.argv:
         sys.argv = [arg for arg in sys.argv if arg != "--child-process"]
 

@@ -14,6 +14,8 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("About VideoCue")
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.setMinimumSize(600, 200)
 
         layout = QVBoxLayout(self)

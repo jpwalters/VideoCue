@@ -156,6 +156,8 @@ The configuration includes:
 ✅ User Experience
 - Deferred camera loading (UI appears immediately)
 - Granular progress bar (3 steps per camera)
+- Progress advances on completed milestones (create/configure/initialized), not on "connecting" status text
+- Startup timeout recovery marks stalled cameras disconnected and shows Reconnect
 - Deletion confirmation dialogs
 - Play/pause video streaming controls
 - Settings cog icon for camera web interface
@@ -215,7 +217,7 @@ The configuration includes:
 - [ ] Test PTZ movement via buttons (D-pad)
 - [ ] Test PTZ movement via analog stick
 - [ ] Test zoom via triggers
-- [ ] Test B button reconnect on disconnected camera
+- [ ] Test B button one-push autofocus on selected camera
 - [ ] Test brightness control (Y/A buttons in Bright mode)
 - [ ] Test controller hotplug (disconnect/reconnect)
 - [ ] Test camera switch safety preference (enable/disable in settings)
@@ -231,6 +233,8 @@ The configuration includes:
 ### UI/UX
 - [ ] Test deferred loading (UI appears before camera connections)
 - [ ] Test loading progress bar (3 steps per camera)
+- [ ] Confirm progress does not hit 100% before all cameras reach initialized/failed state
+- [ ] Confirm stalled camera transitions to red status with Reconnect after startup timeout
 - [ ] Test horizontal scrollbar with multiple cameras
 - [ ] Test video size changes (View → Video Size)
 - [ ] Test camera controls disabled when disconnected
@@ -257,7 +261,7 @@ The configuration includes:
 - **Workaround**: Use manual NDI source name entry in Add Camera dialog
   - Get exact name from NDI Studio Monitor: "BIRDDOG-12345 (Channel 1)"
 - Ensure cameras are on same network/subnet
-- Try increasing discovery timeout in camera add dialog (click Refresh)
+- In Add Camera dialog, click Search to retry discovery
 - Check Windows Firewall: Allow "NDI Discovery Service"
 
 ### Camera Shows Red Status / Won't Connect
@@ -276,7 +280,7 @@ The configuration includes:
 ### Camera Controls Disabled (Grayed Out)
 - Normal: Controls disable automatically when camera disconnected
 - Check status indicator - red means disconnected
-- Use Reconnect button or B button on controller
+- Use Reconnect button
 - Verify network connectivity to camera
 
 ### USB Controller Not Detected

@@ -123,12 +123,8 @@ class UIStrings:
     ERROR_APP_CRASHED = "VideoCue closed unexpectedly due to a critical system error."
     ERROR_APP_EXIT_CODE = "Exit code: {code}"
     ERROR_APP_LOG_PATH = "Log file: {path}"
-    ERROR_APP_CRASH_TROUBLESHOOT = (
-        "Try disabling NDI video in Preferences and reconnect cameras one-by-one to isolate the source."
-    )
-    ERROR_APP_RESTARTING_SAFE_MODE = (
-        "VideoCue detected a startup crash in native video components and will restart with NDI video disabled for this session."
-    )
+    ERROR_APP_CRASH_TROUBLESHOOT = "Try disabling NDI video in Preferences and reconnect cameras one-by-one to isolate the source."
+    ERROR_APP_RESTARTING_SAFE_MODE = "VideoCue detected a startup crash in native video components and will restart with NDI video disabled for this session."
     WARN_NDI_SESSION_DISABLED = (
         "NDI video was automatically disabled for this session after a startup crash.\n"
         "Camera IP control is still available.\n\n"

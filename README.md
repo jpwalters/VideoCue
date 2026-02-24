@@ -55,6 +55,7 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Controller Status**: Visual USB controller connection indicator
 - **Loading Progress**: Granular progress bar during camera initialization
 - **Deferred Loading**: UI appears immediately before network connections
+- **Startup Timeout Recovery**: Cameras that stall during startup are marked failed after timeout and show Reconnect
 - **Play/Pause Controls**: Toggle video streaming per camera
 - **Reconnect Button**: One-click reconnection for failed cameras
 - **Comprehensive Error Handling**: Graceful error recovery prevents crashes
@@ -301,7 +302,6 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Status indicator turns red on communication failure
 - **Reconnect Options**:
   - Click the Reconnect button that appears when status is red
-  - Use the controller preferences dialog to configure reconnect strategy
   - Camera controls automatically disable until connection restored
 
 ### Application Loading
@@ -309,9 +309,10 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Progress bar shows loading status with 3 steps per camera:
   1. Creating camera widget
   2. Configuring camera settings
-  3. Testing connection
+  3. Camera initialization completed (connected or failed)
+- "Connecting..." updates status text but does not advance progress, so percentage reflects completed milestones
 - Individual camera failures don't prevent other cameras from loading
-- Failed cameras show red status with reconnect button
+- Cameras that stall during startup timeout are marked disconnected and show reconnect
 
 ### USB Controller Not Detected
 - Verify controller is recognized by operating system

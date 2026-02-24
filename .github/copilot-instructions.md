@@ -6,9 +6,9 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 ## Architecture
 
 ### Key Components
-- **videocue.py**: Application entry point, initializes PyQt6 app with qdarkstyle theme, **global exception handler** prevents crashes, **SingleInstanceLock** for optional single-instance mode
-- **ui/main_window.py**: Main window (QTabWidget), **deferred camera loading** via showEvent, progress bar with 3-step tracking per camera, **USB signal management** with UniqueConnection pattern
-- **ui/camera_widget.py**: Per-camera widget (QTreeWidget sections: video, PTZ controls, exposure, white balance, focus, presets), **connection state tracking** (is_connected), **reconnect button**, **play/pause video controls**, **automatic settings query** on connection
+- **videocue.py**: Application entry point, initializes PyQt6 app with qdarkstyle theme, **global exception handler** prevents crashes, **SingleInstanceLock** for optional single-instance mode, **global popup window policy** (remove minimize/maximize on dialogs)
+- **ui/main_window.py**: Main window (QTabWidget), **deferred camera loading** via showEvent, progress bar with 3-step milestone tracking per camera (create/configure/initialized), **USB signal management** with UniqueConnection pattern
+- **ui/camera_widget.py**: Per-camera widget (QTreeWidget sections: video, PTZ controls, exposure, white balance, focus, presets), **connection state tracking** (is_connected), **reconnect button**, **play/pause video controls**, **automatic settings query** on connection, **startup initialization watchdog** (timeout -> failed + reconnect)
 - **ui/preferences_dialog.py**: Preferences dialog with USB controller settings, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
@@ -144,9 +144,11 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **Implementation**:
   1. `MainWindow.showEvent()` triggers deferred loading via `QTimer.singleShot(100ms)`
   2. Progress bar appears at top of window
-  3. Each camera emits 3 signals during init: `connection_starting`, progress updates, `initialized`
-  4. `on_camera_initialized()` tracks count and hides progress when complete
-  5. Failed cameras don't block other cameras from loading
+  3. Each camera reports milestones: create/configure/initialized (progress increments only on completed milestones)
+  4. `connection_starting` updates loading text but does not increment progress value
+  5. `on_camera_initialized()` de-duplicates by camera ID and hides progress when complete
+  6. `CameraWidget` initialization watchdog times out stalled cameras (~15s), marks them failed, and emits `initialized`
+  7. Failed cameras don't block other cameras from loading
 - **User Experience**: Application window appears instantly, cameras connect with progress feedback
 
 ### Connection State Management
@@ -161,6 +163,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - Reconnect button appears when status is red
   - Reconnect button and menu dialog available for manual reconnection
   - `reconnect_camera()` method: stops video thread, waits 500ms, attempts reconnection
+  - Startup watchdog converts stalled initialization into explicit failed state (red + reconnect visible)
 - **USB Controller Protection**: All USB handlers check `camera.is_connected` before sending commands
 
 ### Error Handling Architecture

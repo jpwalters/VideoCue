@@ -71,6 +71,7 @@ if os.name == "nt" and sys.version_info >= (3, 8):
         with contextlib.suppress(Exception):
             os.add_dll_directory(str(path))
 
+
 def _load_ndilib():
     """Load the compiled NDI extension module lazily."""
     global _ndilib_module

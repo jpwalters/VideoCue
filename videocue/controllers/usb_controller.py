@@ -178,14 +178,14 @@ class USBController(QObject):
             Dictionary mapping button functions to their button numbers
         """
         defaults = {
-            'brightness_enabled': True,
-            'brightness_increase': 3,  # Y button
-            'brightness_decrease': 0,  # A button
-            'focus_one_push': 1,  # B button
-            'stop_movement': 2,  # X button
-            'menu': 7,  # Menu/Start button
-            'run_cue_enabled': True,
-            'run_cue_buttons': [9, 10],  # Right stick press varies by controller
+            "brightness_enabled": True,
+            "brightness_increase": 3,  # Y button
+            "brightness_decrease": 0,  # A button
+            "focus_one_push": 1,  # B button
+            "stop_movement": 2,  # X button
+            "menu": 7,  # Menu/Start button
+            "run_cue_enabled": True,
+            "run_cue_buttons": [9, 10],  # Right stick press varies by controller
         }
 
         if not self.config:
@@ -211,14 +211,14 @@ class USBController(QObject):
             # Don't return - allow brightness_decrease to also work if configured
 
         # Use cached button map for all button checks
-        brightness_enabled = self._button_map.get('brightness_enabled', True)
-        brightness_increase_button = self._button_map.get('brightness_increase', 3)
-        brightness_decrease_button = self._button_map.get('brightness_decrease', 0)
-        focus_one_push_button = self._button_map.get('focus_one_push', 1)
-        stop_movement_button = self._button_map.get('stop_movement', 2)
-        menu_button = self._button_map.get('menu', 7)
-        run_cue_enabled = self._button_map.get('run_cue_enabled', True)
-        run_cue_buttons = self._button_map.get('run_cue_buttons', [9, 10])
+        brightness_enabled = self._button_map.get("brightness_enabled", True)
+        brightness_increase_button = self._button_map.get("brightness_increase", 3)
+        brightness_decrease_button = self._button_map.get("brightness_decrease", 0)
+        focus_one_push_button = self._button_map.get("focus_one_push", 1)
+        stop_movement_button = self._button_map.get("stop_movement", 2)
+        menu_button = self._button_map.get("menu", 7)
+        run_cue_enabled = self._button_map.get("run_cue_enabled", True)
+        run_cue_buttons = self._button_map.get("run_cue_buttons", [9, 10])
 
         # Brightness control (only if enabled)
         if brightness_enabled:

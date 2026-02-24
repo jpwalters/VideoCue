@@ -212,7 +212,9 @@ class CueManager:
         if camera_presets:
             for camera_id in camera_columns:
                 preset_uuid = camera_presets.get(camera_id)
-                normalized_presets[camera_id] = preset_uuid if isinstance(preset_uuid, str) else None
+                normalized_presets[camera_id] = (
+                    preset_uuid if isinstance(preset_uuid, str) else None
+                )
 
         cue = {
             "id": cue_id,
@@ -243,8 +245,7 @@ class CueManager:
             name=str(source.get("name", "Cue")),
             camera_columns=camera_columns,
             camera_presets={
-                camera_id: source_presets.get(camera_id)
-                for camera_id in camera_columns
+                camera_id: source_presets.get(camera_id) for camera_id in camera_columns
             },
         )
 

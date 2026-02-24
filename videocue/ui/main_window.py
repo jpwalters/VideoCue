@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self._preferences_dialog_open = False
         self._total_cameras_to_load = 0
         self._cameras_initialized = 0
+        self._initialized_camera_ids: set[str] = set()
         self._current_progress_step = 0
         self._total_progress_steps = 0
 
@@ -598,8 +599,8 @@ class MainWindow(QMainWindow):
                             break
 
                 combo.currentIndexChanged.connect(
-                    lambda _index, cid=cue_id, cam_id=camera_id, cmb=combo: self._on_cue_preset_changed(
-                        cid, cam_id, cmb.currentData()
+                    lambda _index, cid=cue_id, cam_id=camera_id, cmb=combo: (
+                        self._on_cue_preset_changed(cid, cam_id, cmb.currentData())
                     )
                 )
                 combo.setEnabled(not self._cue_table_locked)
@@ -797,7 +798,9 @@ class MainWindow(QMainWindow):
             return
 
         cue = self.cue_manager.get_cue_by_id(cue_id)
-        cue_name = cue.get("name", UIStrings.CUE_DEFAULT_NAME) if cue else UIStrings.CUE_DEFAULT_NAME
+        cue_name = (
+            cue.get("name", UIStrings.CUE_DEFAULT_NAME) if cue else UIStrings.CUE_DEFAULT_NAME
+        )
 
         reply = QMessageBox.question(
             self,
@@ -1126,6 +1129,7 @@ class MainWindow(QMainWindow):
                 if len(camera_configs) > 0:
                     self._total_cameras_to_load = len(camera_configs)
                     self._cameras_initialized = 0
+                    self._initialized_camera_ids.clear()
                     self._current_progress_step = 0
                     # Use 3 steps per camera for more granular progress
                     self._total_progress_steps = self._total_cameras_to_load * 3
@@ -1246,10 +1250,13 @@ class MainWindow(QMainWindow):
             # Connect initialization signals to track progress
             camera.connection_starting.connect(
                 lambda: self._update_loading_progress(
-                    f"Connecting to camera {camera_num}/{self._total_cameras_to_load}..."
+                    f"Connecting to camera {camera_num}/{self._total_cameras_to_load}...",
+                    increment=False,
                 )
             )
-            camera.initialized.connect(self.on_camera_initialized)
+            camera.initialized.connect(
+                lambda cam_id=camera.camera_id: self.on_camera_initialized(cam_id)
+            )
 
             # Add to layout (before stretch)
             self.cameras_layout.insertWidget(len(self.cameras), camera)
@@ -1266,17 +1273,28 @@ class MainWindow(QMainWindow):
             logger.error(error_msg, exc_info=True)
             QMessageBox.warning(self, "Camera Load Error", error_msg, QMessageBox.StandardButton.Ok)
             # Still increment initialized count so progress completes
-            self.on_camera_initialized()
+            self.on_camera_initialized(cam_config.get("id"))
 
-    def _update_loading_progress(self, message: str) -> None:
+    def _update_loading_progress(self, message: str, increment: bool = True) -> None:
         """Update loading progress bar and message"""
-        self._current_progress_step += 1
+        if increment:
+            self._current_progress_step = min(
+                self._current_progress_step + 1,
+                self._total_progress_steps,
+            )
         self.loading_progress.setValue(self._current_progress_step)
         self.loading_label.setText(message)
 
-    def on_camera_initialized(self):
+    def on_camera_initialized(self, camera_id: str | None = None):
         """Handle camera initialization completion"""
         try:
+            if camera_id and camera_id in self._initialized_camera_ids:
+                logger.debug("Ignoring duplicate initialized signal for camera %s", camera_id)
+                return
+
+            if camera_id:
+                self._initialized_camera_ids.add(camera_id)
+
             self._cameras_initialized += 1
             self._update_loading_progress(
                 f"Camera {self._cameras_initialized}/{self._total_cameras_to_load} ready"
@@ -1325,6 +1343,11 @@ class MainWindow(QMainWindow):
                 # Show loading progress bar
                 self._total_cameras_to_load = len(self.cameras) + cameras_to_add
                 self._cameras_initialized = len(self.cameras)  # Already loaded cameras
+                self._initialized_camera_ids = {
+                    cam.camera_id
+                    for cam in self.cameras
+                    if hasattr(cam, "camera_id") and cam.camera_id
+                }
                 self._current_progress_step = len(self.cameras) * 3  # 3 steps per camera
                 self._total_progress_steps = self._total_cameras_to_load * 3
                 self.loading_label.setText(f"Adding {cameras_to_add} camera(s)...")
@@ -1735,6 +1758,12 @@ class MainWindow(QMainWindow):
             # Show checking message with Cancel button
             self._update_progress_dialog = QMessageBox(self)
             self._update_progress_dialog.setWindowTitle(UIStrings.DIALOG_CHECK_UPDATES)
+            self._update_progress_dialog.setWindowFlag(
+                Qt.WindowType.WindowMinimizeButtonHint, False
+            )
+            self._update_progress_dialog.setWindowFlag(
+                Qt.WindowType.WindowMaximizeButtonHint, False
+            )
             self._update_progress_dialog.setText(UIStrings.UPDATE_CHECKING)
             self._update_progress_dialog.setStandardButtons(QMessageBox.StandardButton.Cancel)
             self._update_progress_dialog.setModal(False)  # Non-modal so it doesn't block UI

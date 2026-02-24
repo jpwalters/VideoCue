@@ -68,9 +68,7 @@ def get_rss_mb() -> float | None:
 
         counters = PROCESS_MEMORY_COUNTERS_EX()
         counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS_EX)
-        ok = get_process_memory_info(
-            get_current_process(), ctypes.byref(counters), counters.cb
-        )
+        ok = get_process_memory_info(get_current_process(), ctypes.byref(counters), counters.cb)
         if not ok:
             return None
         return counters.WorkingSetSize / (1024 * 1024)
@@ -223,9 +221,7 @@ def choose_source_candidates(args: argparse.Namespace) -> list[tuple[str, int]]:
                 args.probe_timeout_sec,
                 args.capture_timeout_ms,
             )
-            print(
-                f"Probe {name}: video={video_frames} none={none_frames} other={other_frames}"
-            )
+            print(f"Probe {name}: video={video_frames} none={none_frames} other={other_frames}")
             if video_frames > best_scores[name]:
                 best_scores[name] = video_frames
             if video_frames >= args.probe_min_frames:
@@ -275,9 +271,7 @@ def pick_verified_source(args: argparse.Namespace, candidates: list[tuple[str, i
                 args.verify_timeout_sec,
                 args.capture_timeout_ms,
             )
-            print(
-                f"Preflight {name}: video={video_frames} none={none_frames} other={other_frames}"
-            )
+            print(f"Preflight {name}: video={video_frames} none={none_frames} other={other_frames}")
 
             if video_frames > best_observed:
                 best_observed = video_frames
@@ -444,7 +438,9 @@ class NDITestWindow(QMainWindow):
             super().closeEvent(event)
 
 
-def compute_tail_slope_mb_per_min(samples: list[tuple[float, float]], tail_sec: float = 30.0) -> float | None:
+def compute_tail_slope_mb_per_min(
+    samples: list[tuple[float, float]], tail_sec: float = 30.0
+) -> float | None:
     if len(samples) < 2:
         return None
     end_t = samples[-1][0]
@@ -597,10 +593,7 @@ def main() -> int:
                     f"(warmup={args.warmup_sec}s)"
                 )
                 if steady_tail_slope is not None:
-                    print(
-                        "Steady-state RSS tail_slope(30s)="
-                        f"{steady_tail_slope:+.2f} MB/min"
-                    )
+                    print(f"Steady-state RSS tail_slope(30s)={steady_tail_slope:+.2f} MB/min")
                 print(f"Steady-state verdict: {steady_verdict}")
 
     return rc

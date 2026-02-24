@@ -128,6 +128,14 @@ class CameraWidget(QWidget):
         self._retry_timer = QTimer()
         self._retry_timer.timeout.connect(self._retry_connection)
 
+        # Startup initialization watchdog (prevents indefinite loading state)
+        self._init_completed = False
+        self._init_timeout_ms = 15000
+        self._init_watchdog_timer = QTimer(self)
+        self._init_watchdog_timer.setSingleShot(True)
+        self._init_watchdog_timer.timeout.connect(self._on_initialization_timeout)
+        self.initialized.connect(self._on_initialized)
+
         # Cached display name to avoid repeated formatting
         self._cached_display_name: str = ""
 
@@ -216,6 +224,7 @@ class CameraWidget(QWidget):
         # Defer video initialization to avoid blocking UI startup
         # NDI sources should already be cached by main_window.load_cameras()
         # Use staggered delays to prevent all cameras from starting simultaneously
+        self._start_initialization_watchdog()
         if ndi_source_name and ndi_available and self.config.get_ndi_video_enabled():
             QTimer.singleShot(self.init_delay, self.start_video)
         elif (
@@ -231,6 +240,41 @@ class CameraWidget(QWidget):
                 QTimer.singleShot(self.init_delay, self._test_visca_connection)
             else:
                 QTimer.singleShot(self.init_delay, self.initialized.emit)
+
+    def _start_initialization_watchdog(self) -> None:
+        """Start single-shot watchdog for initial camera connection."""
+        if self._init_completed:
+            return
+        self._init_watchdog_timer.start(self._init_timeout_ms)
+
+    def _on_initialized(self) -> None:
+        """Mark initial startup as complete and stop watchdog."""
+        if self._init_completed:
+            return
+        self._init_completed = True
+        if self._init_watchdog_timer.isActive():
+            self._init_watchdog_timer.stop()
+
+    def _on_initialization_timeout(self) -> None:
+        """Fail startup gracefully when camera never reaches connected/error callback."""
+        if self._init_completed:
+            return
+
+        logger.error(
+            "Camera initialization timed out for %s after %sms",
+            self._format_camera_display_name(),
+            self._init_timeout_ms,
+        )
+
+        self.is_connected = False
+        self.status_indicator.setStyleSheet("background-color: red; border-radius: 6px;")
+        self.connection_state_changed.emit(False)
+        self.reconnect_button.setVisible(True)
+        self.set_controls_enabled(False)
+        self.video_label.setText("Connection timed out\nClick Reconnect")
+
+        # Ensure MainWindow progress can complete even when startup stalls.
+        self.initialized.emit()
 
     def _format_camera_display_name(
         self, ndi_name: str = None, ip: str = None, force_refresh: bool = False
@@ -1176,7 +1220,10 @@ class CameraWidget(QWidget):
                 f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format} for {self.ndi_source_name}"
             )
             self.ndi_thread = NDIVideoThread(
-                self.ndi_source_name, frame_skip=frame_skip, bandwidth=bandwidth, color_format=color_format
+                self.ndi_source_name,
+                frame_skip=frame_skip,
+                bandwidth=bandwidth,
+                color_format=color_format,
             )
             self.ndi_thread.frame_ready.connect(self.on_video_frame)
             self.ndi_thread.connected.connect(self.on_ndi_connected)
@@ -1274,6 +1321,7 @@ class CameraWidget(QWidget):
         self._render_count += 1
         if self._render_count % 50 == 0:
             import gc
+
             gc.collect(generation=0)
             # Full GC less frequently
             if self._render_count % 300 == 0:

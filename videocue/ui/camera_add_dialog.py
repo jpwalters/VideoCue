@@ -93,6 +93,8 @@ class CameraAddDialog(QDialog):
     def init_ui(self):
         """Initialize dialog UI"""
         self.setWindowTitle("Add Cameras")
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, False)
         self.setModal(True)
         self.setMinimumWidth(480)
         self.setMinimumHeight(200)
@@ -520,7 +522,9 @@ class CameraAddDialog(QDialog):
                     # NOTE: NDIDiscoveryThread.run() has no exec() call, so no event loop
                     # Therefore quit() is a no-op. Just wait for run() to finish.
                     wait_result = self.discovery_thread.wait(1000)
-                    logger.debug(f"Errored discovery thread wait() returned {wait_result} for {thread_id}")
+                    logger.debug(
+                        f"Errored discovery thread wait() returned {wait_result} for {thread_id}"
+                    )
 
                     # Disconnect signals AFTER wait completes
                     try:
@@ -536,7 +540,6 @@ class CameraAddDialog(QDialog):
                 self.discovery_thread.deleteLater()
                 self.discovery_thread = None
                 logger.debug("Discovery thread cleaned up after error")
-
 
     def _is_camera_already_added(self, ndi_name: str) -> bool:
         """Check if camera with this NDI name is already added"""
@@ -644,6 +647,7 @@ class CameraAddDialog(QDialog):
             # No port specified, return just host
             return (text, None)
         return None
+
     def done(self, result):
         """Override done() to ensure discovery thread is stopped before closing
 
@@ -672,7 +676,9 @@ class CameraAddDialog(QDialog):
                     # Wait for thread to finish gracefully (max 2 seconds)
                     logger.debug("Waiting for thread to finish...")
                     if not self.discovery_thread.wait(2000):
-                        logger.warning("Discovery thread did not finish within timeout - forcing exit")
+                        logger.warning(
+                            "Discovery thread did not finish within timeout - forcing exit"
+                        )
 
                 self.discovery_thread.deleteLater()
                 self.discovery_thread = None

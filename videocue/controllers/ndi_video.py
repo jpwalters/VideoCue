@@ -66,9 +66,7 @@ def _stream_metrics_on_stop(was_connected: bool) -> None:
         _stream_metrics["active_streams"] = max(0, _stream_metrics["active_streams"] - 1)
         _stream_metrics["stops"] += 1
         if was_connected:
-            _stream_metrics["connected_streams"] = max(
-                0, _stream_metrics["connected_streams"] - 1
-            )
+            _stream_metrics["connected_streams"] = max(0, _stream_metrics["connected_streams"] - 1)
 
 
 def _get_process_rss_mb() -> float | None:
@@ -213,17 +211,14 @@ class _NDIMemoryProbe:
                 delta_video_captured = 0
                 delta_free_video = 0
                 if self._last_wrapper_counters is not None:
-                    delta_capture = (
-                        capture_v3_calls
-                        - int(self._last_wrapper_counters.get("recv_capture_v3_calls", 0))
+                    delta_capture = capture_v3_calls - int(
+                        self._last_wrapper_counters.get("recv_capture_v3_calls", 0)
                     )
-                    delta_video_captured = (
-                        video_captured
-                        - int(self._last_wrapper_counters.get("recv_video_frames_captured", 0))
+                    delta_video_captured = video_captured - int(
+                        self._last_wrapper_counters.get("recv_video_frames_captured", 0)
                     )
-                    delta_free_video = (
-                        free_video_calls
-                        - int(self._last_wrapper_counters.get("recv_free_video_calls", 0))
+                    delta_free_video = free_video_calls - int(
+                        self._last_wrapper_counters.get("recv_free_video_calls", 0)
                     )
 
                 self._last_wrapper_counters = counters
@@ -323,6 +318,7 @@ class _NDIMemoryProbe:
             )
         else:
             logger.info("[NDI MEM][%s] finalize completed", self.source_name)
+
 
 if _ndi_forced_disabled:
     ndi_error_message = (
@@ -448,12 +444,14 @@ def cleanup_ndi() -> None:
         # Capture final wrapper counters as proof of cleanup
         try:
             final_counters = ndi.debug_get_counters()
-            recv_out = final_counters.get('recv_instances_outstanding', 0)
-            find_out = final_counters.get('find_instances_outstanding', 0)
-            cap_v3 = final_counters.get('recv_capture_video_frames_total', 0)
-            free_v = final_counters.get('recv_free_video_total', 0)
+            recv_out = final_counters.get("recv_instances_outstanding", 0)
+            find_out = final_counters.get("find_instances_outstanding", 0)
+            cap_v3 = final_counters.get("recv_capture_video_frames_total", 0)
+            free_v = final_counters.get("recv_free_video_total", 0)
             vid_imb = cap_v3 - free_v
-            logger.info(f"[NDI Global] SHUTDOWN PROOF: wrapper(recv_out={recv_out} find_out={find_out} cap_v3={cap_v3} free_v={free_v} vid_imb={vid_imb})")
+            logger.info(
+                f"[NDI Global] SHUTDOWN PROOF: wrapper(recv_out={recv_out} find_out={find_out} cap_v3={cap_v3} free_v={free_v} vid_imb={vid_imb})"
+            )
         except Exception:
             # If counters unavailable, that's fine - NDI may have been destroyed
             pass
@@ -472,7 +470,13 @@ class NDIVideoThread(QThread):
     error = pyqtSignal(str)  # Emits error message
     resolution_changed = pyqtSignal(int, int, float)  # Emits width, height, frame rate
 
-    def __init__(self, source_name: str, frame_skip: int = 6, bandwidth: str = "low", color_format: str = "bgra"):
+    def __init__(
+        self,
+        source_name: str,
+        frame_skip: int = 6,
+        bandwidth: str = "low",
+        color_format: str = "bgra",
+    ):
         super().__init__()
         self.setObjectName(f"NDIVideoThread-{source_name}")
         self.source_name = source_name
@@ -576,9 +580,7 @@ class NDIVideoThread(QThread):
                 )
                 return receiver
             except (AttributeError, TypeError) as e:
-                logger.warning(
-                    f"[{self.source_name}] RecvCreateV3 failed: {e}, using defaults"
-                )
+                logger.warning(f"[{self.source_name}] RecvCreateV3 failed: {e}, using defaults")
                 receiver = ndi.recv_create_v3()
                 receiver_elapsed = (time.time() - receiver_start) * 1000
                 logger.info(
@@ -723,16 +725,16 @@ class NDIVideoThread(QThread):
                             target_source = source
                             _source_cache[self.source_name] = source
                             source_creation_method = "global-finder"
-                            logger.info(
-                                f"[{self.source_name}] ✓ Matched source via global finder"
-                            )
+                            logger.info(f"[{self.source_name}] ✓ Matched source via global finder")
                             break
             except Exception as e:
                 logger.warning(f"[{self.source_name}] Global finder lookup failed: {e}")
 
             # METHOD 3: Per-camera finder with discovery (if cache/global finder miss)
             if not target_source:
-                logger.warning(f"[{self.source_name}] Source not in cache/global finder, trying per-camera finder...")
+                logger.warning(
+                    f"[{self.source_name}] Source not in cache/global finder, trying per-camera finder..."
+                )
                 try:
                     # Create dedicated finder for this camera
                     logger.info(f"[{self.source_name}] Creating dedicated NDI finder...")
@@ -987,10 +989,7 @@ class NDIVideoThread(QThread):
                                             exc_info=True,
                                         )
 
-                                if (
-                                    not attempted_receiver_recreate
-                                    and self._receiver
-                                ):
+                                if not attempted_receiver_recreate and self._receiver:
                                     logger.warning(
                                         f"[{self.source_name}] No frames persisted; recreating receiver and reconnecting with refreshed source"
                                     )
@@ -1014,7 +1013,9 @@ class NDIVideoThread(QThread):
                                             _resolve_fresh_source_for_reconnect()
                                         )
                                         ndi.recv_connect(self._receiver, reconnect_source)
-                                        source_creation_method = f"receiver-recreate-{reconnect_method}"
+                                        source_creation_method = (
+                                            f"receiver-recreate-{reconnect_method}"
+                                        )
                                         no_frame_count = 0
                                         first_frame = True
                                         logger.info(
@@ -1027,10 +1028,7 @@ class NDIVideoThread(QThread):
                                             exc_info=True,
                                         )
 
-                                if (
-                                    not attempted_probe_recovery
-                                    and self._receiver
-                                ):
+                                if not attempted_probe_recovery and self._receiver:
                                     attempted_probe_recovery = True
                                     logger.warning(
                                         f"[{self.source_name}] No frames persisted after reconnect attempts; running quick probe recovery"
@@ -1098,9 +1096,7 @@ class NDIVideoThread(QThread):
                                     logger.error(
                                         f"[{self.source_name}] recv_connect() succeeded but no video data received"
                                     )
-                                    logger.error(
-                                        f"[{self.source_name}] === CONNECTION FAILED ==="
-                                    )
+                                    logger.error(f"[{self.source_name}] === CONNECTION FAILED ===")
                                     if not self._metrics_failed:
                                         _stream_metrics_on_failed()
                                         self._metrics_failed = True
@@ -1207,6 +1203,7 @@ class NDIVideoThread(QThread):
                     frame_data = video_frame.data.tobytes()
                 elif hasattr(video_frame.data, "__array__"):
                     import numpy as np
+
                     frame_data = bytes(np.array(video_frame.data).flatten())
                 else:
                     frame_data = bytes(video_frame.data)
@@ -1229,6 +1226,7 @@ class NDIVideoThread(QThread):
                     frame_data = video_frame.data.tobytes()
                 elif hasattr(video_frame.data, "__array__"):
                     import numpy as np
+
                     frame_data = bytes(np.array(video_frame.data).flatten())
                 else:
                     frame_data = bytes(video_frame.data)
@@ -1238,7 +1236,9 @@ class NDIVideoThread(QThread):
                     logger.debug(f"Frame data too small: {len(frame_data)} < {expected_size}")
                     return None
 
-                qimage = QImage(frame_data, width, height, line_stride, QImage.Format.Format_RGBA8888)
+                qimage = QImage(
+                    frame_data, width, height, line_stride, QImage.Format.Format_RGBA8888
+                )
                 result = qimage.copy()
                 del frame_data
                 del qimage
@@ -1251,6 +1251,7 @@ class NDIVideoThread(QThread):
                     frame_data = video_frame.data.tobytes()
                 elif hasattr(video_frame.data, "__array__"):
                     import numpy as np
+
                     frame_data = bytes(np.array(video_frame.data).flatten())
                 else:
                     frame_data = bytes(video_frame.data)
@@ -1274,9 +1275,7 @@ class NDIVideoThread(QThread):
                 return result
 
             # Unsupported format
-            logger.debug(
-                f"Unsupported video format: {video_frame.FourCC} (expected RGBA or UYVY)"
-            )
+            logger.debug(f"Unsupported video format: {video_frame.FourCC} (expected RGBA or UYVY)")
             return None
 
         except (ValueError, TypeError, MemoryError, AttributeError):
@@ -1326,19 +1325,19 @@ class NDIVideoThread(QThread):
             if self._uyvy_work_buffers is None or self._uyvy_work_shape != work_shape:
                 # Allocate all working arrays once
                 self._uyvy_work_buffers = {
-                    'y0': np.empty(work_shape, dtype=np.float32),
-                    'y1': np.empty(work_shape, dtype=np.float32),
-                    'u': np.empty(work_shape, dtype=np.float32),
-                    'v': np.empty(work_shape, dtype=np.float32),
-                    'temp': np.empty(work_shape, dtype=np.float32),
+                    "y0": np.empty(work_shape, dtype=np.float32),
+                    "y1": np.empty(work_shape, dtype=np.float32),
+                    "u": np.empty(work_shape, dtype=np.float32),
+                    "v": np.empty(work_shape, dtype=np.float32),
+                    "temp": np.empty(work_shape, dtype=np.float32),
                 }
                 self._uyvy_work_shape = work_shape
 
-            y0 = self._uyvy_work_buffers['y0']
-            y1 = self._uyvy_work_buffers['y1']
-            u = self._uyvy_work_buffers['u']
-            v = self._uyvy_work_buffers['v']
-            temp = self._uyvy_work_buffers['temp']
+            y0 = self._uyvy_work_buffers["y0"]
+            y1 = self._uyvy_work_buffers["y1"]
+            u = self._uyvy_work_buffers["u"]
+            v = self._uyvy_work_buffers["v"]
+            temp = self._uyvy_work_buffers["temp"]
 
             # Extract channels into persistent buffers (in-place where possible)
             np.copyto(y0, uyvy[:, :, 1])
