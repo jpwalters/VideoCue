@@ -6,6 +6,7 @@ Build with: pyinstaller VideoCue.spec
 from pathlib import Path
 import sys
 
+from PyInstaller.building.datastruct import TOC
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
 block_cipher = None
@@ -36,6 +37,29 @@ if not ndi_dll_found:
 binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
+# Replace old bundled VC runtime DLLs (from PyQt) with current system versions.
+# Older 14.26 runtime binaries can conflict with newer native SDKs (e.g. NDI 6.x)
+# and cause native startup crashes in frozen builds.
+vc_runtime_names = {
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+}
+binaries = [
+    (src, dst)
+    for src, dst in binaries
+    if Path(src).name.lower() not in vc_runtime_names
+]
+
+system32 = Path(r"C:/Windows/System32")
+for runtime_name in sorted(vc_runtime_names):
+    runtime_path = system32 / runtime_name
+    if runtime_path.exists():
+        binaries.append((str(runtime_path), "."))
+        print(f"[OK] VC runtime added from System32: {runtime_name}")
+
 # Collect NDI Python module bindings (.pyd files) - MUST be in binaries not datas!
 ndi_wrapper_dir = Path("videocue/ndi_wrapper")
 python_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
@@ -49,7 +73,6 @@ for pyd_file in pyd_files_to_add:
 # Prepare data files
 datas = [
     ("config_schema.json", "."),
-    ("videocue/ndi_wrapper", "videocue/ndi_wrapper"),  # Include NDI wrapper with bindings
 ]
 
 # Add resources if they exist
@@ -140,6 +163,20 @@ a = Analysis(  # noqa: F821
     cipher=block_cipher,
     noarchive=False,
 )
+
+# Final runtime sanitization at Analysis output level: remove any stale VC runtime
+# copies (including those pulled transitively into PyQt subfolders), then add
+# current System32 runtime binaries once.
+filtered_binaries = [
+    entry for entry in a.binaries if Path(entry[0]).name.lower() not in vc_runtime_names
+]
+
+for runtime_name in sorted(vc_runtime_names):
+    runtime_path = system32 / runtime_name
+    if runtime_path.exists():
+        filtered_binaries.append((runtime_name, str(runtime_path), "BINARY"))
+
+a.binaries = TOC(filtered_binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)  # noqa: F821
 

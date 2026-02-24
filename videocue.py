@@ -5,6 +5,7 @@ VideoCue - Multi-camera PTZ controller with VISCA-over-IP and NDI streaming
 
 import logging
 import os
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -30,7 +31,107 @@ from videocue.ui.main_window import MainWindow
 from videocue.utils import get_app_data_dir, resource_path
 
 
-def setup_logging(file_logging_enabled: bool = False) -> None:
+def _show_native_error_dialog(title: str, message: str) -> None:
+    """Show a crash dialog without relying on Qt (safe for supervisor process)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            MB_ICONERROR = 0x00000010
+            MB_OK = 0x00000000
+            ctypes.windll.user32.MessageBoxW(0, message, title, MB_OK | MB_ICONERROR)
+            return
+        except Exception:
+            pass
+
+    print(f"{title}\n{message}", file=sys.stderr)
+
+
+def _is_abnormal_exit(exit_code: int) -> bool:
+    """Return True for likely crash exits (native fault or terminated by signal)."""
+    if exit_code == 0:
+        return False
+
+    if exit_code < 0:
+        return True
+
+    if os.name == "nt":
+        # Windows NTSTATUS values are often surfaced as signed negatives or 0xC0000000+.
+        if exit_code >= 0xC0000000:
+            return True
+        if exit_code > 0x7FFFFFFF:
+            return True
+
+    return False
+
+
+def _run_with_supervisor() -> int:
+    """Run app in a child process and report abnormal crashes to the user."""
+    child_args = [arg for arg in sys.argv[1:] if arg != "--child-process"]
+
+    def run_child(disable_ndi: bool) -> subprocess.CompletedProcess:
+        child_env = os.environ.copy()
+        child_env["VIDEOCUE_SUPERVISED_CHILD"] = "1"
+        child_env["VIDEOCUE_PROCESS_ROLE"] = "child"
+        if disable_ndi:
+            child_env["VIDEOCUE_DISABLE_NDI"] = "1"
+
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, *child_args, "--child-process"]
+        else:
+            command = [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                *child_args,
+                "--child-process",
+            ]
+
+        return subprocess.run(command, env=child_env, check=False)
+
+    try:
+        completed = run_child(disable_ndi=False)
+    except Exception as e:
+        _show_native_error_dialog(
+            UIStrings.ERROR_CRITICAL,
+            f"{UIStrings.ERROR_APP_LAUNCH_FAILED}: {UIStrings.APP_NAME}.\n\n{e}",
+        )
+        return 1
+
+    exit_code = completed.returncode
+    if _is_abnormal_exit(exit_code):
+        _show_native_error_dialog(
+            UIStrings.ERROR_CRITICAL,
+            UIStrings.ERROR_APP_RESTARTING_SAFE_MODE,
+        )
+
+        try:
+            recovery_run = run_child(disable_ndi=True)
+            recovery_exit = recovery_run.returncode
+            if not _is_abnormal_exit(recovery_exit):
+                return recovery_exit
+            exit_code = recovery_exit
+        except Exception as e:
+            _show_native_error_dialog(
+                UIStrings.ERROR_CRITICAL,
+                f"{UIStrings.ERROR_APP_LAUNCH_FAILED}: {UIStrings.APP_NAME}.\n\n{e}",
+            )
+            return 1
+
+        log_path = get_app_data_dir() / "logs" / "videocue.log"
+        _show_native_error_dialog(
+            UIStrings.ERROR_CRITICAL,
+            (
+                f"{UIStrings.ERROR_APP_CRASHED}\n\n"
+                f"{UIStrings.ERROR_APP_EXIT_CODE.format(code=exit_code)}\n"
+                f"{UIStrings.ERROR_APP_LOG_PATH.format(path=log_path)}\n\n"
+                f"{UIStrings.ERROR_APP_CRASH_TROUBLESHOOT}"
+            ),
+        )
+
+    return exit_code
+
+
+def setup_logging(file_logging_enabled: bool = False, process_role: str = "direct") -> None:
     """Configure application logging
 
     Args:
@@ -58,6 +159,18 @@ def setup_logging(file_logging_enabled: bool = False) -> None:
 
     logger = logging.getLogger(__name__)
     logger.info("=" * 60)
+    logger.info(f"Process role: {process_role}")
+
+    # Write Python fatal crash diagnostics to a separate file when possible.
+    try:
+        import faulthandler
+
+        crash_file = log_dir / "videocue-crash.log"
+        crash_stream = crash_file.open("a", encoding="utf-8")
+        faulthandler.enable(file=crash_stream, all_threads=True)
+        logger.info(f"Faulthandler enabled: {crash_file}")
+    except Exception as e:
+        logger.debug(f"Could not enable faulthandler: {e}")
     logger.info(f"VideoCue {__version__} starting")
     if file_logging_enabled:
         logger.info(f"Log file: {log_file}")
@@ -233,9 +346,13 @@ def main() -> int:
     file_logging_enabled = config.config.get("preferences", {}).get("file_logging_enabled", False)
 
     # Setup logging with preference
-    setup_logging(file_logging_enabled)
+    process_role = os.environ.get("VIDEOCUE_PROCESS_ROLE", "direct")
+    setup_logging(file_logging_enabled, process_role=process_role)
     logger = logging.getLogger(__name__)
     logger.info("Starting VideoCue application")
+    ndi_disabled_for_session = os.environ.get("VIDEOCUE_DISABLE_NDI") == "1"
+    if ndi_disabled_for_session:
+        logger.warning("Running with NDI disabled for this session")
 
     # Check single instance mode
     instance_lock = None
@@ -279,6 +396,9 @@ def main() -> int:
     app.setApplicationName(UIStrings.APP_NAME)
     app.setOrganizationName(UIStrings.APP_NAME)
 
+    if ndi_disabled_for_session:
+        QMessageBox.warning(None, UIStrings.ERROR_NDI_NOT_AVAILABLE, UIStrings.WARN_NDI_SESSION_DISABLED)
+
     # Set application icon
     icon_path = resource_path("resources/icon.png")
     if Path(icon_path).exists():
@@ -313,4 +433,18 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    running_child = os.environ.get("VIDEOCUE_SUPERVISED_CHILD") == "1" or "--child-process" in sys.argv
+    if "--child-process" in sys.argv:
+        sys.argv = [arg for arg in sys.argv if arg != "--child-process"]
+
+    use_supervisor = (
+        os.name == "nt"
+        and not running_child
+        and os.environ.get("VIDEOCUE_SUPERVISOR_DISABLED") != "1"
+    )
+
+    if use_supervisor:
+        os.environ["VIDEOCUE_PROCESS_ROLE"] = "supervisor"
+        sys.exit(_run_with_supervisor())
+
     sys.exit(main())

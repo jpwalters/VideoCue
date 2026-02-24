@@ -25,8 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install -r requirements-build.lock.txt
       
       - name: Download and Install NDI SDK
         run: |
@@ -80,6 +79,10 @@ jobs:
       - name: Run build script
         run: |
           .\build.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Verify packaged runtime DLLs
+        run: |
+          .\tools\verify_runtime_dlls.ps1 -DistRoot ".\dist\VideoCue"
       
       - name: Upload artifacts to release
         uses: softprops/action-gh-release@v1

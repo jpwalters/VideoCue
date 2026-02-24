@@ -26,8 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install -r requirements-build.lock.txt
       
       - name: Verify NDI bindings are bundled
         run: |
@@ -55,6 +54,10 @@ jobs:
       - name: Build executable
         run: |
           pyinstaller VideoCue.spec
+
+      - name: Verify packaged runtime DLLs
+        run: |
+          .\tools\verify_runtime_dlls.ps1 -DistRoot ".\dist\VideoCue"
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

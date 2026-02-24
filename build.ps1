@@ -75,6 +75,49 @@ Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "VideoCue Build Script v$Version" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
+# Verify locked build dependencies before packaging to prevent drift.
+$LockFile = "$ScriptDir\requirements-build.lock.txt"
+$PythonCmd = if (Test-Path "$ScriptDir\.venv\Scripts\python.exe") {
+    "$ScriptDir\.venv\Scripts\python.exe"
+} else {
+    "python"
+}
+
+if (Test-Path $LockFile) {
+    Write-Host "Checking locked build dependencies..." -ForegroundColor Yellow
+    & $PythonCmd -c "from pathlib import Path; import importlib.metadata as m, sys; lock=Path(r'$LockFile'); req={};
+for raw in lock.read_text(encoding='utf-8').splitlines():
+    line=raw.strip();
+    if not line or line.startswith('#'):
+        continue
+    if '==' not in line:
+        continue
+    name, ver = line.split('==', 1)
+    req[name.strip()] = ver.strip()
+bad=[]
+for name, expected in req.items():
+    try:
+        actual = m.version(name)
+    except m.PackageNotFoundError:
+        bad.append(f'{name}: missing (expected {expected})')
+        continue
+    if actual != expected:
+        bad.append(f'{name}: expected {expected}, found {actual}')
+if bad:
+    print('Locked dependency mismatch detected:')
+    [print('  - ' + item) for item in bad]
+    print('Install locked versions with: pip install -r requirements-build.lock.txt')
+    sys.exit(1)
+print('Locked dependency check passed.')"
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Build dependency lock check failed" -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host "Locked build dependencies verified.`n" -ForegroundColor Green
+}
+
 # Step 1: Run PyInstaller
 if (-not $SkipBuild) {
     Write-Host "[1/2] Running PyInstaller..." -ForegroundColor Yellow
@@ -134,6 +177,18 @@ if (-not $SkipBuild) {
         
         $ExeSize = (Get-Item $ExePath).Length / 1MB
         Write-Host "Executable size: $([math]::Round($ExeSize, 2)) MB`n" -ForegroundColor Gray
+
+        # Verify packaged runtime DLLs to detect native runtime drift.
+        $RuntimeVerifyScript = "$ScriptDir\tools\verify_runtime_dlls.ps1"
+        if (Test-Path $RuntimeVerifyScript) {
+            Write-Host "Verifying packaged runtime DLLs..." -ForegroundColor Yellow
+            & $RuntimeVerifyScript -DistRoot "$ScriptDir\dist\VideoCue"
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ERROR: Runtime DLL verification failed" -ForegroundColor Red
+                exit 1
+            }
+            Write-Host "Runtime DLL verification passed.`n" -ForegroundColor Green
+        }
         
     } catch {
         Write-Host "`nERROR: PyInstaller exception: $_" -ForegroundColor Red
@@ -162,6 +217,7 @@ if (-not $SkipInstaller) {
     if (-not (Test-Path $ISCCPath)) {
         # Try common alternative locations
         $AlternativePaths = @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
             "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
             "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
             "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",

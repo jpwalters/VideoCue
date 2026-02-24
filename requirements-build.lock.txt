@@ -1,0 +1,12 @@
+# Locked build environment for deterministic Windows packaging.
+# Update intentionally after validating a full build + startup smoke test.
+
+numpy==2.2.6
+pygame==2.6.1
+PyQt6==6.10.2
+PyQt6-Qt6==6.10.2
+PyQt6_sip==13.11.0
+QDarkStyle==3.2.3
+ruff==0.15.1
+pyinstaller==6.19.0
+pyinstaller-hooks-contrib==2026.1

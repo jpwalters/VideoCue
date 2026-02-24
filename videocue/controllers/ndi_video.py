@@ -37,6 +37,8 @@ _stream_metrics = {
     "stops": 0,
 }
 
+_ndi_forced_disabled = os.getenv("VIDEOCUE_DISABLE_NDI", "0") == "1"
+
 
 def _stream_metrics_snapshot() -> dict[str, int]:
     with _stream_metrics_lock:
@@ -322,23 +324,30 @@ class _NDIMemoryProbe:
         else:
             logger.info("[NDI MEM][%s] finalize completed", self.source_name)
 
-try:
-    from videocue import ndi_wrapper as ndi  # noqa: N813
+if _ndi_forced_disabled:
+    ndi_error_message = (
+        "NDI video has been temporarily disabled for this session after a startup crash.\n"
+        "You can continue using IP camera control features."
+    )
+    logger.warning("NDI disabled for this session via VIDEOCUE_DISABLE_NDI=1")
+else:
+    try:
+        from videocue import ndi_wrapper as ndi  # noqa: N813
 
-    ndi_available = True
-except ImportError as e:
-    ndi_error_message = (
-        "NDI library not available. Please install NDI Runtime:\n\n"
-        "Download from: https://ndi.tv/tools/\n\n"
-        "The application will continue without NDI video streaming support.\n"
-        "You can still control cameras using IP addresses."
-    )
-    logger.warning(f"NDI Import Error: {e}")
-except Exception as e:
-    ndi_error_message = (
-        f"NDI library error: {e}\n\nPlease install NDI Runtime from https://ndi.tv/tools/"
-    )
-    logger.warning(f"NDI Error: {e}")
+        ndi_available = True
+    except ImportError as e:
+        ndi_error_message = (
+            "NDI library not available. Please install NDI Runtime:\n\n"
+            "Download from: https://ndi.tv/tools/\n\n"
+            "The application will continue without NDI video streaming support.\n"
+            "You can still control cameras using IP addresses."
+        )
+        logger.warning(f"NDI Import Error: {e}")
+    except Exception as e:
+        ndi_error_message = (
+            f"NDI library error: {e}\n\nPlease install NDI Runtime from https://ndi.tv/tools/"
+        )
+        logger.warning(f"NDI Error: {e}")
 
 
 def set_preferred_network_interface(interface_ip: str | None) -> None:

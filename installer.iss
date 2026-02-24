@@ -41,6 +41,15 @@ Source: "dist\VideoCue\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\VideoCue\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
+[InstallDelete]
+; Remove stale VC runtime DLLs from old builds that can remain in the Qt bin
+; directory across upgrades and cause native NDI startup crashes.
+Type: files; Name: "{app}\_internal\PyQt6\Qt6\bin\msvcp140.dll"
+Type: files; Name: "{app}\_internal\PyQt6\Qt6\bin\msvcp140_1.dll"
+Type: files; Name: "{app}\_internal\PyQt6\Qt6\bin\msvcp140_2.dll"
+Type: files; Name: "{app}\_internal\PyQt6\Qt6\bin\vcruntime140.dll"
+Type: files; Name: "{app}\_internal\PyQt6\Qt6\bin\vcruntime140_1.dll"
+
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"

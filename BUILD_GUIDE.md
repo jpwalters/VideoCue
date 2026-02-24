@@ -5,6 +5,11 @@
 The easiest way to build VideoCue is using the PowerShell build script:
 
 ```powershell
+# Install locked build dependencies (recommended for reproducible builds)
+pip install -r requirements-build.lock.txt
+```
+
+```powershell
 # Build everything with version update
 .\build.ps1 -Version "0.4.2"
 ```
