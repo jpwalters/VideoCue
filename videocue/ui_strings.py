@@ -104,6 +104,10 @@ class UIStrings:
     LBL_FOCUS_BUTTON_MAPPING = "Button Trigger:"
     LBL_STOP_BUTTON_MAPPING = "Button Trigger:"
     LBL_MENU_BUTTON_MAPPING = "Button Trigger:"
+    USB_RUN_CUE_LABEL = "Enable Run on second joystick press (R3)"
+    USB_RUN_CUE_TOOLTIP = (
+        "When enabled, pressing the second joystick button runs the armed cue in the Cues tab."
+    )
     # Error Messages
     ERROR_CRITICAL = "Critical Error"
     ERROR_GENERIC = "An unexpected error occurred. The application will attempt to continue."

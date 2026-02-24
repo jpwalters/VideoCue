@@ -19,8 +19,8 @@ from PyQt6.QtGui import (  # type: ignore
     QShortcut,
 )
 from PyQt6.QtWidgets import (  # type: ignore
-    QHeaderView,
     QHBoxLayout,
+    QHeaderView,
     QMainWindow,
     QMenu,
     QMessageBox,

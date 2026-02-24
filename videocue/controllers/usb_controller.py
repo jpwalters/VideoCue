@@ -184,6 +184,7 @@ class USBController(QObject):
             'focus_one_push': 1,  # B button
             'stop_movement': 2,  # X button
             'menu': 7,  # Menu/Start button
+            'run_cue_enabled': True,
             'run_cue_buttons': [9, 10],  # Right stick press varies by controller
         }
 
@@ -216,6 +217,7 @@ class USBController(QObject):
         focus_one_push_button = self._button_map.get('focus_one_push', 1)
         stop_movement_button = self._button_map.get('stop_movement', 2)
         menu_button = self._button_map.get('menu', 7)
+        run_cue_enabled = self._button_map.get('run_cue_enabled', True)
         run_cue_buttons = self._button_map.get('run_cue_buttons', [9, 10])
 
         # Brightness control (only if enabled)
@@ -250,7 +252,7 @@ class USBController(QObject):
             self.menu_button_pressed.emit()
             return
 
-        if isinstance(run_cue_buttons, list) and button in run_cue_buttons:
+        if run_cue_enabled and isinstance(run_cue_buttons, list) and button in run_cue_buttons:
             self.run_cue_requested.emit()
             return
 

@@ -178,6 +178,7 @@ class ConfigManager:
                 "focus_one_push_button": 1,
                 "stop_movement_button": 2,
                 "menu_button": 7,
+                "run_cue_enabled": True,
                 "button_mappings": {
                     "button_4": "prev_camera",
                     "button_5": "next_camera",

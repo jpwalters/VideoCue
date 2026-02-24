@@ -513,6 +513,14 @@ class PreferencesDialog(QDialog):
 
         switching_layout.addRow("", self.stop_on_switch_checkbox)
 
+        self.run_cue_enabled_checkbox = QCheckBox(UIStrings.USB_RUN_CUE_LABEL)
+
+        self.run_cue_enabled_checkbox.setToolTip(UIStrings.USB_RUN_CUE_TOOLTIP)
+
+        self.run_cue_enabled_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        switching_layout.addRow("", self.run_cue_enabled_checkbox)
+
         switching_group.setLayout(switching_layout)
 
         layout.addWidget(switching_group)
@@ -760,6 +768,10 @@ class PreferencesDialog(QDialog):
 
         self.stop_on_switch_checkbox.setChecked(stop_on_switch)
 
+        run_cue_enabled = usb_config.get("run_cue_enabled", True)
+
+        self.run_cue_enabled_checkbox.setChecked(run_cue_enabled)
+
         brightness_step = usb_config.get("brightness_step", 1)
 
         self.brightness_step_spinbox.setValue(brightness_step)
@@ -963,6 +975,10 @@ class PreferencesDialog(QDialog):
         # Save stop on camera switch setting
 
         usb_config["stop_on_camera_switch"] = self.stop_on_switch_checkbox.isChecked()
+
+        # Save run cue on second joystick press setting
+
+        usb_config["run_cue_enabled"] = self.run_cue_enabled_checkbox.isChecked()
 
         # Save NDI video enabled setting
 

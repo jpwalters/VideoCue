@@ -5,7 +5,6 @@ Cue list manager for JSON persistence in dedicated cues.json file.
 import json
 import logging
 import uuid
-from pathlib import Path
 
 from videocue.utils import get_app_data_dir
 
@@ -188,7 +187,7 @@ class CueManager:
     def add_cue(self, cue_number: str, name: str, camera_columns: list[str]) -> str:
         """Create a cue row and return cue ID."""
         cue_id = str(uuid.uuid4())
-        camera_presets = {camera_id: None for camera_id in camera_columns}
+        camera_presets = dict.fromkeys(camera_columns)
         cue = {
             "id": cue_id,
             "cue_number": cue_number,
@@ -209,7 +208,7 @@ class CueManager:
     ) -> str:
         """Insert cue row at index and return cue ID."""
         cue_id = str(uuid.uuid4())
-        normalized_presets = {camera_id: None for camera_id in camera_columns}
+        normalized_presets = dict.fromkeys(camera_columns)
         if camera_presets:
             for camera_id in camera_columns:
                 preset_uuid = camera_presets.get(camera_id)
