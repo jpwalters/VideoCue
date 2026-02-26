@@ -1216,14 +1216,20 @@ class CameraWidget(QWidget):
             frame_skip = self.config.config.get("preferences", {}).get("video_frame_skip", 6)
             bandwidth = self.config.get_ndi_bandwidth()
             color_format = self.config.get_ndi_color_format()
+            false_color_enabled = self.config.get_ndi_false_color_enabled()
+            waveform_enabled = self.config.get_ndi_waveform_enabled()
+            vectorscope_enabled = self.config.get_ndi_vectorscope_enabled()
             logger.info(
-                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format} for {self.ndi_source_name}"
+                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled} for {self.ndi_source_name}"
             )
             self.ndi_thread = NDIVideoThread(
                 self.ndi_source_name,
                 frame_skip=frame_skip,
                 bandwidth=bandwidth,
                 color_format=color_format,
+                false_color_enabled=false_color_enabled,
+                waveform_enabled=waveform_enabled,
+                vectorscope_enabled=vectorscope_enabled,
             )
             self.ndi_thread.frame_ready.connect(self.on_video_frame)
             self.ndi_thread.connected.connect(self.on_ndi_connected)

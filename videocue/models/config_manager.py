@@ -155,6 +155,9 @@ class ConfigManager:
                 "video_frame_skip": 6,
                 "ndi_bandwidth": "low",  # "high" or "low" - NDI receiver bandwidth mode
                 "ndi_color_format": "uyvy",  # "uyvy", "bgra", or "rgba" - NDI color format
+                "ndi_false_color_enabled": False,  # Atomos-style false color video mode
+                "ndi_waveform_enabled": False,  # Luma waveform scope mode
+                "ndi_vectorscope_enabled": False,  # Chroma vectorscope mode
                 "theme": "dark",
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
@@ -435,6 +438,33 @@ class ConfigManager:
     def get_ndi_color_format(self) -> str:
         """Get NDI color format (default 'uyvy')"""
         return self.config["preferences"].get("ndi_color_format", "uyvy")
+
+    def set_ndi_false_color_enabled(self, enabled: bool):
+        """Set NDI false color mode enabled/disabled globally"""
+        self.config["preferences"]["ndi_false_color_enabled"] = enabled
+        self.save()
+
+    def get_ndi_false_color_enabled(self) -> bool:
+        """Get NDI false color mode preference (default False)"""
+        return self.config["preferences"].get("ndi_false_color_enabled", False)
+
+    def set_ndi_waveform_enabled(self, enabled: bool):
+        """Set NDI waveform scope mode enabled/disabled globally"""
+        self.config["preferences"]["ndi_waveform_enabled"] = enabled
+        self.save()
+
+    def get_ndi_waveform_enabled(self) -> bool:
+        """Get NDI waveform scope mode preference (default False)"""
+        return self.config["preferences"].get("ndi_waveform_enabled", False)
+
+    def set_ndi_vectorscope_enabled(self, enabled: bool):
+        """Set NDI vectorscope mode enabled/disabled globally"""
+        self.config["preferences"]["ndi_vectorscope_enabled"] = enabled
+        self.save()
+
+    def get_ndi_vectorscope_enabled(self) -> bool:
+        """Get NDI vectorscope mode preference (default False)"""
+        return self.config["preferences"].get("ndi_vectorscope_enabled", False)
 
     def set_ndi_video_enabled(self, enabled: bool):
         """Set NDI video enabled/disabled globally"""

@@ -4,12 +4,13 @@ NDI video receiver with frame dropping for performance
 
 import contextlib
 import logging
+import math
 import os
 import threading
 from typing import Any
 
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtGui import QImage
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen
 
 from videocue.constants import NetworkConstants
 from videocue.exceptions import NDINotAvailableError, NDISourceNotFoundError
@@ -476,6 +477,9 @@ class NDIVideoThread(QThread):
         frame_skip: int = 6,
         bandwidth: str = "low",
         color_format: str = "bgra",
+        false_color_enabled: bool = False,
+        waveform_enabled: bool = False,
+        vectorscope_enabled: bool = False,
     ):
         super().__init__()
         self.setObjectName(f"NDIVideoThread-{source_name}")
@@ -485,6 +489,9 @@ class NDIVideoThread(QThread):
         )
         self.bandwidth = bandwidth  # "high" or "low" - NDI receiver bandwidth mode
         self.color_format = color_format  # "bgra", "rgba", or "uyvy" - pixel format mode
+        self.false_color_enabled = false_color_enabled
+        self.waveform_enabled = waveform_enabled
+        self.vectorscope_enabled = vectorscope_enabled
         self.running = False
         self._stop_event = threading.Event()
         self._receiver = None
@@ -500,8 +507,18 @@ class NDIVideoThread(QThread):
         # Persistent working buffers for UYVY math (avoid per-frame allocations)
         self._uyvy_work_buffers = None  # (y0, y1, u, v, temp1, temp2) float32 arrays
         self._uyvy_work_shape = None
+        self._false_color_thresholds = None
+        self._false_color_palette = None
+        self._false_color_luma_buffer = None
+        self._false_color_luma_shape = None
+        self._waveform_plot_buffer = None
+        self._waveform_plot_shape = None
+        self._waveform_x_index = None
+        self._waveform_x_index_shape = None
+        self._vectorscope_plot_buffer = None
+        self._vectorscope_plot_shape = None
         logger.info(
-            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}"
+            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}"
         )
 
     def run(self) -> None:
@@ -587,100 +604,6 @@ class NDIVideoThread(QThread):
                     f"[{self.source_name}] Receiver created in {receiver_elapsed:.1f}ms (defaults)"
                 )
                 return receiver
-
-        def _resolve_fresh_source_for_reconnect():
-            try:
-                with _ndi_lock:
-                    ndi.find_wait_for_sources(
-                        _global_finder, NetworkConstants.NDI_DISCOVERY_QUICK_TIMEOUT_MS
-                    )
-                    sources = ndi.find_get_current_sources(_global_finder)
-                for source in sources:
-                    source_name = (
-                        source.ndi_name.decode("utf-8")
-                        if isinstance(source.ndi_name, bytes)
-                        else str(source.ndi_name)
-                    )
-                    if source_name == self.source_name:
-                        return _build_manual_source(), "global-finder-refresh-manual-handle"
-            except Exception as reconnect_lookup_error:
-                logger.warning(
-                    f"[{self.source_name}] Global finder refresh failed: {reconnect_lookup_error}"
-                )
-
-            if self._finder:
-                try:
-                    ndi.find_wait_for_sources(
-                        self._finder, NetworkConstants.NDI_DISCOVERY_QUICK_TIMEOUT_MS
-                    )
-                    sources = ndi.find_get_current_sources(self._finder)
-                    for source in sources:
-                        source_name = (
-                            source.ndi_name.decode("utf-8")
-                            if isinstance(source.ndi_name, bytes)
-                            else str(source.ndi_name)
-                        )
-                        if source_name == self.source_name:
-                            return (
-                                _build_manual_source(),
-                                "per-camera-finder-refresh-manual-handle",
-                            )
-                except Exception as per_finder_error:
-                    logger.warning(
-                        f"[{self.source_name}] Per-camera finder refresh failed: {per_finder_error}"
-                    )
-
-            return _build_manual_source(), "manual-refresh"
-
-        def _quick_probe_source_frames(timeout_ms: int = 1500) -> int:
-            probe_receiver = None
-            frames = 0
-            try:
-                probe_receiver = _create_receiver_instance()
-                if not probe_receiver:
-                    return 0
-
-                probe_source, probe_method = _resolve_fresh_source_for_reconnect()
-                ndi.recv_connect(probe_receiver, probe_source)
-                deadline = time.time() + max(0.2, timeout_ms / 1000.0)
-
-                while time.time() < deadline:
-                    t, v, _a, _m = ndi.recv_capture_v3(
-                        probe_receiver, NetworkConstants.NDI_FRAME_TIMEOUT_MS
-                    )
-                    if t == ndi.FRAME_TYPE_VIDEO:
-                        frames += 1
-                        ndi.recv_free_video_v2(probe_receiver, v)
-                    elif t == ndi.FRAME_TYPE_AUDIO:
-                        # CRITICAL: Free audio frames to prevent memory leaks
-                        with contextlib.suppress(Exception):
-                            ndi.recv_free_audio_v3(probe_receiver, _a)
-                    elif t == ndi.FRAME_TYPE_METADATA:
-                        # CRITICAL: Free metadata frames to prevent memory leaks
-                        with contextlib.suppress(Exception):
-                            ndi.recv_free_metadata(probe_receiver, _m)
-                    elif t == ndi.FRAME_TYPE_ERROR:
-                        break
-
-                logger.info(
-                    f"[{self.source_name}] Quick probe via {probe_method}: video_frames={frames}"
-                )
-                return frames
-            except Exception as probe_error:
-                logger.warning(
-                    f"[{self.source_name}] Quick probe failed: {probe_error}",
-                    exc_info=True,
-                )
-                return 0
-            finally:
-                if probe_receiver:
-                    try:
-                        ndi.recv_destroy(probe_receiver)
-                    except Exception:
-                        logger.debug(
-                            f"[{self.source_name}] Probe receiver destroy raised exception",
-                            exc_info=True,
-                        )
 
         start_time = time.time()
 
@@ -857,8 +780,6 @@ class NDIVideoThread(QThread):
             current_resolution = None  # Track resolution to detect changes
             first_frame_time = None
             attempted_manual_reconnect = False
-            attempted_receiver_recreate = False
-            attempted_probe_recovery = False
 
             total_elapsed = (time.time() - start_time) * 1000
             logger.info(
@@ -989,122 +910,31 @@ class NDIVideoThread(QThread):
                                             exc_info=True,
                                         )
 
-                                if not attempted_receiver_recreate and self._receiver:
-                                    logger.warning(
-                                        f"[{self.source_name}] No frames persisted; recreating receiver and reconnecting with refreshed source"
-                                    )
-                                    attempted_receiver_recreate = True
-                                    try:
-                                        try:
-                                            ndi.recv_destroy(self._receiver)
-                                        except Exception:
-                                            logger.debug(
-                                                f"[{self.source_name}] Receiver destroy during recovery raised exception",
-                                                exc_info=True,
-                                            )
-                                        finally:
-                                            self._receiver = None
-
-                                        self._receiver = _create_receiver_instance()
-                                        if not self._receiver:
-                                            raise RuntimeError("Receiver recreation failed")
-
-                                        reconnect_source, reconnect_method = (
-                                            _resolve_fresh_source_for_reconnect()
-                                        )
-                                        ndi.recv_connect(self._receiver, reconnect_source)
-                                        source_creation_method = (
-                                            f"receiver-recreate-{reconnect_method}"
-                                        )
-                                        no_frame_count = 0
-                                        first_frame = True
-                                        logger.info(
-                                            f"[{self.source_name}] Receiver recreation reconnect via {reconnect_method} applied; waiting for frames again"
-                                        )
-                                        continue
-                                    except Exception as recreate_error:
-                                        logger.error(
-                                            f"[{self.source_name}] Receiver recreation reconnect failed: {recreate_error}",
-                                            exc_info=True,
-                                        )
-
-                                if not attempted_probe_recovery and self._receiver:
-                                    attempted_probe_recovery = True
-                                    logger.warning(
-                                        f"[{self.source_name}] No frames persisted after reconnect attempts; running quick probe recovery"
-                                    )
-                                    probe_frames = _quick_probe_source_frames(timeout_ms=1500)
-                                    if probe_frames > 0:
-                                        try:
-                                            try:
-                                                ndi.recv_destroy(self._receiver)
-                                            except Exception:
-                                                logger.debug(
-                                                    f"[{self.source_name}] Receiver destroy during probe recovery raised exception",
-                                                    exc_info=True,
-                                                )
-                                            finally:
-                                                self._receiver = None
-
-                                            self._receiver = _create_receiver_instance()
-                                            if not self._receiver:
-                                                raise RuntimeError(
-                                                    "Receiver creation failed during probe recovery"
-                                                )
-
-                                            reconnect_source, reconnect_method = (
-                                                _resolve_fresh_source_for_reconnect()
-                                            )
-                                            ndi.recv_connect(self._receiver, reconnect_source)
-                                            source_creation_method = (
-                                                f"probe-recovery-{reconnect_method}"
-                                            )
-                                            no_frame_count = 0
-                                            first_frame = True
-                                            logger.info(
-                                                f"[{self.source_name}] Probe recovery reconnect via {reconnect_method} applied; waiting for frames again"
-                                            )
-                                            continue
-                                        except Exception as probe_reconnect_error:
-                                            logger.error(
-                                                f"[{self.source_name}] Probe recovery reconnect failed: {probe_reconnect_error}",
-                                                exc_info=True,
-                                            )
-                                    else:
-                                        logger.warning(
-                                            f"[{self.source_name}] Quick probe observed 0 frames; proceeding to failure"
-                                        )
-
-                                if (
-                                    attempted_manual_reconnect
-                                    and attempted_receiver_recreate
-                                    and attempted_probe_recovery
-                                ):
-                                    elapsed_total = (time.time() - start_time) * 1000
-                                    timeout_seconds = (
-                                        no_frame_count * NetworkConstants.NDI_FRAME_TIMEOUT_MS
-                                    ) // 1000
-                                    logger.error(
-                                        f"[{self.source_name}] ✗✗✗ NO FRAMES after staged recovery attempts ({timeout_seconds}s since last frame) ✗✗✗"
-                                    )
-                                    logger.error(
-                                        f"[{self.source_name}] Total time: {elapsed_total:.1f}ms"
-                                    )
-                                    logger.error(
-                                        f"[{self.source_name}] Source method: {source_creation_method}"
-                                    )
-                                    logger.error(
-                                        f"[{self.source_name}] recv_connect() succeeded but no video data received"
-                                    )
-                                    logger.error(f"[{self.source_name}] === CONNECTION FAILED ===")
-                                    if not self._metrics_failed:
-                                        _stream_metrics_on_failed()
-                                        self._metrics_failed = True
-                                    self.error.emit(
-                                        f"NDI source '{self.source_name}' not responding after staged reconnect attempts. "
-                                        "Check source name and network connectivity. Try reconnecting."
-                                    )
-                                    break
+                                # Avoid aggressive in-loop receiver recreation/probing because repeated
+                                # native create/destroy churn has shown instability in the field.
+                                elapsed_total = (time.time() - start_time) * 1000
+                                timeout_seconds = (
+                                    no_frame_count * NetworkConstants.NDI_FRAME_TIMEOUT_MS
+                                ) // 1000
+                                logger.error(
+                                    f"[{self.source_name}] ✗✗✗ NO FRAMES after safe reconnect path ({timeout_seconds}s since last frame) ✗✗✗"
+                                )
+                                logger.error(f"[{self.source_name}] Total time: {elapsed_total:.1f}ms")
+                                logger.error(
+                                    f"[{self.source_name}] Source method: {source_creation_method}"
+                                )
+                                logger.error(
+                                    f"[{self.source_name}] recv_connect() succeeded but no video data received"
+                                )
+                                logger.error(f"[{self.source_name}] === CONNECTION FAILED ===")
+                                if not self._metrics_failed:
+                                    _stream_metrics_on_failed()
+                                    self._metrics_failed = True
+                                self.error.emit(
+                                    f"NDI source '{self.source_name}' not responding after reconnect attempt. "
+                                    "Check source name and network connectivity. Try reconnecting."
+                                )
+                                break
                         elif t == ndi.FRAME_TYPE_ERROR:
                             logger.debug("Received error frame type")
                             if not self._metrics_failed:
@@ -1213,6 +1043,69 @@ class NDIVideoThread(QThread):
                     logger.debug(f"Frame data too small: {len(frame_data)} < {expected_size}")
                     return None
 
+                if self.waveform_enabled:
+                    waveform_data = self._waveform_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=True,
+                    )
+                    if not waveform_data:
+                        logger.debug("Waveform conversion returned empty data")
+                        return None
+
+                    qimage = QImage(waveform_data, width, height, width * 3, QImage.Format.Format_RGB888)
+                    self._annotate_waveform_image(qimage)
+                    result = qimage.copy()
+                    del waveform_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.vectorscope_enabled:
+                    vectorscope_data = self._vectorscope_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=True,
+                    )
+                    if not vectorscope_data:
+                        logger.debug("Vectorscope conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        vectorscope_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_vectorscope_image(qimage)
+                    result = qimage.copy()
+                    del vectorscope_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.false_color_enabled:
+                    false_color_data = self._false_color_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=True,
+                    )
+                    if not false_color_data:
+                        logger.debug("False color conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        false_color_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    result = qimage.copy()
+                    del false_color_data
+                    del frame_data
+                    del qimage
+                    return result
+
                 # BGRA matches ARGB32 on little-endian (B,G,R,A byte order)
                 qimage = QImage(frame_data, width, height, line_stride, QImage.Format.Format_ARGB32)
                 result = qimage.copy()  # Own the data
@@ -1235,6 +1128,69 @@ class NDIVideoThread(QThread):
                 if len(frame_data) < expected_size:
                     logger.debug(f"Frame data too small: {len(frame_data)} < {expected_size}")
                     return None
+
+                if self.waveform_enabled:
+                    waveform_data = self._waveform_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=False,
+                    )
+                    if not waveform_data:
+                        logger.debug("Waveform conversion returned empty data")
+                        return None
+
+                    qimage = QImage(waveform_data, width, height, width * 3, QImage.Format.Format_RGB888)
+                    self._annotate_waveform_image(qimage)
+                    result = qimage.copy()
+                    del waveform_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.vectorscope_enabled:
+                    vectorscope_data = self._vectorscope_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=False,
+                    )
+                    if not vectorscope_data:
+                        logger.debug("Vectorscope conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        vectorscope_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_vectorscope_image(qimage)
+                    result = qimage.copy()
+                    del vectorscope_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.false_color_enabled:
+                    false_color_data = self._false_color_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=False,
+                    )
+                    if not false_color_data:
+                        logger.debug("False color conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        false_color_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    result = qimage.copy()
+                    del false_color_data
+                    del frame_data
+                    del qimage
+                    return result
 
                 qimage = QImage(
                     frame_data, width, height, line_stride, QImage.Format.Format_RGBA8888
@@ -1261,6 +1217,66 @@ class NDIVideoThread(QThread):
                     logger.debug(f"Frame data too small: {len(frame_data)} < {expected_size}")
                     return None
 
+                if self.waveform_enabled:
+                    waveform_data = self._waveform_from_uyvy(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                    )
+                    if not waveform_data:
+                        logger.debug("Waveform conversion returned empty data")
+                        return None
+
+                    qimage = QImage(waveform_data, width, height, width * 3, QImage.Format.Format_RGB888)
+                    self._annotate_waveform_image(qimage)
+                    result = qimage.copy()
+                    del waveform_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.vectorscope_enabled:
+                    vectorscope_data = self._vectorscope_from_uyvy(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                    )
+                    if not vectorscope_data:
+                        logger.debug("Vectorscope conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        vectorscope_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_vectorscope_image(qimage)
+                    result = qimage.copy()
+                    del vectorscope_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.false_color_enabled:
+                    false_color_data = self._false_color_from_uyvy(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                    )
+                    if not false_color_data:
+                        logger.debug("False color conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        false_color_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    result = qimage.copy()
+                    del false_color_data
+                    del frame_data
+                    del qimage
+                    return result
+
                 # Convert UYVY to RGB
                 rgb_data = self._uyvy_to_rgb(frame_data, width, height, line_stride)
                 if not rgb_data:
@@ -1275,7 +1291,9 @@ class NDIVideoThread(QThread):
                 return result
 
             # Unsupported format
-            logger.debug(f"Unsupported video format: {video_frame.FourCC} (expected RGBA or UYVY)")
+            logger.debug(
+                f"Unsupported video format: {video_frame.FourCC} (expected BGRA, RGBA, or UYVY)"
+            )
             return None
 
         except (ValueError, TypeError, MemoryError, AttributeError):
@@ -1290,6 +1308,601 @@ class NDIVideoThread(QThread):
 
             logger.exception("Unexpected error during frame conversion")
             traceback.print_exc()
+            return None
+
+    def _ensure_false_color_tables(self) -> None:
+        """Initialize threshold and palette tables for Atomos-style false color mapping."""
+        if self._false_color_thresholds is not None and self._false_color_palette is not None:
+            return
+
+        import numpy as np
+
+        # Approximate Atomos-style luminance bands in 8-bit luma (0-255)
+        self._false_color_thresholds = np.array(
+            [8, 26, 51, 89, 115, 143, 158, 179, 204, 235],
+            dtype=np.uint8,
+        )
+
+        # Palette entries correspond to the bins created by thresholds above.
+        self._false_color_palette = np.array(
+            [
+                [0, 0, 0],
+                [78, 0, 140],
+                [0, 43, 255],
+                [0, 170, 255],
+                [0, 255, 64],
+                [128, 128, 128],
+                [255, 105, 180],
+                [255, 255, 0],
+                [255, 140, 0],
+                [255, 0, 0],
+                [255, 255, 255],
+            ],
+            dtype=np.uint8,
+        )
+
+    def _map_false_color_from_luma_u8(self, luma_u8) -> bytes | None:
+        """Map an 8-bit luma image to false color RGB bytes."""
+        try:
+            import numpy as np
+
+            self._ensure_false_color_tables()
+            indices = np.searchsorted(self._false_color_thresholds, luma_u8, side="right")
+            mapped = self._false_color_palette[indices]
+            return mapped.tobytes()
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("False color luma mapping error")
+            return None
+        except Exception:
+            logger.exception("Unexpected false color luma mapping error")
+            return None
+
+    def _waveform_from_luma_u8(self, luma_u8) -> bytes | None:
+        """Create a luma waveform RGB image from an 8-bit luma frame."""
+        try:
+            import numpy as np
+
+            height, width = luma_u8.shape
+            plot_shape = (height, width)
+            if self._waveform_plot_buffer is None or self._waveform_plot_shape != plot_shape:
+                self._waveform_plot_buffer = np.zeros(plot_shape, dtype=np.uint16)
+                self._waveform_plot_shape = plot_shape
+            else:
+                self._waveform_plot_buffer.fill(0)
+
+            x_shape = (height, width)
+            if self._waveform_x_index is None or self._waveform_x_index_shape != x_shape:
+                self._waveform_x_index = np.broadcast_to(
+                    np.arange(width, dtype=np.int32), x_shape
+                ).copy()
+                self._waveform_x_index_shape = x_shape
+
+            # Map luma directly to an IRE ruler of -20..120 for waveform placement.
+            # 0 IRE corresponds to luma 16, 100 IRE to luma 235 (video-legal range).
+            luma_i32 = luma_u8.astype(np.int32)
+            ire_tenths = ((luma_i32 - 16) * 1000) // 219
+            y_plot = (((1200 - ire_tenths) * (height - 1)) // 1400).astype(np.int32)
+            np.clip(y_plot, 0, height - 1, out=y_plot)
+
+            np.add.at(
+                self._waveform_plot_buffer,
+                (y_plot.ravel(), self._waveform_x_index.ravel()),
+                1,
+            )
+
+            # Thicken waveform trace for readability by expanding to neighboring pixels.
+            trace = self._waveform_plot_buffer.astype(np.uint32, copy=True)
+            if height > 1:
+                trace[1:, :] = np.maximum(trace[1:, :], self._waveform_plot_buffer[:-1, :])
+                trace[:-1, :] = np.maximum(trace[:-1, :], self._waveform_plot_buffer[1:, :])
+            if width > 1:
+                trace[:, 1:] = np.maximum(trace[:, 1:], self._waveform_plot_buffer[:, :-1])
+                trace[:, :-1] = np.maximum(trace[:, :-1], self._waveform_plot_buffer[:, 1:])
+
+            peak = int(trace.max())
+            if peak <= 0:
+                return None
+
+            # Non-linear mapping boosts visibility for low-density samples.
+            norm = np.log1p(trace) / np.log1p(peak)
+            brightness = np.power(norm, 0.55)
+            brightness_u8 = (brightness * 255.0).astype(np.uint8)
+
+            # Ensure any drawn sample is still visible even when sparse.
+            trace_present = trace > 0
+            brightness_u8[trace_present] = np.maximum(brightness_u8[trace_present], 72)
+
+            # Render waveform as bright green with subtle white blend for readability.
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            rgb[:, :, 1] = brightness_u8
+            rgb[:, :, 0] = brightness_u8 // 3
+            rgb[:, :, 2] = brightness_u8 // 3
+
+            return rgb.tobytes()
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Waveform conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected waveform conversion error")
+            return None
+
+    def _annotate_waveform_image(self, image: QImage) -> None:
+        """Draw left-side numeric guide labels for waveform interpretation."""
+        try:
+            width = image.width()
+            height = image.height()
+            if width <= 0 or height <= 0:
+                return
+
+            guide_ire_values = [-20.0, 0.0, 7.05, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0]
+
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+            font = painter.font()
+            font.setPointSize(max(7, min(14, min(height // 26, width // 18))))
+            painter.setFont(font)
+            metrics = painter.fontMetrics()
+
+            # Scale label strip width to the current video size and text metrics.
+            sample_label = "100"
+            label_strip_width = metrics.horizontalAdvance(sample_label) + 22
+            label_strip_width = min(max(label_strip_width, max(44, width // 10)), max(66, width // 5))
+
+            painter.fillRect(0, 0, label_strip_width, height, QColor(0, 0, 0, 170))
+
+            tick_pen = QPen(QColor(210, 210, 210))
+            tick_pen.setWidth(1)
+            text_pen = QPen(QColor(245, 245, 245))
+
+            for ire_value in guide_ire_values:
+                y_line = int(round(((120.0 - ire_value) * (height - 1)) / 140.0))
+                if not (0 <= y_line < height):
+                    continue
+
+                is_bold_reference = ire_value in (0, 100)
+                grid_pen = QPen(
+                    QColor(210, 210, 210, 190) if is_bold_reference else QColor(120, 120, 120, 140)
+                )
+                grid_pen.setWidth(2 if is_bold_reference else 1)
+                painter.setPen(grid_pen)
+                painter.drawLine(label_strip_width, y_line, width - 1, y_line)
+
+                if abs(ire_value - round(ire_value)) < 1e-6:
+                    label = str(int(round(ire_value)))
+                else:
+                    label = f"{ire_value:.2f}".rstrip("0").rstrip(".")
+
+                tick_right = label_strip_width - 2
+                tick_left = max(22, tick_right - 10)
+                tick_pen.setWidth(2 if is_bold_reference else 1)
+                painter.setPen(tick_pen)
+                painter.drawLine(tick_left, y_line, tick_right, y_line)
+
+                painter.setPen(text_pen)
+                text_rect_top = y_line - (metrics.height() // 2)
+                text_rect_top = min(max(0, text_rect_top), max(0, height - metrics.height()))
+                text_rect = (3, text_rect_top, max(1, tick_left - 6), metrics.height())
+                painter.drawText(
+                    text_rect[0],
+                    text_rect[1],
+                    text_rect[2],
+                    text_rect[3],
+                    int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                    label,
+                )
+
+            painter.end()
+        except Exception:
+            logger.exception("Waveform label annotation error")
+
+    def _waveform_from_rgbx(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+        *,
+        is_bgra: bool,
+    ) -> bytes | None:
+        """Convert BGRA/RGBA frame bytes to waveform RGB888 bytes."""
+        try:
+            import numpy as np
+
+            pixel_bytes = width * 4
+            if line_stride < pixel_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            rows = frame.reshape(height, line_stride)
+            rgbx = rows[:, :pixel_bytes].reshape(height, width, 4)
+
+            if is_bgra:
+                blue = rgbx[:, :, 0].astype(np.uint16)
+                green = rgbx[:, :, 1].astype(np.uint16)
+                red = rgbx[:, :, 2].astype(np.uint16)
+            else:
+                red = rgbx[:, :, 0].astype(np.uint16)
+                green = rgbx[:, :, 1].astype(np.uint16)
+                blue = rgbx[:, :, 2].astype(np.uint16)
+
+            # NDI RGB outputs are full-range (0-255); map to legal-range Y' (16-235)
+            # so waveform IRE mapping remains accurate (0 IRE at code 16, 100 IRE at 235).
+            luma_full = ((54 * red + 183 * green + 19 * blue) >> 8).astype(np.uint16)
+            luma_legal = 16 + ((luma_full * 219 + 127) // 255)
+            luma_u8 = np.clip(luma_legal, 16, 235).astype(np.uint8)
+            return self._waveform_from_luma_u8(luma_u8)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Waveform RGBX conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected waveform RGBX conversion error")
+            return None
+
+    def _waveform_from_uyvy(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+    ) -> bytes | None:
+        """Convert UYVY frame bytes to waveform RGB888 bytes using Y plane luma."""
+        try:
+            import numpy as np
+
+            row_bytes = width * 2
+            if line_stride < row_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            if line_stride == row_bytes:
+                uyvy = frame.reshape(height, width // 2, 4)
+            else:
+                rows = frame.reshape(height, line_stride)
+                uyvy = rows[:, :row_bytes].reshape(height, width // 2, 4)
+
+            luma_shape = (height, width)
+            if self._false_color_luma_buffer is None or self._false_color_luma_shape != luma_shape:
+                self._false_color_luma_buffer = np.empty(luma_shape, dtype=np.uint8)
+                self._false_color_luma_shape = luma_shape
+
+            luma_u8 = self._false_color_luma_buffer
+            luma_u8[:, 0::2] = uyvy[:, :, 1]
+            luma_u8[:, 1::2] = uyvy[:, :, 3]
+            return self._waveform_from_luma_u8(luma_u8)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Waveform UYVY conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected waveform UYVY conversion error")
+            return None
+
+    def _vectorscope_from_uv_u8(self, u_u8, v_u8, width: int, height: int) -> bytes | None:
+        """Render vectorscope density plot from U/V planes."""
+        try:
+            import numpy as np
+
+            plot_shape = (height, width)
+            if (
+                self._vectorscope_plot_buffer is None
+                or self._vectorscope_plot_shape != plot_shape
+            ):
+                self._vectorscope_plot_buffer = np.zeros(plot_shape, dtype=np.uint16)
+                self._vectorscope_plot_shape = plot_shape
+            else:
+                self._vectorscope_plot_buffer.fill(0)
+
+            radius = max(1.0, min(width, height) * 0.42)
+            center_x = (width - 1) * 0.5
+            center_y = (height - 1) * 0.5
+
+            # Chroma values in studio range (16-240) map to +/-112 from center.
+            u_centered = u_u8.astype(np.float32) - 128.0
+            v_centered = v_u8.astype(np.float32) - 128.0
+
+            # Downsample large frames to reduce per-frame plotting cost.
+            sample_step = 1
+            if width * height > 640 * 360:
+                sample_step = 2
+            if width * height > 1280 * 720:
+                sample_step = 3
+
+            if sample_step > 1:
+                u_centered = u_centered[::sample_step, ::sample_step]
+                v_centered = v_centered[::sample_step, ::sample_step]
+
+            x_plot = np.rint(center_x + (u_centered / 112.0) * radius).astype(np.int32)
+            y_plot = np.rint(center_y - (v_centered / 112.0) * radius).astype(np.int32)
+            np.clip(x_plot, 0, width - 1, out=x_plot)
+            np.clip(y_plot, 0, height - 1, out=y_plot)
+
+            np.add.at(self._vectorscope_plot_buffer, (y_plot.ravel(), x_plot.ravel()), 1)
+
+            # Slightly thicken plotted points to improve readability.
+            trace = self._vectorscope_plot_buffer.astype(np.uint32, copy=True)
+            if height > 1:
+                trace[1:, :] = np.maximum(trace[1:, :], self._vectorscope_plot_buffer[:-1, :])
+                trace[:-1, :] = np.maximum(trace[:-1, :], self._vectorscope_plot_buffer[1:, :])
+            if width > 1:
+                trace[:, 1:] = np.maximum(trace[:, 1:], self._vectorscope_plot_buffer[:, :-1])
+                trace[:, :-1] = np.maximum(trace[:, :-1], self._vectorscope_plot_buffer[:, 1:])
+
+            peak = int(trace.max())
+            if peak <= 0:
+                return None
+
+            norm = np.log1p(trace) / np.log1p(peak)
+            brightness = np.power(norm, 0.6)
+            brightness_u8 = (brightness * 255.0).astype(np.uint8)
+
+            trace_present = trace > 0
+            brightness_u8[trace_present] = np.maximum(brightness_u8[trace_present], 80)
+
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            rgb[:, :, 1] = brightness_u8
+            rgb[:, :, 0] = brightness_u8 // 4
+            rgb[:, :, 2] = brightness_u8
+            return rgb.tobytes()
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Vectorscope conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected vectorscope conversion error")
+            return None
+
+    def _vectorscope_from_rgbx(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+        *,
+        is_bgra: bool,
+    ) -> bytes | None:
+        """Convert BGRA/RGBA frame bytes to vectorscope RGB888 bytes."""
+        try:
+            import numpy as np
+
+            pixel_bytes = width * 4
+            if line_stride < pixel_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            rows = frame.reshape(height, line_stride)
+            rgbx = rows[:, :pixel_bytes].reshape(height, width, 4)
+
+            if is_bgra:
+                red = rgbx[:, :, 2].astype(np.int16)
+                green = rgbx[:, :, 1].astype(np.int16)
+                blue = rgbx[:, :, 0].astype(np.int16)
+            else:
+                red = rgbx[:, :, 0].astype(np.int16)
+                green = rgbx[:, :, 1].astype(np.int16)
+                blue = rgbx[:, :, 2].astype(np.int16)
+
+            # Approximate Rec.709 full-range RGB to digital chroma planes.
+            u_u8 = np.clip(128 + ((-29 * red - 99 * green + 128 * blue) >> 8), 16, 240).astype(
+                np.uint8
+            )
+            v_u8 = np.clip(128 + ((128 * red - 116 * green - 12 * blue) >> 8), 16, 240).astype(
+                np.uint8
+            )
+
+            return self._vectorscope_from_uv_u8(u_u8, v_u8, width, height)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Vectorscope RGBX conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected vectorscope RGBX conversion error")
+            return None
+
+    def _vectorscope_from_uyvy(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+    ) -> bytes | None:
+        """Convert UYVY frame bytes to vectorscope RGB888 bytes using shared U/V planes."""
+        try:
+            import numpy as np
+
+            row_bytes = width * 2
+            if line_stride < row_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            if line_stride == row_bytes:
+                uyvy = frame.reshape(height, width // 2, 4)
+            else:
+                rows = frame.reshape(height, line_stride)
+                uyvy = rows[:, :row_bytes].reshape(height, width // 2, 4)
+
+            u_pairs = uyvy[:, :, 0]
+            v_pairs = uyvy[:, :, 2]
+
+            u_u8 = np.repeat(u_pairs, 2, axis=1)
+            v_u8 = np.repeat(v_pairs, 2, axis=1)
+
+            return self._vectorscope_from_uv_u8(u_u8, v_u8, width, height)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Vectorscope UYVY conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected vectorscope UYVY conversion error")
+            return None
+
+    def _annotate_vectorscope_image(self, image: QImage) -> None:
+        """Draw broadcast-style vectorscope graticule, targets, and skin tone line."""
+        try:
+            width = image.width()
+            height = image.height()
+            if width <= 0 or height <= 0:
+                return
+
+            center_x = (width - 1) * 0.5
+            center_y = (height - 1) * 0.5
+            radius = max(1.0, min(width, height) * 0.42)
+
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+            grid_pen = QPen(QColor(150, 150, 150, 170))
+            grid_pen.setWidth(1)
+            painter.setPen(grid_pen)
+            painter.drawEllipse(
+                int(round(center_x - radius)),
+                int(round(center_y - radius)),
+                int(round(radius * 2.0)),
+                int(round(radius * 2.0)),
+            )
+
+            inner_radius = radius * 0.75
+            painter.drawEllipse(
+                int(round(center_x - inner_radius)),
+                int(round(center_y - inner_radius)),
+                int(round(inner_radius * 2.0)),
+                int(round(inner_radius * 2.0)),
+            )
+
+            axis_pen = QPen(QColor(170, 170, 170, 180))
+            axis_pen.setWidth(1)
+            painter.setPen(axis_pen)
+            painter.drawLine(int(round(center_x - radius)), int(round(center_y)), int(round(center_x + radius)), int(round(center_y)))
+            painter.drawLine(int(round(center_x)), int(round(center_y - radius)), int(round(center_x)), int(round(center_y + radius)))
+
+            skin_angle_deg = 123.0
+            skin_angle_rad = math.radians(skin_angle_deg)
+            skin_x = center_x + radius * math.cos(skin_angle_rad)
+            skin_y = center_y - radius * math.sin(skin_angle_rad)
+            skin_pen = QPen(QColor(255, 190, 120, 210))
+            skin_pen.setWidth(2)
+            painter.setPen(skin_pen)
+            painter.drawLine(int(round(center_x)), int(round(center_y)), int(round(skin_x)), int(round(skin_y)))
+
+            # Convert RGB reference targets to U/V using same math as conversion path.
+            def rgb_to_uv(red: int, green: int, blue: int) -> tuple[float, float]:
+                u_val = 128 + (((-29 * red) - (99 * green) + (128 * blue)) / 256.0)
+                v_val = 128 + (((128 * red) - (116 * green) - (12 * blue)) / 256.0)
+                return u_val, v_val
+
+            targets = [
+                ("R", QColor(255, 90, 90), (255, 0, 0)),
+                ("M", QColor(255, 110, 255), (255, 0, 255)),
+                ("B", QColor(100, 150, 255), (0, 0, 255)),
+                ("C", QColor(110, 255, 255), (0, 255, 255)),
+                ("G", QColor(110, 255, 110), (0, 255, 0)),
+                ("Y", QColor(255, 255, 110), (255, 255, 0)),
+            ]
+
+            font = painter.font()
+            font.setPointSize(max(7, min(12, min(width, height) // 42)))
+            painter.setFont(font)
+
+            for label, color, rgb in targets:
+                u_val, v_val = rgb_to_uv(rgb[0], rgb[1], rgb[2])
+                marker_x = center_x + ((u_val - 128.0) / 112.0) * radius
+                marker_y = center_y - ((v_val - 128.0) / 112.0) * radius
+
+                marker_pen = QPen(color)
+                marker_pen.setWidth(2)
+                painter.setPen(marker_pen)
+                painter.drawEllipse(
+                    int(round(marker_x - 7)),
+                    int(round(marker_y - 7)),
+                    14,
+                    14,
+                )
+
+                painter.drawText(
+                    int(round(marker_x + 9)),
+                    int(round(marker_y - 9)),
+                    label,
+                )
+
+            painter.end()
+        except Exception:
+            logger.exception("Vectorscope annotation error")
+
+    def _false_color_from_rgbx(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+        *,
+        is_bgra: bool,
+    ) -> bytes | None:
+        """Convert BGRA/RGBA frame bytes to false color RGB888 bytes."""
+        try:
+            import numpy as np
+
+            pixel_bytes = width * 4
+            if line_stride < pixel_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            rows = frame.reshape(height, line_stride)
+            rgbx = rows[:, :pixel_bytes].reshape(height, width, 4)
+
+            if is_bgra:
+                blue = rgbx[:, :, 0].astype(np.uint16)
+                green = rgbx[:, :, 1].astype(np.uint16)
+                red = rgbx[:, :, 2].astype(np.uint16)
+            else:
+                red = rgbx[:, :, 0].astype(np.uint16)
+                green = rgbx[:, :, 1].astype(np.uint16)
+                blue = rgbx[:, :, 2].astype(np.uint16)
+
+            # Integer approximation of Rec.709 luma coefficients.
+            luma_u8 = ((54 * red + 183 * green + 19 * blue) >> 8).astype(np.uint8)
+            return self._map_false_color_from_luma_u8(luma_u8)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("False color RGBX conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected false color RGBX conversion error")
+            return None
+
+    def _false_color_from_uyvy(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+    ) -> bytes | None:
+        """Convert UYVY frame bytes to false color RGB888 bytes using Y plane luma."""
+        try:
+            import numpy as np
+
+            row_bytes = width * 2
+            if line_stride < row_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+
+            if line_stride == row_bytes:
+                uyvy = frame.reshape(height, width // 2, 4)
+            else:
+                rows = frame.reshape(height, line_stride)
+                uyvy = rows[:, :row_bytes].reshape(height, width // 2, 4)
+
+            luma_shape = (height, width)
+            if self._false_color_luma_buffer is None or self._false_color_luma_shape != luma_shape:
+                self._false_color_luma_buffer = np.empty(luma_shape, dtype=np.uint8)
+                self._false_color_luma_shape = luma_shape
+
+            luma_u8 = self._false_color_luma_buffer
+            luma_u8[:, 0::2] = uyvy[:, :, 1]
+            luma_u8[:, 1::2] = uyvy[:, :, 3]
+
+            return self._map_false_color_from_luma_u8(luma_u8)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("False color UYVY conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected false color UYVY conversion error")
             return None
 
     def _uyvy_to_rgb(self, uyvy_data: bytes, width: int, height: int, line_stride: int) -> bytes:
@@ -1479,6 +2092,8 @@ class NDIVideoThread(QThread):
             self._rgb_buffer_shape = None
             self._uyvy_work_buffers = None
             self._uyvy_work_shape = None
+            self._vectorscope_plot_buffer = None
+            self._vectorscope_plot_shape = None
         except Exception:
             # Catch ANY exception during cleanup
             logger.exception(f"[{self.source_name}] Unexpected error during cleanup")

@@ -16,10 +16,13 @@ import importlib
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 _ndilib_module = None
+_ndilib_lock = threading.Lock()
+_dll_directory_handles: list = []
 
 # On Windows, add the directory containing NDI DLLs to the DLL search path
 # This is necessary for the compiled .pyd extension to find Processing.NDI.Lib.x64.dll
@@ -69,7 +72,8 @@ if os.name == "nt" and sys.version_info >= (3, 8):
     # Add all found paths to DLL search
     for path in dll_paths:
         with contextlib.suppress(Exception):
-            os.add_dll_directory(str(path))
+            handle = os.add_dll_directory(str(path))
+            _dll_directory_handles.append(handle)
 
 
 def _load_ndilib():
@@ -78,23 +82,27 @@ def _load_ndilib():
     if _ndilib_module is not None:
         return _ndilib_module
 
-    try:
-        ndilib = importlib.import_module(".NDIlib", __name__)
+    with _ndilib_lock:
+        if _ndilib_module is not None:
+            return _ndilib_module
 
-        _ndilib_module = ndilib
-        return _ndilib_module
-    except ImportError as e:
-        logger.debug(
-            f"NDI bindings not available: {e}\n"
-            "This usually means:\n"
-            "1. The NDI SDK is not installed (download from https://ndi.tv/tools/)\n"
-            "2. The compiled NDI wrapper (.pyd/.so) is not compatible with your Python version\n"
-            "3. DLL dependencies are missing on Windows"
-        )
-        raise ImportError(
-            f"NDI SDK bindings not available: {e}. "
-            "Install NDI Runtime from https://ndi.tv/tools/ or build the wrapper from source."
-        ) from e
+        try:
+            ndilib = importlib.import_module(".NDIlib", __name__)
+
+            _ndilib_module = ndilib
+            return _ndilib_module
+        except ImportError as e:
+            logger.debug(
+                f"NDI bindings not available: {e}\n"
+                "This usually means:\n"
+                "1. The NDI SDK is not installed (download from https://ndi.tv/tools/)\n"
+                "2. The compiled NDI wrapper (.pyd/.so) is not compatible with your Python version\n"
+                "3. DLL dependencies are missing on Windows"
+            )
+            raise ImportError(
+                f"NDI SDK bindings not available: {e}. "
+                "Install NDI Runtime from https://ndi.tv/tools/ or build the wrapper from source."
+            ) from e
 
 
 def __getattr__(name: str):

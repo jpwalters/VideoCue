@@ -156,6 +156,9 @@ class MainWindow(QMainWindow):
         # Update check thread (stored to prevent garbage collection)
         self._update_check_thread = None
         self._update_progress_dialog = None
+        self.false_color_action = None
+        self.waveform_action = None
+        self.vectorscope_action = None
 
         # Setup UI
         self.init_ui()
@@ -323,6 +326,28 @@ class MainWindow(QMainWindow):
             )
             format_group.addAction(action)
             color_format_menu.addAction(action)
+
+        # False color and waveform scope toggles (mutually exclusive live view modes)
+        self.false_color_action = QAction(UIStrings.MENU_FALSE_COLOR, self)
+        self.false_color_action.setCheckable(True)
+        self.false_color_action.setToolTip(UIStrings.TOOLTIP_FALSE_COLOR)
+        self.false_color_action.setChecked(self.config.get_ndi_false_color_enabled())
+        self.false_color_action.triggered.connect(self.on_false_color_toggled)
+        view_menu.addAction(self.false_color_action)
+
+        self.waveform_action = QAction(UIStrings.MENU_WAVEFORM, self)
+        self.waveform_action.setCheckable(True)
+        self.waveform_action.setToolTip(UIStrings.TOOLTIP_WAVEFORM)
+        self.waveform_action.setChecked(self.config.get_ndi_waveform_enabled())
+        self.waveform_action.triggered.connect(self.on_waveform_toggled)
+        view_menu.addAction(self.waveform_action)
+
+        self.vectorscope_action = QAction(UIStrings.MENU_VECTORSCOPE, self)
+        self.vectorscope_action.setCheckable(True)
+        self.vectorscope_action.setToolTip(UIStrings.TOOLTIP_VECTORSCOPE)
+        self.vectorscope_action.setChecked(self.config.get_ndi_vectorscope_enabled())
+        self.vectorscope_action.triggered.connect(self.on_vectorscope_toggled)
+        view_menu.addAction(self.vectorscope_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -1684,13 +1709,8 @@ class MainWindow(QMainWindow):
             # Update preference
             self.config.set_ndi_bandwidth(bandwidth)
 
-            # Restart video on all cameras to apply new bandwidth setting
-            for camera in self.cameras:
-                if camera.ndi_thread and camera.ndi_thread.isRunning():
-                    # Stop current video
-                    camera.stop_video()
-                    # Small delay to ensure thread fully stopped
-                    QTimer.singleShot(100, camera.start_video)
+            # Restart active videos to apply new bandwidth setting
+            self._restart_active_video_streams()
 
             logger.info(f"NDI bandwidth set to {bandwidth}")
         except Exception:
@@ -1702,17 +1722,115 @@ class MainWindow(QMainWindow):
             # Update preference
             self.config.set_ndi_color_format(color_format)
 
-            # Restart video on all cameras to apply new color format
-            for camera in self.cameras:
-                if camera.ndi_thread and camera.ndi_thread.isRunning():
-                    # Stop current video
-                    camera.stop_video()
-                    # Small delay to ensure thread fully stopped
-                    QTimer.singleShot(100, camera.start_video)
+            # Restart active videos to apply new color format
+            self._restart_active_video_streams()
 
             logger.info(f"NDI color format set to {color_format}")
         except Exception:
             logger.exception("Error handling color format change")
+
+    def on_false_color_toggled(self, enabled: bool) -> None:
+        """Handle NDI false color mode toggle"""
+        try:
+            if enabled:
+                self.config.set_ndi_waveform_enabled(False)
+                self.config.set_ndi_vectorscope_enabled(False)
+                if self.waveform_action and self.waveform_action.isChecked():
+                    self.waveform_action.blockSignals(True)
+                    self.waveform_action.setChecked(False)
+                    self.waveform_action.blockSignals(False)
+                if self.vectorscope_action and self.vectorscope_action.isChecked():
+                    self.vectorscope_action.blockSignals(True)
+                    self.vectorscope_action.setChecked(False)
+                    self.vectorscope_action.blockSignals(False)
+
+            # Update preference
+            self.config.set_ndi_false_color_enabled(enabled)
+
+            # Apply immediately to active streams (no restart required)
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    camera.ndi_thread.waveform_enabled = False
+                    camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.false_color_enabled = enabled
+
+            logger.info(f"NDI false color mode set to {enabled}")
+        except Exception:
+            logger.exception("Error handling false color toggle")
+
+    def on_waveform_toggled(self, enabled: bool) -> None:
+        """Handle NDI waveform scope mode toggle"""
+        try:
+            if enabled:
+                self.config.set_ndi_false_color_enabled(False)
+                self.config.set_ndi_vectorscope_enabled(False)
+                if self.false_color_action and self.false_color_action.isChecked():
+                    self.false_color_action.blockSignals(True)
+                    self.false_color_action.setChecked(False)
+                    self.false_color_action.blockSignals(False)
+                if self.vectorscope_action and self.vectorscope_action.isChecked():
+                    self.vectorscope_action.blockSignals(True)
+                    self.vectorscope_action.setChecked(False)
+                    self.vectorscope_action.blockSignals(False)
+
+            # Update preference
+            self.config.set_ndi_waveform_enabled(enabled)
+
+            # Apply immediately to active streams (no restart required)
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    camera.ndi_thread.false_color_enabled = False
+                    camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.waveform_enabled = enabled
+
+            logger.info(f"NDI waveform scope mode set to {enabled}")
+        except Exception:
+            logger.exception("Error handling waveform toggle")
+
+    def on_vectorscope_toggled(self, enabled: bool) -> None:
+        """Handle NDI vectorscope mode toggle"""
+        try:
+            if enabled:
+                self.config.set_ndi_false_color_enabled(False)
+                self.config.set_ndi_waveform_enabled(False)
+                if self.false_color_action and self.false_color_action.isChecked():
+                    self.false_color_action.blockSignals(True)
+                    self.false_color_action.setChecked(False)
+                    self.false_color_action.blockSignals(False)
+                if self.waveform_action and self.waveform_action.isChecked():
+                    self.waveform_action.blockSignals(True)
+                    self.waveform_action.setChecked(False)
+                    self.waveform_action.blockSignals(False)
+
+            # Update preference
+            self.config.set_ndi_vectorscope_enabled(enabled)
+
+            # Apply immediately to active streams (no restart required)
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    camera.ndi_thread.false_color_enabled = False
+                    camera.ndi_thread.waveform_enabled = False
+                    camera.ndi_thread.vectorscope_enabled = enabled
+
+            logger.info(f"NDI vectorscope mode set to {enabled}")
+        except Exception:
+            logger.exception("Error handling vectorscope toggle")
+
+    def _restart_active_video_streams(self) -> None:
+        """Restart running camera video streams with staggered startup to reduce NDI contention."""
+        active_cameras = [
+            camera for camera in self.cameras if camera.ndi_thread and camera.ndi_thread.isRunning()
+        ]
+
+        if not active_cameras:
+            return
+
+        for camera in active_cameras:
+            camera.stop_video()
+
+        start_delay_ms = 120
+        for index, camera in enumerate(active_cameras):
+            QTimer.singleShot(start_delay_ms * (index + 1), camera.start_video)
 
     def on_file_logging_toggled(self, checked: bool) -> None:
         """Handle file logging preference toggle"""
