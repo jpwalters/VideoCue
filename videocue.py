@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import QEvent, Qt  # type: ignore
@@ -29,6 +30,61 @@ except ImportError:
 
 from videocue.ui.main_window import MainWindow
 from videocue.utils import get_app_data_dir, resource_path
+
+RESTART_REQUEST_WITH_NDI_EXIT_CODE = 86
+RESTART_REQUEST_WITHOUT_NDI_EXIT_CODE = 87
+
+
+def _write_crash_log(
+    reason: str,
+    exc_type=None,
+    exc_value=None,
+    exc_traceback=None,
+    extra_details: str = "",
+) -> None:
+    """Write crash diagnostics to a dedicated always-on crash log file."""
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    process_role = os.environ.get("VIDEOCUE_PROCESS_ROLE", "direct")
+    ndi_disabled = os.environ.get("VIDEOCUE_DISABLE_NDI") == "1"
+
+    log_dir = get_app_data_dir() / "logs"
+    crash_log_path = log_dir / "videocue-crash.log"
+
+    lines = [
+        "=" * 80,
+        f"Timestamp: {timestamp}",
+        f"Reason: {reason}",
+        f"PID: {os.getpid()}",
+        f"Process role: {process_role}",
+        f"NDI disabled for session: {ndi_disabled}",
+        f"Command line: {' '.join(sys.argv)}",
+    ]
+
+    if exc_type is not None:
+        lines.append(f"Exception type: {getattr(exc_type, '__name__', str(exc_type))}")
+    if exc_value is not None:
+        lines.append(f"Exception message: {exc_value}")
+
+    if extra_details:
+        lines.extend(["", "Extra details:", extra_details])
+
+    if exc_type is not None and exc_value is not None and exc_traceback is not None:
+        lines.extend(
+            [
+                "",
+                "Traceback:",
+                "".join(traceback.format_exception(exc_type, exc_value, exc_traceback)),
+            ]
+        )
+
+    lines.append("")
+
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with crash_log_path.open("a", encoding="utf-8") as crash_file:
+            crash_file.write("\n".join(lines))
+    except Exception as write_error:
+        print(f"Failed to write crash log: {write_error}", file=sys.stderr)
 
 
 def _apply_popup_window_policy(dialog: QDialog) -> None:
@@ -68,6 +124,100 @@ def _show_native_error_dialog(title: str, message: str) -> None:
             pass
 
     print(f"{title}\n{message}", file=sys.stderr)
+
+
+def _show_native_restart_dialog(title: str, message: str) -> str:
+    """Show native restart options and return selected action."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            MB_ICONERROR = 0x00000010
+            MB_YESNOCANCEL = 0x00000003
+            IDYES = 6
+            IDNO = 7
+
+            full_message = (
+                f"{message}\n\n"
+                f"Yes = {UIStrings.BTN_RESTART_WITH_NDI}\n"
+                f"No = {UIStrings.BTN_RESTART_WITHOUT_NDI}\n"
+                f"Cancel = {UIStrings.BTN_EXIT_APP}"
+            )
+
+            result = ctypes.windll.user32.MessageBoxW(
+                0, full_message, title, MB_YESNOCANCEL | MB_ICONERROR
+            )
+
+            if result == IDYES:
+                return "restart_with_ndi"
+            if result == IDNO:
+                return "restart_without_ndi"
+            return "exit"
+        except Exception:
+            pass
+
+    print(f"{title}\n{message}", file=sys.stderr)
+    return "exit"
+
+
+def _request_restart(disable_ndi: bool) -> None:
+    """Exit the app with a supervisor restart request exit code."""
+    exit_code = (
+        RESTART_REQUEST_WITHOUT_NDI_EXIT_CODE
+        if disable_ndi
+        else RESTART_REQUEST_WITH_NDI_EXIT_CODE
+    )
+
+    app = QApplication.instance()
+    if app is not None:
+        app.exit(exit_code)
+
+    raise SystemExit(exit_code)
+
+
+def _show_exception_restart_dialog(
+    title: str, exc_type: type[BaseException], exc_value: BaseException, detailed_trace: str
+) -> str:
+    """Show exception details and restart choices."""
+    msg_box = QMessageBox()
+    msg_box.setIcon(QMessageBox.Icon.Critical)
+    msg_box.setWindowTitle(title)
+
+    message_text = str(exc_value).strip() or "(no message)"
+    summary = "\n".join(
+        [
+            UIStrings.ERROR_UNHANDLED_EXCEPTION,
+            UIStrings.ERROR_EXCEPTION_TYPE.format(exception_type=exc_type.__name__),
+            UIStrings.ERROR_EXCEPTION_MESSAGE.format(message=message_text),
+            UIStrings.ERROR_RESTART_PROMPT,
+        ]
+    )
+    msg_box.setText(summary)
+    msg_box.setDetailedText(detailed_trace)
+
+    restart_with_ndi = msg_box.addButton(
+        UIStrings.BTN_RESTART_WITH_NDI,
+        QMessageBox.ButtonRole.AcceptRole,
+    )
+    restart_without_ndi = msg_box.addButton(
+        UIStrings.BTN_RESTART_WITHOUT_NDI,
+        QMessageBox.ButtonRole.DestructiveRole,
+    )
+    exit_button = msg_box.addButton(
+        UIStrings.BTN_EXIT_APP,
+        QMessageBox.ButtonRole.RejectRole,
+    )
+    msg_box.setDefaultButton(restart_with_ndi)
+    msg_box.exec()
+
+    clicked = msg_box.clickedButton()
+    if clicked == restart_with_ndi:
+        return "restart_with_ndi"
+    if clicked == restart_without_ndi:
+        return "restart_without_ndi"
+    if clicked == exit_button:
+        return "exit"
+    return "exit"
 
 
 def _is_abnormal_exit(exit_code: int) -> bool:
@@ -111,47 +261,63 @@ def _run_with_supervisor() -> int:
 
         return subprocess.run(command, env=child_env, check=False)
 
-    try:
-        completed = run_child(disable_ndi=False)
-    except Exception as e:
-        _show_native_error_dialog(
-            UIStrings.ERROR_CRITICAL,
-            f"{UIStrings.ERROR_APP_LAUNCH_FAILED}: {UIStrings.APP_NAME}.\n\n{e}",
-        )
-        return 1
+    disable_ndi_for_next_run = False
 
-    exit_code = completed.returncode
-    if _is_abnormal_exit(exit_code):
-        _show_native_error_dialog(
-            UIStrings.ERROR_CRITICAL,
-            UIStrings.ERROR_APP_RESTARTING_SAFE_MODE,
-        )
-
+    while True:
         try:
-            recovery_run = run_child(disable_ndi=True)
-            recovery_exit = recovery_run.returncode
-            if not _is_abnormal_exit(recovery_exit):
-                return recovery_exit
-            exit_code = recovery_exit
+            completed = run_child(disable_ndi=disable_ndi_for_next_run)
         except Exception as e:
+            _write_crash_log(
+                "Supervisor failed launching child process",
+                type(e),
+                e,
+                e.__traceback__,
+            )
             _show_native_error_dialog(
                 UIStrings.ERROR_CRITICAL,
                 f"{UIStrings.ERROR_APP_LAUNCH_FAILED}: {UIStrings.APP_NAME}.\n\n{e}",
             )
             return 1
 
-        log_path = get_app_data_dir() / "logs" / "videocue.log"
-        _show_native_error_dialog(
-            UIStrings.ERROR_CRITICAL,
-            (
-                f"{UIStrings.ERROR_APP_CRASHED}\n\n"
-                f"{UIStrings.ERROR_APP_EXIT_CODE.format(code=exit_code)}\n"
-                f"{UIStrings.ERROR_APP_LOG_PATH.format(path=log_path)}\n\n"
-                f"{UIStrings.ERROR_APP_CRASH_TROUBLESHOOT}"
-            ),
-        )
+        exit_code = completed.returncode
 
-    return exit_code
+        if exit_code == RESTART_REQUEST_WITH_NDI_EXIT_CODE:
+            disable_ndi_for_next_run = False
+            continue
+
+        if exit_code == RESTART_REQUEST_WITHOUT_NDI_EXIT_CODE:
+            disable_ndi_for_next_run = True
+            continue
+
+        if _is_abnormal_exit(exit_code):
+            log_path = get_app_data_dir() / "logs" / "videocue.log"
+            _write_crash_log(
+                "Supervisor detected abnormal child exit",
+                extra_details=(
+                    f"Child exit code: {exit_code}\n"
+                    f"Child launch mode NDI disabled: {disable_ndi_for_next_run}"
+                ),
+            )
+            action = _show_native_restart_dialog(
+                UIStrings.ERROR_CRITICAL,
+                (
+                    f"{UIStrings.ERROR_NATIVE_CRASH_PROMPT}\n\n"
+                    f"{UIStrings.ERROR_APP_EXIT_CODE.format(code=exit_code)}\n"
+                    f"{UIStrings.ERROR_APP_LOG_PATH.format(path=log_path)}"
+                ),
+            )
+
+            if action == "restart_with_ndi":
+                disable_ndi_for_next_run = False
+                continue
+
+            if action == "restart_without_ndi":
+                disable_ndi_for_next_run = True
+                continue
+
+            return exit_code
+
+        return exit_code
 
 
 def setup_logging(file_logging_enabled: bool = False, process_role: str = "direct") -> None:
@@ -212,6 +378,7 @@ def exception_hook(exc_type, exc_value, exc_traceback):
     # Log the exception
     logger = logging.getLogger(__name__)
     logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_traceback))
+    _write_crash_log("Unhandled Python exception", exc_type, exc_value, exc_traceback)
 
     # Format the exception
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
@@ -223,13 +390,15 @@ def exception_hook(exc_type, exc_value, exc_traceback):
 
     # Show error dialog to user
     try:
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Icon.Critical)
-        msg_box.setWindowTitle(error_title)
-        msg_box.setText(UIStrings.ERROR_GENERIC)
-        msg_box.setDetailedText(error_msg)
-        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg_box.exec()
+        action = _show_exception_restart_dialog(error_title, exc_type, exc_value, error_msg)
+        if action == "restart_with_ndi":
+            _request_restart(disable_ndi=False)
+        elif action == "restart_without_ndi":
+            _request_restart(disable_ndi=True)
+        else:
+            app = QApplication.instance()
+            if app is not None:
+                app.exit(1)
     except Exception:
         # If even the error dialog fails, just log it
         logger.exception("Failed to show error dialog")
@@ -260,16 +429,25 @@ class ExceptionHandlingApplication(QApplication):
         except Exception as e:
             error_msg = f"Exception in Qt event handler: {str(e)}"
             self.logger.exception(error_msg)
+            exc_type = type(e)
+            _write_crash_log("Qt event handler exception", exc_type, e, e.__traceback__)
 
             # Show error dialog
             try:
-                msg_box = QMessageBox()
-                msg_box.setIcon(QMessageBox.Icon.Critical)
-                msg_box.setWindowTitle(UIStrings.ERROR_QT_EVENT)
-                msg_box.setText(UIStrings.ERROR_QT_EVENT_MSG)
-                msg_box.setDetailedText(f"{error_msg}\n\n{traceback.format_exc()}")
-                msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
-                msg_box.exec()
+                action = _show_exception_restart_dialog(
+                    UIStrings.ERROR_QT_EVENT,
+                    exc_type,
+                    e,
+                    f"{error_msg}\n\n{traceback.format_exc()}",
+                )
+                if action == "restart_with_ndi":
+                    _request_restart(disable_ndi=False)
+                elif action == "restart_without_ndi":
+                    _request_restart(disable_ndi=True)
+                else:
+                    app = QApplication.instance()
+                    if app is not None:
+                        app.exit(1)
             except Exception:
                 self.logger.exception("Failed to show Qt event error dialog")
 
@@ -448,6 +626,7 @@ def main() -> int:
     except Exception as e:
         error_msg = f"Failed to initialize application:\n{str(e)}\n\n{traceback.format_exc()}"
         logger.critical("Startup error", exc_info=True)
+        _write_crash_log("Application startup failure", type(e), e, e.__traceback__)
         QMessageBox.critical(None, "Startup Error", error_msg)
         if instance_lock:
             instance_lock.release()
