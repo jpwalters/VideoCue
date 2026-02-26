@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
         self.waveform_action = None
         self.vectorscope_action = None
         self.rgb_parade_action = None
+        self.histogram_action = None
 
         # Setup UI
         self.init_ui()
@@ -359,6 +360,13 @@ class MainWindow(QMainWindow):
         self.rgb_parade_action.setChecked(self.config.get_ndi_rgb_parade_enabled())
         self.rgb_parade_action.triggered.connect(self.on_rgb_parade_toggled)
         scopes_menu.addAction(self.rgb_parade_action)
+
+        self.histogram_action = QAction(UIStrings.MENU_HISTOGRAM, self)
+        self.histogram_action.setCheckable(True)
+        self.histogram_action.setToolTip(UIStrings.TOOLTIP_HISTOGRAM)
+        self.histogram_action.setChecked(self.config.get_ndi_histogram_enabled())
+        self.histogram_action.triggered.connect(self.on_histogram_toggled)
+        scopes_menu.addAction(self.histogram_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -1747,6 +1755,7 @@ class MainWindow(QMainWindow):
                 self.config.set_ndi_waveform_enabled(False)
                 self.config.set_ndi_vectorscope_enabled(False)
                 self.config.set_ndi_rgb_parade_enabled(False)
+                self.config.set_ndi_histogram_enabled(False)
                 if self.waveform_action and self.waveform_action.isChecked():
                     self.waveform_action.blockSignals(True)
                     self.waveform_action.setChecked(False)
@@ -1759,6 +1768,10 @@ class MainWindow(QMainWindow):
                     self.rgb_parade_action.blockSignals(True)
                     self.rgb_parade_action.setChecked(False)
                     self.rgb_parade_action.blockSignals(False)
+                if self.histogram_action and self.histogram_action.isChecked():
+                    self.histogram_action.blockSignals(True)
+                    self.histogram_action.setChecked(False)
+                    self.histogram_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_false_color_enabled(enabled)
@@ -1769,6 +1782,7 @@ class MainWindow(QMainWindow):
                     camera.ndi_thread.waveform_enabled = False
                     camera.ndi_thread.vectorscope_enabled = False
                     camera.ndi_thread.rgb_parade_enabled = False
+                    camera.ndi_thread.histogram_enabled = False
                     camera.ndi_thread.false_color_enabled = enabled
 
             logger.info(f"NDI false color mode set to {enabled}")
@@ -1782,6 +1796,7 @@ class MainWindow(QMainWindow):
                 self.config.set_ndi_false_color_enabled(False)
                 self.config.set_ndi_vectorscope_enabled(False)
                 self.config.set_ndi_rgb_parade_enabled(False)
+                self.config.set_ndi_histogram_enabled(False)
                 if self.false_color_action and self.false_color_action.isChecked():
                     self.false_color_action.blockSignals(True)
                     self.false_color_action.setChecked(False)
@@ -1794,6 +1809,10 @@ class MainWindow(QMainWindow):
                     self.rgb_parade_action.blockSignals(True)
                     self.rgb_parade_action.setChecked(False)
                     self.rgb_parade_action.blockSignals(False)
+                if self.histogram_action and self.histogram_action.isChecked():
+                    self.histogram_action.blockSignals(True)
+                    self.histogram_action.setChecked(False)
+                    self.histogram_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_waveform_enabled(enabled)
@@ -1804,6 +1823,7 @@ class MainWindow(QMainWindow):
                     camera.ndi_thread.false_color_enabled = False
                     camera.ndi_thread.vectorscope_enabled = False
                     camera.ndi_thread.rgb_parade_enabled = False
+                    camera.ndi_thread.histogram_enabled = False
                     camera.ndi_thread.waveform_enabled = enabled
 
             logger.info(f"NDI waveform scope mode set to {enabled}")
@@ -1817,6 +1837,7 @@ class MainWindow(QMainWindow):
                 self.config.set_ndi_false_color_enabled(False)
                 self.config.set_ndi_waveform_enabled(False)
                 self.config.set_ndi_rgb_parade_enabled(False)
+                self.config.set_ndi_histogram_enabled(False)
                 if self.false_color_action and self.false_color_action.isChecked():
                     self.false_color_action.blockSignals(True)
                     self.false_color_action.setChecked(False)
@@ -1829,6 +1850,10 @@ class MainWindow(QMainWindow):
                     self.rgb_parade_action.blockSignals(True)
                     self.rgb_parade_action.setChecked(False)
                     self.rgb_parade_action.blockSignals(False)
+                if self.histogram_action and self.histogram_action.isChecked():
+                    self.histogram_action.blockSignals(True)
+                    self.histogram_action.setChecked(False)
+                    self.histogram_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_vectorscope_enabled(enabled)
@@ -1839,6 +1864,7 @@ class MainWindow(QMainWindow):
                     camera.ndi_thread.false_color_enabled = False
                     camera.ndi_thread.waveform_enabled = False
                     camera.ndi_thread.rgb_parade_enabled = False
+                    camera.ndi_thread.histogram_enabled = False
                     camera.ndi_thread.vectorscope_enabled = enabled
 
             logger.info(f"NDI vectorscope mode set to {enabled}")
@@ -1852,6 +1878,7 @@ class MainWindow(QMainWindow):
                 self.config.set_ndi_false_color_enabled(False)
                 self.config.set_ndi_waveform_enabled(False)
                 self.config.set_ndi_vectorscope_enabled(False)
+                self.config.set_ndi_histogram_enabled(False)
                 if self.false_color_action and self.false_color_action.isChecked():
                     self.false_color_action.blockSignals(True)
                     self.false_color_action.setChecked(False)
@@ -1864,6 +1891,10 @@ class MainWindow(QMainWindow):
                     self.vectorscope_action.blockSignals(True)
                     self.vectorscope_action.setChecked(False)
                     self.vectorscope_action.blockSignals(False)
+                if self.histogram_action and self.histogram_action.isChecked():
+                    self.histogram_action.blockSignals(True)
+                    self.histogram_action.setChecked(False)
+                    self.histogram_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_rgb_parade_enabled(enabled)
@@ -1874,11 +1905,53 @@ class MainWindow(QMainWindow):
                     camera.ndi_thread.false_color_enabled = False
                     camera.ndi_thread.waveform_enabled = False
                     camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.histogram_enabled = False
                     camera.ndi_thread.rgb_parade_enabled = enabled
 
             logger.info(f"NDI RGB parade mode set to {enabled}")
         except Exception:
             logger.exception("Error handling RGB parade toggle")
+
+    def on_histogram_toggled(self, enabled: bool) -> None:
+        """Handle NDI histogram scope mode toggle"""
+        try:
+            if enabled:
+                self.config.set_ndi_false_color_enabled(False)
+                self.config.set_ndi_waveform_enabled(False)
+                self.config.set_ndi_vectorscope_enabled(False)
+                self.config.set_ndi_rgb_parade_enabled(False)
+                if self.false_color_action and self.false_color_action.isChecked():
+                    self.false_color_action.blockSignals(True)
+                    self.false_color_action.setChecked(False)
+                    self.false_color_action.blockSignals(False)
+                if self.waveform_action and self.waveform_action.isChecked():
+                    self.waveform_action.blockSignals(True)
+                    self.waveform_action.setChecked(False)
+                    self.waveform_action.blockSignals(False)
+                if self.vectorscope_action and self.vectorscope_action.isChecked():
+                    self.vectorscope_action.blockSignals(True)
+                    self.vectorscope_action.setChecked(False)
+                    self.vectorscope_action.blockSignals(False)
+                if self.rgb_parade_action and self.rgb_parade_action.isChecked():
+                    self.rgb_parade_action.blockSignals(True)
+                    self.rgb_parade_action.setChecked(False)
+                    self.rgb_parade_action.blockSignals(False)
+
+            # Update preference
+            self.config.set_ndi_histogram_enabled(enabled)
+
+            # Apply immediately to active streams (no restart required)
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    camera.ndi_thread.false_color_enabled = False
+                    camera.ndi_thread.waveform_enabled = False
+                    camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.rgb_parade_enabled = False
+                    camera.ndi_thread.histogram_enabled = enabled
+
+            logger.info(f"NDI histogram mode set to {enabled}")
+        except Exception:
+            logger.exception("Error handling histogram toggle")
 
     def _restart_active_video_streams(self) -> None:
         """Restart running camera video streams with staggered startup to reduce NDI contention."""

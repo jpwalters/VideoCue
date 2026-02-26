@@ -102,6 +102,8 @@ class UIStrings:
     TOOLTIP_VECTORSCOPE = "Display chroma vectorscope with broadcast graticule"
     MENU_RGB_PARADE = "RGB Parade"
     TOOLTIP_RGB_PARADE = "Display side-by-side red, green, and blue waveform channels"
+    MENU_HISTOGRAM = "Histogram (Luma + RGB)"
+    TOOLTIP_HISTOGRAM = "Display overlaid luma and RGB histogram curves"
     MENU_FILE_LOGGING = "Enable File Logging"
     MENU_HELP = "&Help"
     MENU_CHECK_UPDATES = "Check for &Updates..."

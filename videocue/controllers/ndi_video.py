@@ -481,6 +481,7 @@ class NDIVideoThread(QThread):
         waveform_enabled: bool = False,
         vectorscope_enabled: bool = False,
         rgb_parade_enabled: bool = False,
+        histogram_enabled: bool = False,
     ):
         super().__init__()
         self.setObjectName(f"NDIVideoThread-{source_name}")
@@ -494,6 +495,7 @@ class NDIVideoThread(QThread):
         self.waveform_enabled = waveform_enabled
         self.vectorscope_enabled = vectorscope_enabled
         self.rgb_parade_enabled = rgb_parade_enabled
+        self.histogram_enabled = histogram_enabled
         self.running = False
         self._stop_event = threading.Event()
         self._receiver = None
@@ -521,8 +523,14 @@ class NDIVideoThread(QThread):
         self._vectorscope_plot_shape = None
         self._rgb_parade_plot_buffers = None
         self._rgb_parade_plot_shape = None
+        self._histogram_plot_buffer = None
+        self._histogram_plot_shape = None
+        self._histogram_bin_edges = None
+        self._histogram_x_coords = None
+        self._histogram_x_coords_width = None
+        self._histogram_bins = None
         logger.info(
-            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}, rgb_parade={rgb_parade_enabled}"
+            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}, rgb_parade={rgb_parade_enabled}, histogram={histogram_enabled}"
         )
 
     def run(self) -> None:
@@ -1111,6 +1119,28 @@ class NDIVideoThread(QThread):
                     del qimage
                     return result
 
+                if self.histogram_enabled:
+                    histogram_data = self._histogram_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=True,
+                    )
+                    if not histogram_data:
+                        logger.debug("Histogram conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        histogram_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_histogram_image(qimage)
+                    result = qimage.copy()
+                    del histogram_data
+                    del frame_data
+                    del qimage
+                    return result
+
                 if self.false_color_enabled:
                     false_color_data = self._false_color_from_rgbx(
                         frame_data,
@@ -1219,6 +1249,28 @@ class NDIVideoThread(QThread):
                     del qimage
                     return result
 
+                if self.histogram_enabled:
+                    histogram_data = self._histogram_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=False,
+                    )
+                    if not histogram_data:
+                        logger.debug("Histogram conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        histogram_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_histogram_image(qimage)
+                    result = qimage.copy()
+                    del histogram_data
+                    del frame_data
+                    del qimage
+                    return result
+
                 if self.false_color_enabled:
                     false_color_data = self._false_color_from_rgbx(
                         frame_data,
@@ -1322,6 +1374,27 @@ class NDIVideoThread(QThread):
                     self._annotate_rgb_parade_image(qimage)
                     result = qimage.copy()
                     del rgb_parade_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.histogram_enabled:
+                    histogram_data = self._histogram_from_uyvy(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                    )
+                    if not histogram_data:
+                        logger.debug("Histogram conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        histogram_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_histogram_image(qimage)
+                    result = qimage.copy()
+                    del histogram_data
                     del frame_data
                     del qimage
                     return result
@@ -1892,6 +1965,260 @@ class NDIVideoThread(QThread):
         except Exception:
             logger.exception("RGB parade annotation error")
 
+    def _histogram_from_channels_u8(self, red_u8, green_u8, blue_u8) -> bytes | None:
+        """Render overlaid Luma + RGB histogram curves from 8-bit channel planes."""
+        try:
+            import numpy as np
+
+            height, width = red_u8.shape
+            if height <= 0 or width <= 0:
+                return None
+
+            plot_shape = (height, width, 3)
+            if self._histogram_plot_buffer is None or self._histogram_plot_shape != plot_shape:
+                self._histogram_plot_buffer = np.zeros(plot_shape, dtype=np.uint8)
+                self._histogram_plot_shape = plot_shape
+            else:
+                self._histogram_plot_buffer.fill(0)
+
+            if self._histogram_bin_edges is None:
+                self._histogram_bin_edges = np.linspace(0.0, 255.0, 256, dtype=np.float32)
+
+            if self._histogram_x_coords is None or self._histogram_x_coords_width != width:
+                self._histogram_x_coords = np.arange(width, dtype=np.int32)
+                self._histogram_x_coords_width = width
+
+            if self._histogram_bins is None:
+                self._histogram_bins = (
+                    np.zeros(256, dtype=np.float32),
+                    np.zeros(256, dtype=np.float32),
+                    np.zeros(256, dtype=np.float32),
+                    np.zeros(256, dtype=np.float32),
+                )
+
+            red_bins, green_bins, blue_bins, luma_bins = self._histogram_bins
+
+            red_hist = np.bincount(red_u8.ravel(), minlength=256)
+            green_hist = np.bincount(green_u8.ravel(), minlength=256)
+            blue_hist = np.bincount(blue_u8.ravel(), minlength=256)
+
+            luma_full = (
+                (54 * red_u8.astype(np.uint16))
+                + (183 * green_u8.astype(np.uint16))
+                + (19 * blue_u8.astype(np.uint16))
+            ) >> 8
+            luma_hist = np.bincount(luma_full.ravel(), minlength=256)
+
+            np.copyto(red_bins, red_hist.astype(np.float32))
+            np.copyto(green_bins, green_hist.astype(np.float32))
+            np.copyto(blue_bins, blue_hist.astype(np.float32))
+            np.copyto(luma_bins, luma_hist.astype(np.float32))
+
+            peak = max(
+                float(red_bins.max()),
+                float(green_bins.max()),
+                float(blue_bins.max()),
+                float(luma_bins.max()),
+            )
+            if peak <= 0.0:
+                return None
+
+            peak_log = np.log1p(peak)
+            x_coords = self._histogram_x_coords
+            x_edges = self._histogram_bin_edges
+            canvas = self._histogram_plot_buffer
+
+            def draw_curve(curve_bins, color_index: int | None, intensity: int) -> None:
+                curve_norm = np.log1p(curve_bins) / peak_log
+                curve_resampled = np.interp(x_coords, x_edges, curve_norm)
+                y_curve = (height - 1) - np.rint(curve_resampled * (height - 1)).astype(np.int32)
+                np.clip(y_curve, 0, height - 1, out=y_curve)
+
+                if color_index is None:
+                    for channel in range(3):
+                        channel_data = canvas[:, :, channel]
+                        channel_data[y_curve, x_coords] = np.maximum(
+                            channel_data[y_curve, x_coords], intensity
+                        )
+                else:
+                    channel_data = canvas[:, :, color_index]
+                    channel_data[y_curve, x_coords] = np.maximum(
+                        channel_data[y_curve, x_coords], intensity
+                    )
+
+                for offset in (-1, 1):
+                    y_offset = y_curve + offset
+                    valid = (y_offset >= 0) & (y_offset < height)
+                    if not np.any(valid):
+                        continue
+                    x_valid = x_coords[valid]
+                    y_valid = y_offset[valid]
+                    if color_index is None:
+                        for channel in range(3):
+                            channel_data = canvas[:, :, channel]
+                            channel_data[y_valid, x_valid] = np.maximum(
+                                channel_data[y_valid, x_valid], intensity // 2
+                            )
+                    else:
+                        channel_data = canvas[:, :, color_index]
+                        channel_data[y_valid, x_valid] = np.maximum(
+                            channel_data[y_valid, x_valid], intensity // 2
+                        )
+
+            draw_curve(luma_bins, None, 235)
+            draw_curve(red_bins, 0, 230)
+            draw_curve(green_bins, 1, 230)
+            draw_curve(blue_bins, 2, 230)
+
+            return canvas.tobytes()
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Histogram conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected histogram conversion error")
+            return None
+
+    def _histogram_from_rgbx(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+        *,
+        is_bgra: bool,
+    ) -> bytes | None:
+        """Convert BGRA/RGBA frame bytes to histogram RGB888 bytes."""
+        try:
+            import numpy as np
+
+            pixel_bytes = width * 4
+            if line_stride < pixel_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            rows = frame.reshape(height, line_stride)
+            rgbx = rows[:, :pixel_bytes].reshape(height, width, 4)
+
+            if is_bgra:
+                blue_u8 = rgbx[:, :, 0]
+                green_u8 = rgbx[:, :, 1]
+                red_u8 = rgbx[:, :, 2]
+            else:
+                red_u8 = rgbx[:, :, 0]
+                green_u8 = rgbx[:, :, 1]
+                blue_u8 = rgbx[:, :, 2]
+
+            return self._histogram_from_channels_u8(red_u8, green_u8, blue_u8)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Histogram RGBX conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected histogram RGBX conversion error")
+            return None
+
+    def _histogram_from_uyvy(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+    ) -> bytes | None:
+        """Convert UYVY frame bytes to histogram RGB888 bytes."""
+        try:
+            import numpy as np
+
+            rgb_data = self._uyvy_to_rgb(frame_data, width, height, line_stride)
+            if not rgb_data:
+                return None
+
+            rgb = np.frombuffer(rgb_data, dtype=np.uint8).reshape(height, width, 3)
+            return self._histogram_from_channels_u8(
+                rgb[:, :, 0],
+                rgb[:, :, 1],
+                rgb[:, :, 2],
+            )
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("Histogram UYVY conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected histogram UYVY conversion error")
+            return None
+
+    def _annotate_histogram_image(self, image: QImage) -> None:
+        """Draw guide lines and labels for histogram interpretation."""
+        try:
+            width = image.width()
+            height = image.height()
+            if width <= 0 or height <= 0:
+                return
+
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+            font = painter.font()
+            font.setPointSize(max(7, min(13, min(height // 26, width // 20))))
+            painter.setFont(font)
+            metrics = painter.fontMetrics()
+
+            y_guides = [0, 25, 50, 75, 100]
+            x_guides = [0, 64, 128, 192, 255]
+
+            label_strip_width = metrics.horizontalAdvance("100%") + 18
+            label_strip_width = min(max(label_strip_width, max(40, width // 11)), max(64, width // 5))
+
+            painter.fillRect(0, 0, label_strip_width, height, QColor(0, 0, 0, 155))
+
+            text_pen = QPen(QColor(245, 245, 245))
+            guide_pen = QPen(QColor(130, 130, 130, 140))
+            guide_pen.setWidth(1)
+            ref_pen = QPen(QColor(210, 210, 210, 190))
+            ref_pen.setWidth(2)
+
+            for percent in y_guides:
+                y_line = int(round(((100 - percent) * (height - 1)) / 100.0))
+                if not (0 <= y_line < height):
+                    continue
+
+                painter.setPen(ref_pen if percent in (0, 100) else guide_pen)
+                painter.drawLine(label_strip_width, y_line, width - 1, y_line)
+
+                painter.setPen(text_pen)
+                text_rect_top = y_line - (metrics.height() // 2)
+                text_rect_top = min(max(0, text_rect_top), max(0, height - metrics.height()))
+                painter.drawText(
+                    3,
+                    text_rect_top,
+                    max(1, label_strip_width - 8),
+                    metrics.height(),
+                    int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                    f"{percent}%",
+                )
+
+            for value in x_guides:
+                x_line = int(round((value * (width - 1)) / 255.0))
+                if not (0 <= x_line < width):
+                    continue
+                painter.setPen(ref_pen if value in (0, 255) else guide_pen)
+                painter.drawLine(x_line, 0, x_line, height - 1)
+
+            label_y = max(2, metrics.ascent() + 1)
+            legend_items = [
+                ("Y", QColor(245, 245, 245)),
+                ("R", QColor(255, 110, 110)),
+                ("G", QColor(110, 255, 110)),
+                ("B", QColor(110, 160, 255)),
+            ]
+            x_cursor = label_strip_width + 8
+            for label, color in legend_items:
+                painter.setPen(QPen(color))
+                text = f"{label} "
+                painter.drawText(x_cursor, label_y + metrics.height(), text)
+                x_cursor += metrics.horizontalAdvance(text) + 4
+
+            painter.end()
+        except Exception:
+            logger.exception("Histogram annotation error")
+
     def _vectorscope_from_uv_u8(self, u_u8, v_u8, width: int, height: int) -> bytes | None:
         """Render vectorscope density plot from U/V planes."""
         try:
@@ -2409,6 +2736,12 @@ class NDIVideoThread(QThread):
             self._uyvy_work_shape = None
             self._vectorscope_plot_buffer = None
             self._vectorscope_plot_shape = None
+            self._histogram_plot_buffer = None
+            self._histogram_plot_shape = None
+            self._histogram_bin_edges = None
+            self._histogram_x_coords = None
+            self._histogram_x_coords_width = None
+            self._histogram_bins = None
         except Exception:
             # Catch ANY exception during cleanup
             logger.exception(f"[{self.source_name}] Unexpected error during cleanup")

@@ -159,6 +159,7 @@ class ConfigManager:
                 "ndi_waveform_enabled": False,  # Luma waveform scope mode
                 "ndi_vectorscope_enabled": False,  # Chroma vectorscope mode
                 "ndi_rgb_parade_enabled": False,  # RGB parade scope mode
+                "ndi_histogram_enabled": False,  # Luma + RGB histogram scope mode
                 "theme": "dark",
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
@@ -475,6 +476,15 @@ class ConfigManager:
     def get_ndi_rgb_parade_enabled(self) -> bool:
         """Get NDI RGB parade mode preference (default False)"""
         return self.config["preferences"].get("ndi_rgb_parade_enabled", False)
+
+    def set_ndi_histogram_enabled(self, enabled: bool):
+        """Set NDI histogram mode enabled/disabled globally"""
+        self.config["preferences"]["ndi_histogram_enabled"] = enabled
+        self.save()
+
+    def get_ndi_histogram_enabled(self) -> bool:
+        """Get NDI histogram mode preference (default False)"""
+        return self.config["preferences"].get("ndi_histogram_enabled", False)
 
     def set_ndi_video_enabled(self, enabled: bool):
         """Set NDI video enabled/disabled globally"""

@@ -59,7 +59,8 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Status Indicators**: Real-time connection status with red/green indicators
 - **Video Size Options**: Multiple preview size presets (View → Video Size)
 - **Video Performance Control**: High/Low bandwidth modes (View → Video Performance)
-- **Video Color Format**: UYVY/BGRA/RGBA options (View → Video Color Format)
+- **Video Format**: UYVY/BGRA/RGBA options (View → Video Format)
+- **Scopes Menu**: False Color, Waveform (Luma), Vectorscope (Chroma), RGB Parade, Histogram (Luma + RGB)
 - **Controller Status**: Visual USB controller connection indicator
 - **Loading Progress**: Granular progress bar during camera initialization
 - **Deferred Loading**: UI appears immediately before network connections
@@ -74,6 +75,7 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Single Instance Mode**: Optional enforcement to prevent multiple app instances (default: enabled)
 - **NDI Video Toggle**: Enable/disable NDI video streaming globally
 - **Video Performance**: Choose between High Bandwidth (max quality) or Low Bandwidth (compressed) for NDI streaming
+- **Scope Mode Persistence**: Selected scope mode is saved and applied across cameras
 - **Network Interface Binding**: Automatic detection and binding to correct network interface for multi-homed systems (v0.6.14+)
 
 ## Requirements
@@ -238,7 +240,17 @@ Edit `VideoCue.spec` to update:
   ],
   "preferences": {
     "video_size_default": [512, 288],
-    "theme": "dark"
+    "video_frame_skip": 6,
+    "ndi_bandwidth": "low",
+    "ndi_color_format": "uyvy",
+    "ndi_false_color_enabled": false,
+    "ndi_waveform_enabled": false,
+    "ndi_vectorscope_enabled": false,
+    "ndi_rgb_parade_enabled": false,
+    "ndi_histogram_enabled": false,
+    "theme": "dark",
+    "ndi_video_enabled": true,
+    "single_instance_mode": true
   },
   "usb_controller": {
     "enabled": true,
@@ -329,12 +341,15 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Windows may require Xbox controller drivers
 
 ### Video Performance Issues
-- **Color Format**: **View → Video Color Format** menu
+- **Color Format**: **View → Video Format** menu
   - BGRA/RGBA: NDI SDK handles conversion natively (lower CPU usage)
   - UYVY: Uses NumPy conversion (higher CPU usage)
 - **Bandwidth Control**: **View → Video Performance** menu
   - High Bandwidth: Maximum quality, higher network usage
   - Low Bandwidth: Lower network usage with compression (default)
+- **Scopes**: **View → Scopes** menu
+  - False Color, Waveform, Vectorscope, RGB Parade, and Histogram are mutually exclusive
+  - Histogram (Luma + RGB) adds processing overhead similar to other analysis scopes
 - **Video Size**: **View → Video Size** menu to reduce resolution
 - **Pause Streams**: Use play/pause button to stop video when not needed
 - Frame dropping is intentional to prevent UI lag

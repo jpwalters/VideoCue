@@ -112,6 +112,7 @@ Configuration is stored in:
 The configuration includes:
 - Camera list (NDI sources, VISCA IPs, presets)
 - Video size preferences
+- NDI video/scopes preferences (bandwidth, format, scope mode)
 - USB controller settings
 
 ## Features Implemented
@@ -132,6 +133,7 @@ The configuration includes:
 - Live video display with frame dropping for performance
 - Configurable bandwidth modes: High (max quality) or Low (compressed) - v0.6.16
 - Configurable color format: UYVY, BGRA, or RGBA - v0.6.17
+- Scope modes in View → Scopes: False Color, Waveform, Vectorscope, RGB Parade, Histogram (mutually exclusive)
 - Timer-driven rendering prevents frame queue buildup
 - 5-second connection timeout prevents app freeze
 - Play/pause video controls per camera
@@ -257,6 +259,8 @@ The configuration includes:
 - [ ] Confirm stalled camera transitions to red status with Reconnect after startup timeout
 - [ ] Test horizontal scrollbar with multiple cameras
 - [ ] Test video size changes (View → Video Size)
+- [ ] Test scope mode toggles (View → Scopes) and mutual exclusivity
+- [ ] Test histogram rendering (Luma + RGB) on active streams
 - [ ] Test camera controls disabled when disconnected
 - [ ] Test USB controller blocked when camera disconnected
 - [ ] Test Help menu's Check for Updates (GitHub releases API)
@@ -311,7 +315,8 @@ The configuration includes:
 - Verify controller is DirectInput/XInput compatible
 
 ### Video Lag
-- Switch color format (View → Video Color Format) - BGRA/RGBA use NDI SDK native conversion
+- Switch color format (View → Video Format) - BGRA/RGBA use NDI SDK native conversion
+- Disable heavy analysis scopes (View → Scopes), especially Histogram/Waveform, when maximizing FPS
 - Reduce video size (View → Video Size menu)
 - Switch to Low Bandwidth (View → Video Performance)
 - Use play/pause button to stop video when not needed

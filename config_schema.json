@@ -10,6 +10,7 @@
     "ndi_waveform_enabled": false,
     "ndi_vectorscope_enabled": false,
     "ndi_rgb_parade_enabled": false,
+    "ndi_histogram_enabled": false,
     "theme": "dark",
     "auto_discover_ndi": true,
     "ndi_video_enabled": true,

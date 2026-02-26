@@ -12,9 +12,9 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **ui/preferences_dialog.py**: Preferences dialog with USB controller settings, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
-- **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, **configurable color format** UYVY/BGRA/RGBA, frame dropping), **5-second timeout**, **configurable bandwidth** (HIGHEST/LOWEST), **network interface binding**, **comprehensive error handling**, **persistent NumPy buffers for UYVY conversion**
+- **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, **configurable color format** UYVY/BGRA/RGBA, frame dropping), **5-second timeout**, **configurable bandwidth** (HIGHEST/LOWEST), **Scopes rendering modes** (False Color, Waveform, Vectorscope, RGB Parade, Histogram), **network interface binding**, **comprehensive error handling**, **persistent NumPy buffers for UYVY conversion**
 - **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens preferences dialog**
-- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference**, **ndi_color_format preference** (default: uyvy)
+- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference**, **ndi_color_format preference** (default: uyvy), **scope mode preferences** (`ndi_false_color_enabled`, `ndi_waveform_enabled`, `ndi_vectorscope_enabled`, `ndi_rgb_parade_enabled`, `ndi_histogram_enabled`)
 - **models/video.py**: Video size and camera preset data models
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
 - **utils/__init__.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
@@ -60,10 +60,16 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **Bandwidth Control** (v0.6.16): User-configurable via View → Video Performance menu
   - High Bandwidth: `RECV_BANDWIDTH_HIGHEST` - maximum quality, higher network usage
   - Low Bandwidth: `RECV_BANDWIDTH_LOWEST` - compression, lower network usage (default)
-- **Color Format Selection** (v0.6.17+): Configurable via View → Video Color Format menu
+- **Color Format Selection** (v0.6.17+): Configurable via View → Video Format menu
   - UYVY: Native camera format, requires NumPy conversion (CPU-bound)
   - BGRA: NDI SDK converts natively, optimal for Windows (ARGB32 format)
   - RGBA: NDI SDK converts natively, cross-platform compatible
+- **Scope Modes**: Configurable via View → Scopes menu (mutually exclusive)
+  - False Color (Atomos-style)
+  - Waveform (Luma)
+  - Vectorscope (Chroma)
+  - RGB Parade
+  - Histogram (Luma + RGB overlaid curves)
 - **Video Conversion Architecture**:
   - UYVY path: Uses persistent NumPy buffers with ITU-R BT.601 coefficients
   - BGRA/RGBA path: NDI SDK handles conversion natively (uses SIMD/GPU when available)
@@ -217,7 +223,7 @@ pyinstaller VideoCue.spec
 
 ### Configuration
 - Stored at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) or `~/.config/VideoCue/config.json` (Unix)
-- Schema: cameras array (id, ndi_source, ip, port, presets), preferences (video_size_default, theme, **single_instance_mode**, **ndi_video_enabled**), usb_controller (mappings, speeds, **brightness_enabled**, **brightness_step**)
+- Schema: cameras array (id, ndi_source, ip, port, presets), preferences (video_size_default, video_frame_skip, ndi_bandwidth, ndi_color_format, scope toggles, theme, **single_instance_mode**, **ndi_video_enabled**), usb_controller (mappings, speeds, **brightness_enabled**, **brightness_step**)
 - See [config_schema.json](config_schema.json) for full JSON structure
 - ConfigManager uses `uuid.uuid4()` for camera IDs
 - Auto-saves on camera add/delete, preset changes, video size changes, app exit
@@ -517,12 +523,15 @@ def _apply_queried_settings(self, results: dict):
 - Check console output for error details
 
 ### Video Performance Issues
-- **Color Format**: View → Video Color Format menu
+- **Color Format**: View → Video Format menu
   - BGRA/RGBA use NDI SDK's native conversion (recommended for lower CPU usage)
   - UYVY uses NumPy conversion (higher CPU, useful for debugging)
 - **Bandwidth Control**: View → Video Performance menu
   - Switch to Low Bandwidth to reduce network usage (enables compression)
   - Switch to High Bandwidth for maximum quality
+- **Scopes**: View → Scopes menu
+  - False Color/Waveform/Vectorscope/RGB Parade/Histogram are mutually exclusive
+  - Histogram and waveform-style scopes increase CPU usage due to per-frame analysis
 - **Video Size**: View → Video Size menu to reduce resolution
 - **Pause Streams**: Use play/pause button to stop video when not needed
 - Frame dropping and timer-driven rendering prevent UI lag

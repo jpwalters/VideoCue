@@ -1220,8 +1220,9 @@ class CameraWidget(QWidget):
             waveform_enabled = self.config.get_ndi_waveform_enabled()
             vectorscope_enabled = self.config.get_ndi_vectorscope_enabled()
             rgb_parade_enabled = self.config.get_ndi_rgb_parade_enabled()
+            histogram_enabled = self.config.get_ndi_histogram_enabled()
             logger.info(
-                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}, rgb_parade={rgb_parade_enabled} for {self.ndi_source_name}"
+                f"[Camera] Starting NDI video with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}, rgb_parade={rgb_parade_enabled}, histogram={histogram_enabled} for {self.ndi_source_name}"
             )
             self.ndi_thread = NDIVideoThread(
                 self.ndi_source_name,
@@ -1232,6 +1233,7 @@ class CameraWidget(QWidget):
                 waveform_enabled=waveform_enabled,
                 vectorscope_enabled=vectorscope_enabled,
                 rgb_parade_enabled=rgb_parade_enabled,
+                histogram_enabled=histogram_enabled,
             )
             self.ndi_thread.frame_ready.connect(self.on_video_frame)
             self.ndi_thread.connected.connect(self.on_ndi_connected)
