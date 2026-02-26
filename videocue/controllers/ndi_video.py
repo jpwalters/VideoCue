@@ -480,6 +480,7 @@ class NDIVideoThread(QThread):
         false_color_enabled: bool = False,
         waveform_enabled: bool = False,
         vectorscope_enabled: bool = False,
+        rgb_parade_enabled: bool = False,
     ):
         super().__init__()
         self.setObjectName(f"NDIVideoThread-{source_name}")
@@ -492,6 +493,7 @@ class NDIVideoThread(QThread):
         self.false_color_enabled = false_color_enabled
         self.waveform_enabled = waveform_enabled
         self.vectorscope_enabled = vectorscope_enabled
+        self.rgb_parade_enabled = rgb_parade_enabled
         self.running = False
         self._stop_event = threading.Event()
         self._receiver = None
@@ -517,8 +519,10 @@ class NDIVideoThread(QThread):
         self._waveform_x_index_shape = None
         self._vectorscope_plot_buffer = None
         self._vectorscope_plot_shape = None
+        self._rgb_parade_plot_buffers = None
+        self._rgb_parade_plot_shape = None
         logger.info(
-            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}"
+            f"[{source_name}] NDI thread created with frame_skip={frame_skip}, bandwidth={bandwidth}, color_format={color_format}, false_color={false_color_enabled}, waveform={waveform_enabled}, vectorscope={vectorscope_enabled}, rgb_parade={rgb_parade_enabled}"
         )
 
     def run(self) -> None:
@@ -1085,6 +1089,28 @@ class NDIVideoThread(QThread):
                     del qimage
                     return result
 
+                if self.rgb_parade_enabled:
+                    rgb_parade_data = self._rgb_parade_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=True,
+                    )
+                    if not rgb_parade_data:
+                        logger.debug("RGB parade conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        rgb_parade_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_rgb_parade_image(qimage)
+                    result = qimage.copy()
+                    del rgb_parade_data
+                    del frame_data
+                    del qimage
+                    return result
+
                 if self.false_color_enabled:
                     false_color_data = self._false_color_from_rgbx(
                         frame_data,
@@ -1171,6 +1197,28 @@ class NDIVideoThread(QThread):
                     del qimage
                     return result
 
+                if self.rgb_parade_enabled:
+                    rgb_parade_data = self._rgb_parade_from_rgbx(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                        is_bgra=False,
+                    )
+                    if not rgb_parade_data:
+                        logger.debug("RGB parade conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        rgb_parade_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_rgb_parade_image(qimage)
+                    result = qimage.copy()
+                    del rgb_parade_data
+                    del frame_data
+                    del qimage
+                    return result
+
                 if self.false_color_enabled:
                     false_color_data = self._false_color_from_rgbx(
                         frame_data,
@@ -1253,6 +1301,27 @@ class NDIVideoThread(QThread):
                     self._annotate_vectorscope_image(qimage)
                     result = qimage.copy()
                     del vectorscope_data
+                    del frame_data
+                    del qimage
+                    return result
+
+                if self.rgb_parade_enabled:
+                    rgb_parade_data = self._rgb_parade_from_uyvy(
+                        frame_data,
+                        width,
+                        height,
+                        line_stride,
+                    )
+                    if not rgb_parade_data:
+                        logger.debug("RGB parade conversion returned empty data")
+                        return None
+
+                    qimage = QImage(
+                        rgb_parade_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
+                    self._annotate_rgb_parade_image(qimage)
+                    result = qimage.copy()
+                    del rgb_parade_data
                     del frame_data
                     del qimage
                     return result
@@ -1576,6 +1645,252 @@ class NDIVideoThread(QThread):
         except Exception:
             logger.exception("Unexpected waveform UYVY conversion error")
             return None
+
+    def _rgb_parade_from_channels_u8(self, red_u8, green_u8, blue_u8) -> bytes | None:
+        """Render side-by-side RGB parade density traces from 8-bit channel planes."""
+        try:
+            import numpy as np
+
+            height, width = red_u8.shape
+            if height <= 0 or width <= 0:
+                return None
+
+            plot_shape = (height, width)
+            if (
+                self._rgb_parade_plot_buffers is None
+                or self._rgb_parade_plot_shape != plot_shape
+            ):
+                self._rgb_parade_plot_buffers = (
+                    np.zeros(plot_shape, dtype=np.uint16),
+                    np.zeros(plot_shape, dtype=np.uint16),
+                    np.zeros(plot_shape, dtype=np.uint16),
+                )
+                self._rgb_parade_plot_shape = plot_shape
+            else:
+                for plot in self._rgb_parade_plot_buffers:
+                    plot.fill(0)
+
+            source_width = red_u8.shape[1]
+            segment_base = width // 3
+            segment_widths = [
+                segment_base,
+                segment_base,
+                width - (segment_base * 2),
+            ]
+            segment_starts = [
+                0,
+                segment_widths[0],
+                segment_widths[0] + segment_widths[1],
+            ]
+            channels = (red_u8, green_u8, blue_u8)
+
+            for idx, channel_data in enumerate(channels):
+                segment_width = segment_widths[idx]
+                if segment_width <= 0:
+                    continue
+
+                x_map = (
+                    segment_starts[idx]
+                    + (np.arange(source_width, dtype=np.int32) * segment_width) // source_width
+                )
+                x_index = np.broadcast_to(x_map, channel_data.shape)
+
+                y_plot = ((255 - channel_data.astype(np.int32)) * (height - 1)) // 255
+                np.clip(y_plot, 0, height - 1, out=y_plot)
+
+                np.add.at(
+                    self._rgb_parade_plot_buffers[idx],
+                    (y_plot.ravel(), x_index.ravel()),
+                    1,
+                )
+
+            traces = []
+            peak = 0
+            for plot in self._rgb_parade_plot_buffers:
+                trace = plot.astype(np.uint32, copy=True)
+                if height > 1:
+                    trace[1:, :] = np.maximum(trace[1:, :], plot[:-1, :])
+                    trace[:-1, :] = np.maximum(trace[:-1, :], plot[1:, :])
+                if width > 1:
+                    trace[:, 1:] = np.maximum(trace[:, 1:], plot[:, :-1])
+                    trace[:, :-1] = np.maximum(trace[:, :-1], plot[:, 1:])
+
+                traces.append(trace)
+                peak = max(peak, int(trace.max()))
+
+            if peak <= 0:
+                return None
+
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            for color_index, trace in enumerate(traces):
+                norm = np.log1p(trace) / np.log1p(peak)
+                brightness = np.power(norm, 0.58)
+                brightness_u8 = (brightness * 255.0).astype(np.uint8)
+
+                trace_present = trace > 0
+                brightness_u8[trace_present] = np.maximum(brightness_u8[trace_present], 70)
+
+                rgb[:, :, color_index] = np.maximum(rgb[:, :, color_index], brightness_u8)
+
+            return rgb.tobytes()
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("RGB parade conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected RGB parade conversion error")
+            return None
+
+    def _rgb_parade_from_rgbx(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+        *,
+        is_bgra: bool,
+    ) -> bytes | None:
+        """Convert BGRA/RGBA frame bytes to RGB parade RGB888 bytes."""
+        try:
+            import numpy as np
+
+            pixel_bytes = width * 4
+            if line_stride < pixel_bytes:
+                return None
+
+            frame = np.frombuffer(frame_data, dtype=np.uint8)
+            rows = frame.reshape(height, line_stride)
+            rgbx = rows[:, :pixel_bytes].reshape(height, width, 4)
+
+            if is_bgra:
+                blue_u8 = rgbx[:, :, 0]
+                green_u8 = rgbx[:, :, 1]
+                red_u8 = rgbx[:, :, 2]
+            else:
+                red_u8 = rgbx[:, :, 0]
+                green_u8 = rgbx[:, :, 1]
+                blue_u8 = rgbx[:, :, 2]
+
+            return self._rgb_parade_from_channels_u8(red_u8, green_u8, blue_u8)
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("RGB parade RGBX conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected RGB parade RGBX conversion error")
+            return None
+
+    def _rgb_parade_from_uyvy(
+        self,
+        frame_data: bytes,
+        width: int,
+        height: int,
+        line_stride: int,
+    ) -> bytes | None:
+        """Convert UYVY frame bytes to RGB parade RGB888 bytes."""
+        try:
+            import numpy as np
+
+            rgb_data = self._uyvy_to_rgb(frame_data, width, height, line_stride)
+            if not rgb_data:
+                return None
+
+            rgb = np.frombuffer(rgb_data, dtype=np.uint8).reshape(height, width, 3)
+            return self._rgb_parade_from_channels_u8(
+                rgb[:, :, 0],
+                rgb[:, :, 1],
+                rgb[:, :, 2],
+            )
+        except (ValueError, TypeError, MemoryError):
+            logger.exception("RGB parade UYVY conversion error")
+            return None
+        except Exception:
+            logger.exception("Unexpected RGB parade UYVY conversion error")
+            return None
+
+    def _annotate_rgb_parade_image(self, image: QImage) -> None:
+        """Draw guide lines and channel labels for RGB parade interpretation."""
+        try:
+            width = image.width()
+            height = image.height()
+            if width <= 0 or height <= 0:
+                return
+
+            guide_values = [255, 192, 128, 64, 0]
+
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+            font = painter.font()
+            font.setPointSize(max(7, min(14, min(height // 26, width // 18))))
+            painter.setFont(font)
+            metrics = painter.fontMetrics()
+
+            label_strip_width = metrics.horizontalAdvance("255") + 22
+            label_strip_width = min(max(label_strip_width, max(44, width // 10)), max(66, width // 5))
+
+            painter.fillRect(0, 0, label_strip_width, height, QColor(0, 0, 0, 170))
+
+            tick_pen = QPen(QColor(210, 210, 210))
+            text_pen = QPen(QColor(245, 245, 245))
+
+            for value in guide_values:
+                y_line = int(round(((255 - value) * (height - 1)) / 255.0))
+                if not (0 <= y_line < height):
+                    continue
+
+                is_reference = value in (0, 255)
+                grid_pen = QPen(
+                    QColor(210, 210, 210, 190) if is_reference else QColor(120, 120, 120, 140)
+                )
+                grid_pen.setWidth(2 if is_reference else 1)
+                painter.setPen(grid_pen)
+                painter.drawLine(label_strip_width, y_line, width - 1, y_line)
+
+                tick_right = label_strip_width - 2
+                tick_left = max(22, tick_right - 10)
+                tick_pen.setWidth(2 if is_reference else 1)
+                painter.setPen(tick_pen)
+                painter.drawLine(tick_left, y_line, tick_right, y_line)
+
+                painter.setPen(text_pen)
+                text_rect_top = y_line - (metrics.height() // 2)
+                text_rect_top = min(max(0, text_rect_top), max(0, height - metrics.height()))
+                painter.drawText(
+                    3,
+                    text_rect_top,
+                    max(1, tick_left - 6),
+                    metrics.height(),
+                    int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                    str(value),
+                )
+
+            segment_base = width // 3
+            segment_boundaries = [segment_base, segment_base * 2]
+            separator_pen = QPen(QColor(210, 210, 210, 120))
+            separator_pen.setWidth(1)
+            painter.setPen(separator_pen)
+            for x_line in segment_boundaries:
+                if 0 < x_line < width:
+                    painter.drawLine(x_line, 0, x_line, height - 1)
+
+            channel_labels = ["R", "G", "B"]
+            channel_colors = [QColor(255, 100, 100), QColor(100, 255, 100), QColor(100, 160, 255)]
+            label_y = max(2, metrics.ascent() + 1)
+            for idx, label in enumerate(channel_labels):
+                x_left = (idx * width) // 3
+                x_right = ((idx + 1) * width) // 3
+                painter.setPen(QPen(channel_colors[idx]))
+                painter.drawText(
+                    x_left,
+                    0,
+                    max(1, x_right - x_left),
+                    max(metrics.height() + 4, label_y + 2),
+                    int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop),
+                    label,
+                )
+
+            painter.end()
+        except Exception:
+            logger.exception("RGB parade annotation error")
 
     def _vectorscope_from_uv_u8(self, u_u8, v_u8, width: int, height: int) -> bytes | None:
         """Render vectorscope density plot from U/V planes."""

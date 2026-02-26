@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         self.false_color_action = None
         self.waveform_action = None
         self.vectorscope_action = None
+        self.rgb_parade_action = None
 
         # Setup UI
         self.init_ui()
@@ -327,27 +328,37 @@ class MainWindow(QMainWindow):
             format_group.addAction(action)
             color_format_menu.addAction(action)
 
-        # False color and waveform scope toggles (mutually exclusive live view modes)
+        # Scope toggles (mutually exclusive live view modes)
+        scopes_menu = QMenu(UIStrings.MENU_SCOPES, self)
+        view_menu.addMenu(scopes_menu)
+
         self.false_color_action = QAction(UIStrings.MENU_FALSE_COLOR, self)
         self.false_color_action.setCheckable(True)
         self.false_color_action.setToolTip(UIStrings.TOOLTIP_FALSE_COLOR)
         self.false_color_action.setChecked(self.config.get_ndi_false_color_enabled())
         self.false_color_action.triggered.connect(self.on_false_color_toggled)
-        view_menu.addAction(self.false_color_action)
+        scopes_menu.addAction(self.false_color_action)
 
         self.waveform_action = QAction(UIStrings.MENU_WAVEFORM, self)
         self.waveform_action.setCheckable(True)
         self.waveform_action.setToolTip(UIStrings.TOOLTIP_WAVEFORM)
         self.waveform_action.setChecked(self.config.get_ndi_waveform_enabled())
         self.waveform_action.triggered.connect(self.on_waveform_toggled)
-        view_menu.addAction(self.waveform_action)
+        scopes_menu.addAction(self.waveform_action)
 
         self.vectorscope_action = QAction(UIStrings.MENU_VECTORSCOPE, self)
         self.vectorscope_action.setCheckable(True)
         self.vectorscope_action.setToolTip(UIStrings.TOOLTIP_VECTORSCOPE)
         self.vectorscope_action.setChecked(self.config.get_ndi_vectorscope_enabled())
         self.vectorscope_action.triggered.connect(self.on_vectorscope_toggled)
-        view_menu.addAction(self.vectorscope_action)
+        scopes_menu.addAction(self.vectorscope_action)
+
+        self.rgb_parade_action = QAction(UIStrings.MENU_RGB_PARADE, self)
+        self.rgb_parade_action.setCheckable(True)
+        self.rgb_parade_action.setToolTip(UIStrings.TOOLTIP_RGB_PARADE)
+        self.rgb_parade_action.setChecked(self.config.get_ndi_rgb_parade_enabled())
+        self.rgb_parade_action.triggered.connect(self.on_rgb_parade_toggled)
+        scopes_menu.addAction(self.rgb_parade_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -1735,6 +1746,7 @@ class MainWindow(QMainWindow):
             if enabled:
                 self.config.set_ndi_waveform_enabled(False)
                 self.config.set_ndi_vectorscope_enabled(False)
+                self.config.set_ndi_rgb_parade_enabled(False)
                 if self.waveform_action and self.waveform_action.isChecked():
                     self.waveform_action.blockSignals(True)
                     self.waveform_action.setChecked(False)
@@ -1743,6 +1755,10 @@ class MainWindow(QMainWindow):
                     self.vectorscope_action.blockSignals(True)
                     self.vectorscope_action.setChecked(False)
                     self.vectorscope_action.blockSignals(False)
+                if self.rgb_parade_action and self.rgb_parade_action.isChecked():
+                    self.rgb_parade_action.blockSignals(True)
+                    self.rgb_parade_action.setChecked(False)
+                    self.rgb_parade_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_false_color_enabled(enabled)
@@ -1752,6 +1768,7 @@ class MainWindow(QMainWindow):
                 if camera.ndi_thread and camera.ndi_thread.isRunning():
                     camera.ndi_thread.waveform_enabled = False
                     camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.rgb_parade_enabled = False
                     camera.ndi_thread.false_color_enabled = enabled
 
             logger.info(f"NDI false color mode set to {enabled}")
@@ -1764,6 +1781,7 @@ class MainWindow(QMainWindow):
             if enabled:
                 self.config.set_ndi_false_color_enabled(False)
                 self.config.set_ndi_vectorscope_enabled(False)
+                self.config.set_ndi_rgb_parade_enabled(False)
                 if self.false_color_action and self.false_color_action.isChecked():
                     self.false_color_action.blockSignals(True)
                     self.false_color_action.setChecked(False)
@@ -1772,6 +1790,10 @@ class MainWindow(QMainWindow):
                     self.vectorscope_action.blockSignals(True)
                     self.vectorscope_action.setChecked(False)
                     self.vectorscope_action.blockSignals(False)
+                if self.rgb_parade_action and self.rgb_parade_action.isChecked():
+                    self.rgb_parade_action.blockSignals(True)
+                    self.rgb_parade_action.setChecked(False)
+                    self.rgb_parade_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_waveform_enabled(enabled)
@@ -1781,6 +1803,7 @@ class MainWindow(QMainWindow):
                 if camera.ndi_thread and camera.ndi_thread.isRunning():
                     camera.ndi_thread.false_color_enabled = False
                     camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.rgb_parade_enabled = False
                     camera.ndi_thread.waveform_enabled = enabled
 
             logger.info(f"NDI waveform scope mode set to {enabled}")
@@ -1793,6 +1816,7 @@ class MainWindow(QMainWindow):
             if enabled:
                 self.config.set_ndi_false_color_enabled(False)
                 self.config.set_ndi_waveform_enabled(False)
+                self.config.set_ndi_rgb_parade_enabled(False)
                 if self.false_color_action and self.false_color_action.isChecked():
                     self.false_color_action.blockSignals(True)
                     self.false_color_action.setChecked(False)
@@ -1801,6 +1825,10 @@ class MainWindow(QMainWindow):
                     self.waveform_action.blockSignals(True)
                     self.waveform_action.setChecked(False)
                     self.waveform_action.blockSignals(False)
+                if self.rgb_parade_action and self.rgb_parade_action.isChecked():
+                    self.rgb_parade_action.blockSignals(True)
+                    self.rgb_parade_action.setChecked(False)
+                    self.rgb_parade_action.blockSignals(False)
 
             # Update preference
             self.config.set_ndi_vectorscope_enabled(enabled)
@@ -1810,11 +1838,47 @@ class MainWindow(QMainWindow):
                 if camera.ndi_thread and camera.ndi_thread.isRunning():
                     camera.ndi_thread.false_color_enabled = False
                     camera.ndi_thread.waveform_enabled = False
+                    camera.ndi_thread.rgb_parade_enabled = False
                     camera.ndi_thread.vectorscope_enabled = enabled
 
             logger.info(f"NDI vectorscope mode set to {enabled}")
         except Exception:
             logger.exception("Error handling vectorscope toggle")
+
+    def on_rgb_parade_toggled(self, enabled: bool) -> None:
+        """Handle NDI RGB parade scope mode toggle"""
+        try:
+            if enabled:
+                self.config.set_ndi_false_color_enabled(False)
+                self.config.set_ndi_waveform_enabled(False)
+                self.config.set_ndi_vectorscope_enabled(False)
+                if self.false_color_action and self.false_color_action.isChecked():
+                    self.false_color_action.blockSignals(True)
+                    self.false_color_action.setChecked(False)
+                    self.false_color_action.blockSignals(False)
+                if self.waveform_action and self.waveform_action.isChecked():
+                    self.waveform_action.blockSignals(True)
+                    self.waveform_action.setChecked(False)
+                    self.waveform_action.blockSignals(False)
+                if self.vectorscope_action and self.vectorscope_action.isChecked():
+                    self.vectorscope_action.blockSignals(True)
+                    self.vectorscope_action.setChecked(False)
+                    self.vectorscope_action.blockSignals(False)
+
+            # Update preference
+            self.config.set_ndi_rgb_parade_enabled(enabled)
+
+            # Apply immediately to active streams (no restart required)
+            for camera in self.cameras:
+                if camera.ndi_thread and camera.ndi_thread.isRunning():
+                    camera.ndi_thread.false_color_enabled = False
+                    camera.ndi_thread.waveform_enabled = False
+                    camera.ndi_thread.vectorscope_enabled = False
+                    camera.ndi_thread.rgb_parade_enabled = enabled
+
+            logger.info(f"NDI RGB parade mode set to {enabled}")
+        except Exception:
+            logger.exception("Error handling RGB parade toggle")
 
     def _restart_active_video_streams(self) -> None:
         """Restart running camera video streams with staggered startup to reduce NDI contention."""

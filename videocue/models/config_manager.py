@@ -158,6 +158,7 @@ class ConfigManager:
                 "ndi_false_color_enabled": False,  # Atomos-style false color video mode
                 "ndi_waveform_enabled": False,  # Luma waveform scope mode
                 "ndi_vectorscope_enabled": False,  # Chroma vectorscope mode
+                "ndi_rgb_parade_enabled": False,  # RGB parade scope mode
                 "theme": "dark",
                 "auto_discover_ndi": True,
                 "ndi_video_enabled": True,
@@ -465,6 +466,15 @@ class ConfigManager:
     def get_ndi_vectorscope_enabled(self) -> bool:
         """Get NDI vectorscope mode preference (default False)"""
         return self.config["preferences"].get("ndi_vectorscope_enabled", False)
+
+    def set_ndi_rgb_parade_enabled(self, enabled: bool):
+        """Set NDI RGB parade mode enabled/disabled globally"""
+        self.config["preferences"]["ndi_rgb_parade_enabled"] = enabled
+        self.save()
+
+    def get_ndi_rgb_parade_enabled(self) -> bool:
+        """Get NDI RGB parade mode preference (default False)"""
+        return self.config["preferences"].get("ndi_rgb_parade_enabled", False)
 
     def set_ndi_video_enabled(self, enabled: bool):
         """Set NDI video enabled/disabled globally"""
