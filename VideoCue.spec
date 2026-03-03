@@ -3,8 +3,8 @@ PyInstaller spec file for VideoCue
 Build with: pyinstaller VideoCue.spec
 """
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from PyInstaller.building.datastruct import TOC
 from PyInstaller.utils.hooks import collect_dynamic_libs
@@ -37,6 +37,39 @@ if not ndi_dll_found:
 binaries += collect_dynamic_libs("PyQt6")
 binaries += collect_dynamic_libs("pygame")
 
+# Collect streamdeck library dependencies (hidapi DLL for USB communication)
+try:
+    binaries += collect_dynamic_libs("streamdeck")
+    print("[OK] Stream Deck library dependencies collected")
+except Exception as e:
+    print(f"[INFO] Stream Deck library not found (optional): {e}")
+
+# Explicitly check for hidapi.dll in common locations (for Stream Deck support)
+hidapi_dll_paths = [
+    "hidapi.dll",  # Project root (development)
+    str(Path.cwd() / "hidapi.dll"),  # Absolute project root
+]
+
+# Also check site-packages where pip might have installed it
+try:
+    import site
+
+    for site_dir in site.getsitepackages():
+        hidapi_dll_paths.append(str(Path(site_dir) / "hidapi.dll"))
+except Exception:
+    pass
+
+hidapi_found = False
+for hidapi_path in hidapi_dll_paths:
+    if Path(hidapi_path).exists():
+        binaries.append((hidapi_path, "."))
+        hidapi_found = True
+        print(f"[OK] hidapi.dll found at: {hidapi_path}")
+        break
+
+if not hidapi_found:
+    print("[INFO] hidapi.dll not found (Stream Deck support may require manual DLL installation)")
+
 # Replace old bundled VC runtime DLLs (from PyQt) with current system versions.
 # Older 14.26 runtime binaries can conflict with newer native SDKs (e.g. NDI 6.x)
 # and cause native startup crashes in frozen builds.
@@ -47,11 +80,7 @@ vc_runtime_names = {
     "vcruntime140.dll",
     "vcruntime140_1.dll",
 }
-binaries = [
-    (src, dst)
-    for src, dst in binaries
-    if Path(src).name.lower() not in vc_runtime_names
-]
+binaries = [(src, dst) for src, dst in binaries if Path(src).name.lower() not in vc_runtime_names]
 
 system32 = Path(r"C:/Windows/System32")
 for runtime_name in sorted(vc_runtime_names):
@@ -93,6 +122,14 @@ a = Analysis(  # noqa: F821
         "qdarkstyle",
         "videocue.ndi_wrapper",  # Local NDI wrapper module (bundled)
         "videocue.ndi_wrapper.NDIlib",  # Native extension loaded lazily at runtime
+        # Stream Deck Plus support (optional)
+        "streamdeck",
+        "StreamDeck.DeviceManager",
+        "StreamDeck.Devices.StreamDeck",
+        "PIL",
+        "PIL.Image",
+        "PIL.ImageDraw",
+        "PIL.ImageFont",
         # Comprehensive numpy imports for ndi-python compatibility
         "numpy",
         "numpy.core",

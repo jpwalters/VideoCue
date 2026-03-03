@@ -19,6 +19,13 @@ class UIStrings:
     STATUS_ERROR = "Error"
     STATUS_LOADING = "⟳"
 
+    # Stream Deck Status
+    STREAMDECK_CONNECTING = "Stream Deck Connecting..."
+    STREAMDECK_CONNECTED = "Stream Deck Connected"
+    STREAMDECK_DISCONNECTED = "Stream Deck Disconnected"
+    STREAMDECK_NOT_FOUND = "Stream Deck Plus Not Found"
+    STREAMDECK_ERROR = "Stream Deck Error"
+
     # Buttons
     BTN_RECONNECT = "Reconnect"
     BTN_DELETE = "×"
@@ -36,6 +43,8 @@ class UIStrings:
     BTN_DELETE_TEXT = "Delete"
     BTN_MOVE_UP = "↑"
     BTN_MOVE_DOWN = "↓"
+    BTN_STREAMDECK_PAGE_PREV = "PAGE←"
+    BTN_STREAMDECK_PAGE_NEXT = "PAGE→"
 
     # Tooltips
     TOOLTIP_RECONNECT = "Retry camera connection"
@@ -48,6 +57,8 @@ class UIStrings:
     TOOLTIP_BRIGHTNESS_DECREASE = "Decrease Brightness"
     TOOLTIP_FOCUS_ONE_PUSH = "One-Push Auto Focus"
     TOOLTIP_STOP_MOVEMENT = "Stop Camera Movement"
+    TOOLTIP_STREAMDECK_PREV = "Previous Camera Page"
+    TOOLTIP_STREAMDECK_NEXT = "Next Camera Page"
 
     # Camera Controls
     CTRL_PTZ_CONTROLS = "<b>Camera Controls</b>"
@@ -130,13 +141,18 @@ class UIStrings:
     ERROR_CONFIG_LOAD = "Error loading configuration"
     ERROR_CONFIG_SAVE = "Error saving configuration"
     ERROR_USB_INIT = "USB controller initialization failed"
+    ERROR_STREAMDECK_NO_DEVICE = (
+        "Stream Deck Plus device not found. Please connect device and restart."
+    )
     ERROR_APP_LAUNCH_FAILED = "Failed to launch application"
     ERROR_APP_CRASHED = "VideoCue closed unexpectedly due to a critical system error."
     ERROR_APP_EXIT_CODE = "Exit code: {code}"
     ERROR_APP_LOG_PATH = "Log file: {path}"
     ERROR_APP_CRASH_TROUBLESHOOT = "Try disabling NDI video in Preferences and reconnect cameras one-by-one to isolate the source."
     ERROR_APP_RESTARTING_SAFE_MODE = "VideoCue detected a startup crash in native video components and will restart with NDI video disabled for this session."
-    ERROR_UNHANDLED_EXCEPTION = "VideoCue encountered an unexpected error and cannot continue safely."
+    ERROR_UNHANDLED_EXCEPTION = (
+        "VideoCue encountered an unexpected error and cannot continue safely."
+    )
     ERROR_EXCEPTION_TYPE = "Exception type: {exception_type}"
     ERROR_EXCEPTION_MESSAGE = "Exception message: {message}"
     ERROR_RESTART_PROMPT = "Choose how to restart VideoCue:"

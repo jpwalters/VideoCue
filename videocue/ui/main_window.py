@@ -32,11 +32,11 @@ from PyQt6.QtWidgets import (  # type: ignore
 
 from videocue import __version__
 from videocue.constants import UIConstants
-from videocue.controllers.ndi_video import cleanup_ndi, get_ndi_error_message, ndi_available
+from videocue.controllers.ndi_video import get_ndi_error_message, ndi_available
 from videocue.controllers.usb_controller import MovementDirection, USBController
 from videocue.models.config_manager import ConfigManager
 from videocue.models.cue_manager import CueManager
-from videocue.models.video import VideoSize
+from videocue.models.video import CameraPreset, VideoSize
 from videocue.ui.about_dialog import AboutDialog
 from videocue.ui.camera_add_dialog import CameraAddDialog
 from videocue.ui.camera_widget import CameraWidget
@@ -119,6 +119,11 @@ class MainWindow(QMainWindow):
         # USB controller
         self.usb_controller = None
 
+        # Stream Deck controller
+        self.streamdeck_controller = None
+        self.streamdeck_current_page = 0
+        self.streamdeck_brightness_timers = {}  # Track timers for temporary brightness display
+
         # Pre-initialize UI attributes
         self.usb_icon_label = None
         self.cameras_container = None
@@ -153,6 +158,9 @@ class MainWindow(QMainWindow):
         # USB controller signal handlers (stored for connect/disconnect)
         self._usb_signal_handlers = {}
 
+        # Stream Deck signal handlers (stored for connect/disconnect)
+        self._streamdeck_signal_handlers = {}
+
         # Update check thread (stored to prevent garbage collection)
         self._update_check_thread = None
         self._update_progress_dialog = None
@@ -167,6 +175,9 @@ class MainWindow(QMainWindow):
 
         # Initialize USB controller
         self.init_usb_controller()
+
+        # Initialize Stream Deck controller
+        self.init_streamdeck_controller()
 
         # Defer camera loading until after window is shown
         self._cameras_loaded = False
@@ -404,6 +415,21 @@ class MainWindow(QMainWindow):
 
         # Update icon based on connection status
         self._update_usb_indicator(False)
+
+        # Stream Deck Plus status indicator with icon
+        self.streamdeck_icon_label = QLabel()
+        self.streamdeck_icon_label.setFixedSize(28, 28)
+        self.streamdeck_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.streamdeck_icon_label.setToolTip("Stream Deck Plus Status (Click to configure)")
+        self.streamdeck_icon_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.streamdeck_icon_label.mousePressEvent = (
+            lambda event: self.show_streamdeck_preferences()
+        )
+
+        toolbar.addWidget(self.streamdeck_icon_label)
+
+        # Update icon based on connection status
+        self._update_streamdeck_indicator(False)
 
         toolbar.addStretch()
 
@@ -1092,6 +1118,72 @@ class MainWindow(QMainWindow):
         except (ImportError, RuntimeError, OSError) as e:
             logger.error(f"USB controller initialization error: {e}")
 
+    def init_streamdeck_controller(self):
+        """Initialize Stream Deck Plus controller"""
+        try:
+            from videocue.controllers.streamdeck_controller import StreamDeckController
+
+            # Check if Stream Deck is enabled in config
+            streamdeck_config = self.config.get_streamdeck_config()
+            if not streamdeck_config.get("enabled", True):
+                logger.info("Stream Deck disabled in configuration")
+                return
+
+            # Create controller
+            self.streamdeck_controller = StreamDeckController(self.config)
+
+            # Check if library is available
+            if not self.streamdeck_controller.is_available():
+                logger.warning("Stream Deck library not available")
+                self.streamdeck_controller = None
+                return
+
+            # Store signal handlers
+            self._streamdeck_signal_handlers["encoder_rotated"] = self.on_streamdeck_encoder_rotated
+            self._streamdeck_signal_handlers["encoder_pressed"] = self.on_streamdeck_encoder_pressed
+            self._streamdeck_signal_handlers["button_pressed"] = self.on_streamdeck_button_pressed
+            self._streamdeck_signal_handlers["device_connected"] = self.on_streamdeck_connected
+            self._streamdeck_signal_handlers["device_disconnected"] = (
+                self.on_streamdeck_disconnected
+            )
+            self._streamdeck_signal_handlers["error"] = self.on_streamdeck_error
+
+            # Connect signals using UniqueConnection
+            self.streamdeck_controller.encoder_rotated.connect(
+                self._streamdeck_signal_handlers["encoder_rotated"],
+                Qt.ConnectionType.UniqueConnection,
+            )
+            self.streamdeck_controller.encoder_pressed.connect(
+                self._streamdeck_signal_handlers["encoder_pressed"],
+                Qt.ConnectionType.UniqueConnection,
+            )
+            self.streamdeck_controller.button_pressed.connect(
+                self._streamdeck_signal_handlers["button_pressed"],
+                Qt.ConnectionType.UniqueConnection,
+            )
+            self.streamdeck_controller.device_connected.connect(
+                self._streamdeck_signal_handlers["device_connected"],
+                Qt.ConnectionType.UniqueConnection,
+            )
+            self.streamdeck_controller.device_disconnected.connect(
+                self._streamdeck_signal_handlers["device_disconnected"],
+                Qt.ConnectionType.UniqueConnection,
+            )
+            self.streamdeck_controller.error.connect(
+                self._streamdeck_signal_handlers["error"], Qt.ConnectionType.UniqueConnection
+            )
+
+            # Start the controller thread
+            self.streamdeck_controller.start()
+            logger.info("Stream Deck controller initialized")
+
+        except ImportError as e:
+            logger.info(f"Stream Deck library not available: {e}")
+            self.streamdeck_controller = None
+        except Exception as e:
+            logger.exception(f"Stream Deck initialization error: {e}")
+            self.streamdeck_controller = None
+
     def _configure_network_interface(self, camera_configs: list[dict]) -> None:
         """
         Detect and configure network interface for NDI binding.
@@ -1312,6 +1404,10 @@ class MainWindow(QMainWindow):
 
             self._refresh_cues_table()
 
+            # Update Stream Deck displays after camera added
+            if self.streamdeck_controller and self.streamdeck_controller.running:
+                self.update_streamdeck_displays()
+
         except Exception as e:
             error_msg = f"Failed to load camera {camera_num}:\n{str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -1349,6 +1445,9 @@ class MainWindow(QMainWindow):
                 from PyQt6.QtCore import QTimer
 
                 QTimer.singleShot(500, self._hide_loading_indicator)
+                # Update Stream Deck displays after all cameras loaded
+                if self.streamdeck_controller and self.streamdeck_controller.running:
+                    QTimer.singleShot(600, self.update_streamdeck_displays)
         except Exception as e:
             logger.exception("ERROR in on_camera_initialized")
             from PyQt6.QtWidgets import QMessageBox
@@ -1478,6 +1577,13 @@ class MainWindow(QMainWindow):
 
             self._refresh_cues_table()
 
+            # Update Stream Deck displays and adjust page if needed
+            if self.streamdeck_controller and self.streamdeck_controller.running:
+                max_pages = self.get_streamdeck_max_pages()
+                if self.streamdeck_current_page >= max_pages and max_pages > 0:
+                    self.streamdeck_current_page = max_pages - 1
+                self.update_streamdeck_displays()
+
     def move_camera_left(self, camera: "CameraWidget"):
         """Move camera one position to the left"""
         if camera not in self.cameras:
@@ -1579,6 +1685,9 @@ class MainWindow(QMainWindow):
         self.cameras[index].set_selected(True)
         self._update_cue_header_highlight()
 
+        # Update Stream Deck displays to reflect new selection
+        self.update_streamdeck_displays()
+
     def get_selected_camera(self) -> "CameraWidget | None":
         """Get currently selected camera"""
         if 0 <= self.selected_camera_index < len(self.cameras):
@@ -1598,6 +1707,21 @@ class MainWindow(QMainWindow):
             self.usb_icon_label.setStyleSheet("color: #FF0000; font-size: 20px;")
             self.usb_icon_label.setToolTip(
                 "<span style='font-size: 10pt;'>No controller connected<br>Click for settings</span>"
+            )
+
+    def _update_streamdeck_indicator(self, connected: bool, name: str = ""):
+        """Update Stream Deck Plus visual indicator"""
+        if connected:
+            self.streamdeck_icon_label.setText("\U0001f39b\ufe0e")  # 🎛️ control knobs emoji
+            self.streamdeck_icon_label.setStyleSheet("color: #00FF00; font-size: 20px;")
+            self.streamdeck_icon_label.setToolTip(
+                f"<span style='font-size: 10pt;'>Stream Deck: {name}<br>Click to configure</span>"
+            )
+        else:
+            self.streamdeck_icon_label.setText("\U0001f39b\ufe0e")  # 🎛️ control knobs emoji
+            self.streamdeck_icon_label.setStyleSheet("color: #FF0000; font-size: 20px;")
+            self.streamdeck_icon_label.setToolTip(
+                "<span style='font-size: 10pt;'>Stream Deck Plus disconnected<br>Click to configure</span>"
             )
 
     @pyqtSlot(str)
@@ -1710,17 +1834,349 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("Error handling USB one-push autofocus")
 
-    def on_video_size_changed(self, size: VideoSize) -> None:
-        """Handle video size menu selection"""
-        try:
-            # Update default preference
-            self.config.set_default_video_size(size.width, size.height)
+    # Stream Deck Signal Handlers
 
-            # Update all cameras
-            for camera in self.cameras:
-                camera.set_video_size(size.width, size.height)
+    @pyqtSlot(str)
+    def on_streamdeck_connected(self, device_name: str) -> None:
+        """Handle Stream Deck connection"""
+        try:
+            logger.info(f"Stream Deck connected: {device_name}")
+            # Update status indicator
+            self._update_streamdeck_indicator(True, device_name)
+            # Update displays for current camera page
+            self.update_streamdeck_displays()
         except Exception:
-            logger.exception("Error changing video size")
+            logger.exception("Error handling Stream Deck connection")
+
+    @pyqtSlot()
+    def on_streamdeck_disconnected(self) -> None:
+        """Handle Stream Deck disconnection"""
+        try:
+            logger.warning("Stream Deck disconnected")
+            # Update status indicator
+            self._update_streamdeck_indicator(False)
+        except Exception:
+            logger.exception("Error handling Stream Deck disconnection")
+
+    @pyqtSlot(str)
+    def on_streamdeck_error(self, error_msg: str) -> None:
+        """Handle Stream Deck error"""
+        try:
+            logger.error(f"Stream Deck error: {error_msg}")
+        except Exception:
+            logger.exception("Error handling Stream Deck error")
+
+    @pyqtSlot(int, int)
+    def on_streamdeck_encoder_rotated(self, encoder_id: int, delta: int) -> None:
+        """Handle Stream Deck encoder rotation for brightness control"""
+        try:
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                return
+
+            # Get config to check if brightness control is enabled
+            streamdeck_config = self.config.get_streamdeck_config()
+            if not streamdeck_config.get("brightness_control_enabled", True):
+                return
+
+            # Calculate camera index from page and encoder
+            camera_index = self.streamdeck_current_page * 4 + encoder_id
+
+            # Bounds check
+            if camera_index >= len(self.cameras):
+                return
+
+            # Get camera
+            camera = self.cameras[camera_index]
+
+            # Check connection
+            if not camera.is_connected:
+                logger.debug(f"Camera {camera_index + 1} not connected, ignoring encoder rotation")
+                return
+
+            # Import here to avoid circular import
+            from videocue.controllers.visca_ip import ExposureMode
+
+            # Check exposure mode - only work in Bright mode (consistent with USB controller)
+            current_mode = ExposureMode(camera.exposure_combo.currentData())
+            if current_mode != ExposureMode.BRIGHT:
+                logger.debug(
+                    f"Camera {camera_index + 1} not in Bright mode, ignoring encoder rotation"
+                )
+                return
+
+            # Get brightness step from USB config (reuse existing setting)
+            usb_config = self.config.get_usb_controller_config()
+            brightness_step = usb_config.get("brightness_step", 1)
+
+            # Calculate new brightness value
+            current_value = camera.brightness_slider.value()
+            new_value = current_value + (delta * brightness_step)
+            new_value = max(0, min(41, new_value))  # Clamp to 0-41 range
+
+            # Update slider (triggers VISCA command via on_brightness_changed)
+            if new_value != current_value:
+                camera.brightness_slider.setValue(new_value)
+                logger.debug(
+                    f"Camera {camera_index + 1} brightness: {current_value} -> {new_value}"
+                )
+
+                # Show brightness value temporarily on encoder display
+                self._show_encoder_brightness(encoder_id, new_value)
+
+        except Exception:
+            logger.exception("Error handling Stream Deck encoder rotation")
+
+    def _show_encoder_brightness(self, encoder_id: int, brightness_value: int) -> None:
+        """Temporarily show brightness value on encoder display"""
+        try:
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                return
+
+            # Cancel any existing timer for this encoder
+            if encoder_id in self.streamdeck_brightness_timers:
+                self.streamdeck_brightness_timers[encoder_id].stop()
+
+            # Calculate camera index to check if it's selected
+            camera_index = self.streamdeck_current_page * 4 + encoder_id
+
+            # Always use green background for brightness feedback
+            background = (0, 200, 0)
+
+            # Add orange border if this is the selected camera
+            border = (255, 140, 0) if camera_index == self.selected_camera_index else None
+
+            # Show brightness value
+            self.streamdeck_controller.set_encoder_display(
+                encoder_id, str(brightness_value), background=background, border=border
+            )
+
+            # Set timer to restore normal display after 2 seconds
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda: self._restore_encoder_display(encoder_id))
+            timer.start(2000)  # 2 seconds
+            self.streamdeck_brightness_timers[encoder_id] = timer
+
+        except Exception:
+            logger.exception(f"Error showing brightness on encoder {encoder_id}")
+
+    def _restore_encoder_display(self, encoder_id: int) -> None:
+        """Restore normal camera number display for encoder"""
+        try:
+            # Clean up timer reference
+            if encoder_id in self.streamdeck_brightness_timers:
+                del self.streamdeck_brightness_timers[encoder_id]
+
+            # Restore normal display by calling update
+            self.update_streamdeck_displays()
+
+        except Exception:
+            logger.exception(f"Error restoring encoder {encoder_id} display")
+
+    @pyqtSlot(int)
+    def on_streamdeck_encoder_pressed(self, encoder_id: int) -> None:
+        """Handle Stream Deck encoder button press - select camera"""
+        try:
+            # Check if encoder press is enabled in preferences
+            streamdeck_config = self.config.get_streamdeck_config()
+            encoder_press_enabled = streamdeck_config.get("encoder_press_enabled", True)
+
+            if not encoder_press_enabled:
+                logger.debug("Encoder press disabled in preferences, ignoring")
+                return
+
+            # Calculate camera index from page and encoder
+            camera_index = self.streamdeck_current_page * 4 + encoder_id
+
+            # Bounds check
+            if camera_index >= len(self.cameras):
+                return
+
+            # Select the camera
+            self.select_camera_at_index(camera_index)
+            logger.debug(f"Selected camera {camera_index + 1} via Stream Deck encoder press")
+
+        except Exception:
+            logger.exception("Error handling Stream Deck encoder press")
+
+    @pyqtSlot(int)
+    def on_streamdeck_button_pressed(self, button_id: int) -> None:
+        """Handle Stream Deck button press"""
+        try:
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                return
+
+            # Get button action from config
+            streamdeck_config = self.config.get_streamdeck_config()
+            action_key = f"button_{button_id}_action"
+            action = streamdeck_config.get(action_key, "")
+
+            logger.debug(f"Stream Deck button {button_id} pressed, action: {action}")
+
+            # Handle action
+            if action == "page_prev":
+                self.on_streamdeck_page_prev()
+            elif action == "page_next":
+                self.on_streamdeck_page_next()
+            elif action == "arm_cue":
+                self._arm_next_cue_if_cues_tab_active()
+            elif action == "run_cue":
+                self._run_cue_if_cues_tab_active()
+            elif action.startswith("preset_"):
+                # Recall preset for selected camera
+                preset_number = int(action.split("_")[1])
+                camera = self.get_selected_camera()
+                if camera and camera.is_connected:
+                    # Get the camera's presets
+                    presets = self.config.get_presets(camera.camera_id)
+                    preset_index = preset_number - 1  # Convert 1-based to 0-based
+
+                    if preset_index < len(presets):
+                        preset_dict = presets[preset_index]
+                        preset = CameraPreset(
+                            preset_dict["name"],
+                            preset_dict["preset_number"],
+                            preset_dict.get("uuid"),
+                        )
+                        camera.recall_preset(preset)
+                        logger.debug(
+                            f"Recalled preset {preset_number} ({preset.name}) via Stream Deck button {button_id}"
+                        )
+
+        except Exception:
+            logger.exception("Error handling Stream Deck button press")
+
+    def on_streamdeck_page_prev(self) -> None:
+        """Go to previous camera page on Stream Deck"""
+        try:
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                return
+
+            max_pages = self.get_streamdeck_max_pages()
+            if max_pages <= 1:
+                return  # No paging needed
+
+            # Decrement page with wraparound
+            self.streamdeck_current_page = (self.streamdeck_current_page - 1) % max_pages
+            logger.debug(f"Stream Deck page: {self.streamdeck_current_page + 1}/{max_pages}")
+
+            # Update displays
+            self.update_streamdeck_displays()
+
+        except Exception:
+            logger.exception("Error handling Stream Deck page previous")
+
+    def on_streamdeck_page_next(self) -> None:
+        """Go to next camera page on Stream Deck"""
+        try:
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                return
+
+            max_pages = self.get_streamdeck_max_pages()
+            if max_pages <= 1:
+                return  # No paging needed
+
+            # Increment page with wraparound
+            self.streamdeck_current_page = (self.streamdeck_current_page + 1) % max_pages
+            logger.debug(f"Stream Deck page: {self.streamdeck_current_page + 1}/{max_pages}")
+
+            # Update displays
+            self.update_streamdeck_displays()
+
+        except Exception:
+            logger.exception("Error handling Stream Deck page next")
+
+    def get_streamdeck_max_pages(self) -> int:
+        """Calculate maximum number of Stream Deck pages"""
+        import math
+
+        return max(1, math.ceil(len(self.cameras) / 4))
+
+    def get_cameras_for_page(self, page: int) -> list:
+        """Get list of cameras for given Stream Deck page"""
+        start_idx = page * 4
+        end_idx = start_idx + 4
+        return self.cameras[start_idx:end_idx]
+
+    def update_streamdeck_displays(self) -> None:
+        """Update all Stream Deck encoder displays with camera numbers"""
+        try:
+            logger.debug(
+                f"update_streamdeck_displays called - controller: {self.streamdeck_controller}, running: {self.streamdeck_controller.running if self.streamdeck_controller else 'N/A'}"
+            )
+
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                logger.debug("Stream Deck controller not running, skipping display update")
+                return
+
+            # Get cameras for current page
+            page_cameras = self.get_cameras_for_page(self.streamdeck_current_page)
+            logger.info(
+                f"Updating Stream Deck displays - Page {self.streamdeck_current_page}, Cameras: {len(page_cameras)}"
+            )
+
+            # Update encoder displays (0-3)
+            for encoder_id in range(4):
+                if encoder_id < len(page_cameras):
+                    # Calculate absolute camera index and number
+                    camera_index = self.streamdeck_current_page * 4 + encoder_id
+                    camera_number = camera_index + 1  # 1-based for display
+
+                    logger.debug(f"Setting encoder {encoder_id} to camera {camera_number}")
+
+                    # Use orange background if this is the selected camera
+                    if camera_index == self.selected_camera_index:
+                        background = (255, 140, 0)  # Orange - matching UI selection color
+                    else:
+                        background = (0, 100, 200)  # Blue - normal camera
+
+                    self.streamdeck_controller.set_encoder_display(
+                        encoder_id, str(camera_number), background=background
+                    )
+                else:
+                    # No camera for this encoder, show blank
+                    logger.debug(f"Setting encoder {encoder_id} to blank (no camera)")
+                    self.streamdeck_controller.set_encoder_display(
+                        encoder_id, "", background=(40, 40, 40)
+                    )
+
+            # Update button displays with action labels
+            streamdeck_config = self.config.get_streamdeck_config()
+
+            # Get presets for selected camera
+            selected_camera = self.get_selected_camera()
+            camera_presets = []
+            if selected_camera:
+                camera_presets = self.config.get_presets(selected_camera.camera_id)
+
+            # Static labels for non-preset actions
+            static_labels = {
+                "page_prev": "◄",
+                "page_next": "►",
+                "arm_cue": "ARM",
+                "run_cue": "RUN",
+            }
+
+            for button_id in range(8):
+                action_key = f"button_{button_id}_action"
+                action = streamdeck_config.get(action_key, "")
+
+                # Handle preset actions - show actual preset name
+                if action.startswith("preset_"):
+                    preset_index = int(action.split("_")[1]) - 1  # Convert preset_1 to index 0
+                    if preset_index < len(camera_presets):
+                        label = camera_presets[preset_index].get("name", "")
+                    else:
+                        label = ""  # No preset at this position
+                else:
+                    # Use static label for non-preset actions
+                    label = static_labels.get(action, "")
+
+                # Always update button display (even if label is empty to clear it)
+                self.streamdeck_controller.set_button_display(button_id, label)
+
+        except Exception:
+            logger.exception("Error updating Stream Deck displays")
 
     def on_bandwidth_changed(self, bandwidth: str) -> None:
         """Handle NDI bandwidth menu selection"""
@@ -2163,8 +2619,16 @@ class MainWindow(QMainWindow):
         except (ValueError, AttributeError):
             return False
 
-    def show_controller_preferences(self):
-        """Show controller preferences dialog (non-modal, stays open)"""
+    def show_streamdeck_preferences(self):
+        """Show Stream Deck preferences dialog (opens to Stream Deck tab)"""
+        self.show_controller_preferences(initial_tab=1)
+
+    def show_controller_preferences(self, initial_tab=0):
+        """Show controller preferences dialog (non-modal, stays open)
+
+        Args:
+            initial_tab: Index of tab to show initially (0=Controller, 1=Stream Deck, 2=Application)
+        """
         from videocue.ui.preferences_dialog import PreferencesDialog
 
         logger.info(
@@ -2216,6 +2680,10 @@ class MainWindow(QMainWindow):
         # Always create fresh dialog
         logger.debug(f"Creating dialog with usb_controller={self.usb_controller}")
         self.preferences_dialog = PreferencesDialog(self.config, self, self.usb_controller)
+
+        # Set initial tab
+        if initial_tab > 0:
+            self.preferences_dialog.tab_widget.setCurrentIndex(initial_tab)
 
         # Connect finished signal to reset flag when dialog closes
         self.preferences_dialog.finished.connect(self._on_preferences_dialog_closed)
@@ -2327,12 +2795,29 @@ class MainWindow(QMainWindow):
             self.usb_controller.hotplug_timer.stop()
             logger.info("USB controller timers stopped")
 
+        # Stop Stream Deck controller thread
+        if self.streamdeck_controller:
+            try:
+                logger.info("Stopping Stream Deck controller...")
+                self.streamdeck_controller.stop()
+                if not self.streamdeck_controller.wait(3000):  # Wait max 3 seconds
+                    logger.warning("Stream Deck thread did not stop in time, forcing termination")
+                    self.streamdeck_controller.terminate()
+                    self.streamdeck_controller.wait(500)  # Wait for forced termination
+                logger.info("Stream Deck controller stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping Stream Deck controller: {e}")
+
         # Cleanup NDI global resources
-        try:
-            cleanup_ndi()
-            logger.info("NDI resources cleaned up")
-        except Exception as e:
-            logger.warning(f"Error cleaning up NDI: {e}")
+        # DISABLED: Calling NDI DLL cleanup functions during Python shutdown causes
+        # Windows STACK_BUFFER_OVERRUN (exit code 0xC0000409) during DLL unload.
+        # Windows automatically frees all DLL resources on process exit.
+        # try:
+        #     cleanup_ndi()
+        #     logger.info("NDI resources cleaned up")
+        # except Exception as e:
+        #     logger.warning(f"Error cleaning up NDI: {e}")
+        logger.info("Skipping NDI cleanup (Windows handles on process exit)")
 
         logger.info("Cleanup complete, exiting...")
         event.accept()

@@ -114,6 +114,7 @@ The configuration includes:
 - Video size preferences
 - NDI video/scopes preferences (bandwidth, format, scope mode)
 - USB controller settings
+- Stream Deck button mappings and encoder preferences
 
 ## Features Implemented
 
@@ -150,6 +151,17 @@ The configuration includes:
 - Brightness control (Y/A buttons in Bright mode)
 - **Safe camera switching** (auto-stop previous camera, configurable)
 - **Optimized button handling** - Button mappings cached at init for responsive input
+
+✅ Elgato Stream Deck Plus support
+- 8 LCD buttons with live camera thumbnails
+- 4 rotary encoders for camera selection and parameter control
+- Configurable button actions: Preset 1-8, Run, Arm, Next, Back, or None
+- Unique action validation (each action assignable once per configuration)
+- Encoder press to select camera (configurable, default enabled)
+- Visual feedback with real-time button updates (camera names, preset labels)
+- Clickable Stream Deck icon in toolbar (opens preferences to Stream Deck tab)
+- Dedicated preferences tab for button/encoder configuration
+- Hotplug detection with automatic connection indicator
 
 ✅ Multi-camera management
 - Add cameras via NDI discovery or manual IP
@@ -237,6 +249,23 @@ The configuration includes:
 - [ ] Test controller hotplug (disconnect/reconnect)
 - [ ] Test camera switch safety preference (enable/disable in settings)
 
+### Stream Deck Plus
+- [ ] Test Stream Deck Plus detection and connection indicator
+- [ ] Test 8 button configuration in preferences (Edit → Controller Preferences → Stream Deck tab)
+- [ ] Test button action assignments (Preset 1-8, Run, Arm, Next, Back, None)
+- [ ] Test unique action validation (cannot assign duplicate actions except None)
+- [ ] Test preset buttons recall correct presets on selected camera
+- [ ] Test Run button executes current armed cue
+- [ ] Test Arm button arms next cue in sequence
+- [ ] Test Next/Back buttons switch between cameras
+- [ ] Test encoder press to select camera (if enabled in preferences)
+- [ ] Test encoder press enable/disable preference setting
+- [ ] Test live camera thumbnails on button displays
+- [ ] Test button visual feedback (camera names, preset labels update in real-time)
+- [ ] Test Stream Deck icon clickable (opens preferences to Stream Deck tab)
+- [ ] Test Stream Deck hotplug (disconnect/reconnect device)
+- [ ] Verify button actions work only on connected cameras
+
 ### Camera Controls
 - [ ] Test focus mode switching (Auto/Manual/One-Push)
 - [ ] Test exposure modes (Auto, Manual, Shutter/Iris Priority, Bright)
@@ -295,6 +324,23 @@ The configuration includes:
 - Check firewall allows UDP on port 52381
 - Click the Reconnect button when it appears
 - Press B button on controller to reconnect selected camera
+
+### Stream Deck Plus Not Detected
+- Verify Stream Deck Plus is connected via USB
+- Check Device Manager (Windows) → Human Interface Devices → Look for HID-compliant device entries
+- Install official Elgato Stream Deck software to verify hardware works
+- Try reconnecting device (hotplug detection active)
+- Verify hidapi.dll is present in application directory (auto-downloaded by build script)
+- Check console output for Stream Deck initialization logs
+- **Note**: Only Stream Deck Plus (8 buttons + 4 encoders) is currently supported, not other Stream Deck models
+
+### Stream Deck Buttons Not Responding
+- Open preferences: Edit → Controller Preferences → Stream Deck tab
+- Verify button actions are assigned (default: all None)
+- Ensure no duplicate actions (except None) - app validates on save
+- For preset buttons: ensure camera is selected and preset exists
+- For Run button: ensure cue is armed first
+- Check console output for action execution errors
 
 ### NDI Source Times Out / App Freezes During Add
 - Fixed: Now has 5-second timeout on invalid NDI sources

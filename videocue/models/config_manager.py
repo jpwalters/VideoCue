@@ -193,6 +193,19 @@ class ConfigManager:
                     "axis_5": "zoom_in",
                 },
             },
+            "streamdeck": {
+                "enabled": True,
+                "brightness_control_enabled": True,
+                "encoder_press_enabled": True,
+                "button_0_action": "preset_1",
+                "button_1_action": "preset_2",
+                "button_2_action": "preset_3",
+                "button_3_action": "preset_4",
+                "button_4_action": "page_prev",
+                "button_5_action": "arm_cue",
+                "button_6_action": "run_cue",
+                "button_7_action": "page_next",
+            },
         }
 
     def add_camera(
@@ -521,6 +534,10 @@ class ConfigManager:
     def get_usb_controller_config(self) -> dict:
         """Get USB controller configuration"""
         return self.config.get("usb_controller", self._default_schema()["usb_controller"])
+
+    def get_streamdeck_config(self) -> dict:
+        """Get Stream Deck configuration"""
+        return self.config.get("streamdeck", self._default_schema()["streamdeck"])
 
     def get_cameras(self) -> list[dict]:
         """Get all cameras sorted by position"""

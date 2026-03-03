@@ -28,6 +28,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-build.lock.txt
       
+      - name: Download hidapi DLL for Stream Deck support
+        run: |
+          Write-Host "Downloading hidapi.dll for Stream Deck Plus support..."
+          $hidapiUrl = "https://github.com/libusb/hidapi/releases/download/hidapi-0.14.0/hidapi-win.zip"
+          $tempZip = "$env:TEMP\hidapi-win.zip"
+          $tempExtract = "$env:TEMP\hidapi-extract"
+          
+          Invoke-WebRequest -Uri $hidapiUrl -OutFile $tempZip
+          Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
+          
+          # Copy x64 DLL to project root
+          Copy-Item "$tempExtract\x64\hidapi.dll" -Destination "hidapi.dll" -Force
+          Write-Host "✓ hidapi.dll downloaded to project root"
+          
+          Remove-Item $tempZip, $tempExtract -Recurse -Force
+      
       - name: Verify NDI bindings are bundled
         run: |
           if (Test-Path "videocue\ndi_wrapper\NDIlib.cp310-win_amd64.pyd") {

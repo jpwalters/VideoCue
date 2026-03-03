@@ -73,17 +73,23 @@ The PyInstaller build completed successfully!
    - Updates `videocue/__init__.py`
    - Updates `installer.iss`
 
-2. **PyInstaller Build**:
+2. **Dependency Download**:
+   - Downloads hidapi.dll (v0.14.0) from libusb/hidapi GitHub releases
+   - Extracts x64 version to project root and site-packages
+   - Required for Elgato Stream Deck Plus communication
+   - Auto-downloaded on first build, not checked into version control
+
+3. **PyInstaller Build**:
    - Cleans dist folder
    - Runs `pyinstaller VideoCue.spec --clean --noconfirm`
    - Reports build time and file size
 
-3. **Inno Setup Compiler**:
+4. **Inno Setup Compiler**:
    - Locates Inno Setup installation
    - Compiles installer from `installer.iss`
    - Creates Setup.exe in `installer_output/`
 
-4. **Portable ZIP**:
+5. **Portable ZIP**:
    - Creates staging directory
    - Copies executable files
    - Adds PORTABLE_README.txt
@@ -173,6 +179,8 @@ PyInstaller build specification:
 - ✅ VideoCue.exe (main application)
 - ✅ PyQt6 runtime libraries (~80 MB)
 - ✅ pygame libraries (~15 MB)
+- ✅ streamdeck library with pillow (~10 MB)
+- ✅ hidapi.dll (USB HID communication for Stream Deck, auto-downloaded)
 - ✅ qdarkstyle theme
 - ✅ numpy libraries (~20 MB)
 - ✅ NDI wrapper module with .pyd bindings (~5 MB)
@@ -194,9 +202,12 @@ PyInstaller build specification:
 - [ ] Test executable on clean Windows machine
 - [ ] Verify NDI streaming works (if NDI Runtime installed)
 - [ ] Test USB controller detection (Xbox/PlayStation controllers)
+- [ ] Test Stream Deck Plus detection and button configuration
 - [ ] Verify VISCA camera control
 - [ ] Test X button emergency stop
 - [ ] Test camera switch safety (auto-stop previous camera)
+- [ ] Test Stream Deck preset recall and cue control
+- [ ] Verify hidapi.dll is included in dist folder
 - [ ] Check error handling (disconnect camera, invalid IP, etc.)
 - [ ] Test configuration save/load
 - [ ] Verify play/pause video controls

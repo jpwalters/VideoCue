@@ -118,6 +118,67 @@ print('Locked dependency check passed.')"
     Write-Host "Locked build dependencies verified.`n" -ForegroundColor Green
 }
 
+# Download hidapi.dll if not already present (for Stream Deck support)
+function Get-HidapiDll {
+    $HidapiDllPath = "$ScriptDir\hidapi.dll"
+    
+    # Check if already exists
+    if (Test-Path $HidapiDllPath) {
+        Write-Host "hidapi.dll already present, skipping download.`n" -ForegroundColor Gray
+        return
+    }
+    
+    Write-Host "Downloading hidapi.dll for Stream Deck support..." -ForegroundColor Yellow
+    
+    $HidapiVersion = "0.14.0"
+    $HidapiUrl = "https://github.com/libusb/hidapi/releases/download/hidapi-$HidapiVersion/hidapi-win.zip"
+    $TempZip = "$env:TEMP\hidapi-win.zip"
+    $TempExtract = "$env:TEMP\hidapi-extract"
+    
+    try {
+        # Download ZIP
+        Write-Host "  Downloading from GitHub releases..." -ForegroundColor Gray
+        Invoke-WebRequest -Uri $HidapiUrl -OutFile $TempZip -UseBasicParsing
+        
+        # Extract ZIP
+        Write-Host "  Extracting archive..." -ForegroundColor Gray
+        if (Test-Path $TempExtract) {
+            Remove-Item $TempExtract -Recurse -Force
+        }
+        Expand-Archive -Path $TempZip -DestinationPath $TempExtract -Force
+        
+        # Copy x64 DLL to project root
+        $SourceDll = "$TempExtract\x64\hidapi.dll"
+        if (-not (Test-Path $SourceDll)) {
+            throw "hidapi.dll not found in extracted archive at expected path: $SourceDll"
+        }
+        
+        Write-Host "  Copying to project root..." -ForegroundColor Gray
+        Copy-Item $SourceDll -Destination $HidapiDllPath -Force
+        
+        # Also copy to site-packages for runtime
+        $SitePackages = & $PythonCmd -c "import site; print(site.getsitepackages()[0])"
+        if ($SitePackages -and (Test-Path $SitePackages)) {
+            Write-Host "  Copying to site-packages..." -ForegroundColor Gray
+            Copy-Item $SourceDll -Destination "$SitePackages\hidapi.dll" -Force
+        }
+        
+        # Cleanup
+        Remove-Item $TempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
+        
+        Write-Host "hidapi.dll downloaded successfully.`n" -ForegroundColor Green
+        
+    } catch {
+        Write-Host "ERROR: Failed to download hidapi.dll: $_" -ForegroundColor Red
+        Write-Host "Stream Deck support may not work without manual DLL installation.`n" -ForegroundColor Yellow
+        # Don't exit - allow build to continue
+    }
+}
+
+# Ensure hidapi.dll is available
+Get-HidapiDll
+
 # Step 1: Run PyInstaller
 if (-not $SkipBuild) {
     Write-Host "[1/2] Running PyInstaller..." -ForegroundColor Yellow

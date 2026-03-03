@@ -11,6 +11,17 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+# Configure DLL search path for PyInstaller bundles (Windows only)
+# PyInstaller 6.x places native DLLs in _internal subfolder
+# DISABLED: os.add_dll_directory() causes DLL unload crashes during exit
+# Instead, rely on Windows' natural DLL search order and PATH
+if sys.platform == "win32" and hasattr(sys, "_MEIPASS"):
+    # Running as PyInstaller bundle
+    internal_path = Path(sys._MEIPASS) / "_internal"
+    if internal_path.exists():
+        # Add _internal to PATH for DLL loading (avoids os.add_dll_directory crashes)
+        os.environ["PATH"] = str(internal_path) + os.pathsep + os.environ.get("PATH", "")
+
 from PyQt6.QtCore import QEvent, Qt  # type: ignore
 from PyQt6.QtGui import QIcon  # type: ignore
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox  # type: ignore
@@ -41,14 +52,20 @@ def _write_crash_log(
     exc_value=None,
     exc_traceback=None,
     extra_details: str = "",
-) -> None:
-    """Write crash diagnostics to a dedicated always-on crash log file."""
+) -> Path:
+    """Write crash diagnostics to a dedicated always-on crash log file.
+
+    Returns:
+        Path to the crash log file that was created.
+    """
     timestamp = datetime.now().isoformat(timespec="seconds")
     process_role = os.environ.get("VIDEOCUE_PROCESS_ROLE", "direct")
     ndi_disabled = os.environ.get("VIDEOCUE_DISABLE_NDI") == "1"
 
     log_dir = get_app_data_dir() / "logs"
-    crash_log_path = log_dir / "videocue-crash.log"
+    # Include timestamp in filename for unique crash logs
+    timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    crash_log_path = log_dir / f"videocue-crash-{timestamp_str}.log"
 
     lines = [
         "=" * 80,
@@ -85,6 +102,8 @@ def _write_crash_log(
             crash_file.write("\n".join(lines))
     except Exception as write_error:
         print(f"Failed to write crash log: {write_error}", file=sys.stderr)
+
+    return crash_log_path
 
 
 def _apply_popup_window_policy(dialog: QDialog) -> None:
@@ -163,9 +182,7 @@ def _show_native_restart_dialog(title: str, message: str) -> str:
 def _request_restart(disable_ndi: bool) -> None:
     """Exit the app with a supervisor restart request exit code."""
     exit_code = (
-        RESTART_REQUEST_WITHOUT_NDI_EXIT_CODE
-        if disable_ndi
-        else RESTART_REQUEST_WITH_NDI_EXIT_CODE
+        RESTART_REQUEST_WITHOUT_NDI_EXIT_CODE if disable_ndi else RESTART_REQUEST_WITH_NDI_EXIT_CODE
     )
 
     app = QApplication.instance()
@@ -290,8 +307,7 @@ def _run_with_supervisor() -> int:
             continue
 
         if _is_abnormal_exit(exit_code):
-            log_path = get_app_data_dir() / "logs" / "videocue.log"
-            _write_crash_log(
+            crash_log_path = _write_crash_log(
                 "Supervisor detected abnormal child exit",
                 extra_details=(
                     f"Child exit code: {exit_code}\n"
@@ -303,7 +319,7 @@ def _run_with_supervisor() -> int:
                 (
                     f"{UIStrings.ERROR_NATIVE_CRASH_PROMPT}\n\n"
                     f"{UIStrings.ERROR_APP_EXIT_CODE.format(code=exit_code)}\n"
-                    f"{UIStrings.ERROR_APP_LOG_PATH.format(path=log_path)}"
+                    f"{UIStrings.ERROR_APP_LOG_PATH.format(path=crash_log_path)}"
                 ),
             )
 
@@ -354,7 +370,9 @@ def setup_logging(file_logging_enabled: bool = False, process_role: str = "direc
     try:
         import faulthandler
 
-        crash_file = log_dir / "videocue-crash.log"
+        # Include timestamp in filename for unique crash logs
+        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        crash_file = log_dir / f"videocue-crash-{timestamp_str}.log"
         crash_stream = crash_file.open("a", encoding="utf-8")
         faulthandler.enable(file=crash_stream, all_threads=True)
         logger.info(f"Faulthandler enabled: {crash_file}")

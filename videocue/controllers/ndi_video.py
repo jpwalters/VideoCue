@@ -418,29 +418,34 @@ def clear_source_cache() -> None:
 
 
 def cleanup_ndi() -> None:
-    """Cleanup NDI resources (call on application shutdown)"""
+    """Cleanup NDI resources (call on application shutdown)
+
+    DISABLED: Calling NDI DLL cleanup functions during app shutdown causes
+    Windows STACK_BUFFER_OVERRUN (exit code 0xC0000409). Windows automatically
+    frees all DLL resources on process exit. We only clear Python references.
+    """
     global _ndi_initialized, _global_finder, _source_cache
     with _ndi_lock:
         # Clear source cache
         _source_cache.clear()
 
         if _global_finder:
-            try:
-                ndi.find_destroy(_global_finder)
-                logger.info("[NDI Global] Finder destroyed")
-            except Exception as e:
-                logger.error(f"[NDI Global] Error destroying finder: {e}")
-            finally:
-                _global_finder = None
+            # try:
+            #     ndi.find_destroy(_global_finder)
+            #     logger.info("[NDI Global] Finder destroyed")
+            # except Exception as e:
+            #     logger.error(f"[NDI Global] Error destroying finder: {e}")
+            # finally:
+            _global_finder = None
 
         if _ndi_initialized:
-            try:
-                ndi.destroy()
-                logger.info("[NDI Global] NDI destroyed")
-            except Exception as e:
-                logger.error(f"[NDI Global] Error destroying NDI: {e}")
-            finally:
-                _ndi_initialized = False
+            # try:
+            #     ndi.destroy()
+            #     logger.info("[NDI Global] NDI destroyed")
+            # except Exception as e:
+            #     logger.error(f"[NDI Global] Error destroying NDI: {e}")
+            # finally:
+            _ndi_initialized = False
 
         # Capture final wrapper counters as proof of cleanup
         try:
@@ -931,7 +936,9 @@ class NDIVideoThread(QThread):
                                 logger.error(
                                     f"[{self.source_name}] ✗✗✗ NO FRAMES after safe reconnect path ({timeout_seconds}s since last frame) ✗✗✗"
                                 )
-                                logger.error(f"[{self.source_name}] Total time: {elapsed_total:.1f}ms")
+                                logger.error(
+                                    f"[{self.source_name}] Total time: {elapsed_total:.1f}ms"
+                                )
                                 logger.error(
                                     f"[{self.source_name}] Source method: {source_creation_method}"
                                 )
@@ -1067,7 +1074,9 @@ class NDIVideoThread(QThread):
                         logger.debug("Waveform conversion returned empty data")
                         return None
 
-                    qimage = QImage(waveform_data, width, height, width * 3, QImage.Format.Format_RGB888)
+                    qimage = QImage(
+                        waveform_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
                     self._annotate_waveform_image(qimage)
                     result = qimage.copy()
                     del waveform_data
@@ -1197,7 +1206,9 @@ class NDIVideoThread(QThread):
                         logger.debug("Waveform conversion returned empty data")
                         return None
 
-                    qimage = QImage(waveform_data, width, height, width * 3, QImage.Format.Format_RGB888)
+                    qimage = QImage(
+                        waveform_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
                     self._annotate_waveform_image(qimage)
                     result = qimage.copy()
                     del waveform_data
@@ -1328,7 +1339,9 @@ class NDIVideoThread(QThread):
                         logger.debug("Waveform conversion returned empty data")
                         return None
 
-                    qimage = QImage(waveform_data, width, height, width * 3, QImage.Format.Format_RGB888)
+                    qimage = QImage(
+                        waveform_data, width, height, width * 3, QImage.Format.Format_RGB888
+                    )
                     self._annotate_waveform_image(qimage)
                     result = qimage.copy()
                     del waveform_data
@@ -1589,7 +1602,9 @@ class NDIVideoThread(QThread):
             # Scale label strip width to the current video size and text metrics.
             sample_label = "100"
             label_strip_width = metrics.horizontalAdvance(sample_label) + 22
-            label_strip_width = min(max(label_strip_width, max(44, width // 10)), max(66, width // 5))
+            label_strip_width = min(
+                max(label_strip_width, max(44, width // 10)), max(66, width // 5)
+            )
 
             painter.fillRect(0, 0, label_strip_width, height, QColor(0, 0, 0, 170))
 
@@ -1729,10 +1744,7 @@ class NDIVideoThread(QThread):
                 return None
 
             plot_shape = (height, width)
-            if (
-                self._rgb_parade_plot_buffers is None
-                or self._rgb_parade_plot_shape != plot_shape
-            ):
+            if self._rgb_parade_plot_buffers is None or self._rgb_parade_plot_shape != plot_shape:
                 self._rgb_parade_plot_buffers = (
                     np.zeros(plot_shape, dtype=np.uint16),
                     np.zeros(plot_shape, dtype=np.uint16),
@@ -1898,7 +1910,9 @@ class NDIVideoThread(QThread):
             metrics = painter.fontMetrics()
 
             label_strip_width = metrics.horizontalAdvance("255") + 22
-            label_strip_width = min(max(label_strip_width, max(44, width // 10)), max(66, width // 5))
+            label_strip_width = min(
+                max(label_strip_width, max(44, width // 10)), max(66, width // 5)
+            )
 
             painter.fillRect(0, 0, label_strip_width, height, QColor(0, 0, 0, 170))
 
@@ -2164,7 +2178,9 @@ class NDIVideoThread(QThread):
             x_guides = [0, 64, 128, 192, 255]
 
             label_strip_width = metrics.horizontalAdvance("100%") + 18
-            label_strip_width = min(max(label_strip_width, max(40, width // 11)), max(64, width // 5))
+            label_strip_width = min(
+                max(label_strip_width, max(40, width // 11)), max(64, width // 5)
+            )
 
             painter.fillRect(0, 0, label_strip_width, height, QColor(0, 0, 0, 155))
 
@@ -2225,10 +2241,7 @@ class NDIVideoThread(QThread):
             import numpy as np
 
             plot_shape = (height, width)
-            if (
-                self._vectorscope_plot_buffer is None
-                or self._vectorscope_plot_shape != plot_shape
-            ):
+            if self._vectorscope_plot_buffer is None or self._vectorscope_plot_shape != plot_shape:
                 self._vectorscope_plot_buffer = np.zeros(plot_shape, dtype=np.uint16)
                 self._vectorscope_plot_shape = plot_shape
             else:
@@ -2411,8 +2424,18 @@ class NDIVideoThread(QThread):
             axis_pen = QPen(QColor(170, 170, 170, 180))
             axis_pen.setWidth(1)
             painter.setPen(axis_pen)
-            painter.drawLine(int(round(center_x - radius)), int(round(center_y)), int(round(center_x + radius)), int(round(center_y)))
-            painter.drawLine(int(round(center_x)), int(round(center_y - radius)), int(round(center_x)), int(round(center_y + radius)))
+            painter.drawLine(
+                int(round(center_x - radius)),
+                int(round(center_y)),
+                int(round(center_x + radius)),
+                int(round(center_y)),
+            )
+            painter.drawLine(
+                int(round(center_x)),
+                int(round(center_y - radius)),
+                int(round(center_x)),
+                int(round(center_y + radius)),
+            )
 
             skin_angle_deg = 123.0
             skin_angle_rad = math.radians(skin_angle_deg)
@@ -2421,7 +2444,9 @@ class NDIVideoThread(QThread):
             skin_pen = QPen(QColor(255, 190, 120, 210))
             skin_pen.setWidth(2)
             painter.setPen(skin_pen)
-            painter.drawLine(int(round(center_x)), int(round(center_y)), int(round(skin_x)), int(round(skin_y)))
+            painter.drawLine(
+                int(round(center_x)), int(round(center_y)), int(round(skin_x)), int(round(skin_y))
+            )
 
             # Convert RGB reference targets to U/V using same math as conversion path.
             def rgb_to_uv(red: int, green: int, blue: int) -> tuple[float, float]:
@@ -2704,24 +2729,27 @@ class NDIVideoThread(QThread):
     def _cleanup(self):
         """Clean up NDI resources - never throws exceptions"""
         try:
+            # DISABLED: Calling NDI DLL cleanup functions during app shutdown causes
+            # Windows STACK_BUFFER_OVERRUN (exit code 0xC0000409). Windows automatically
+            # frees all DLL resources on process exit. Only clear Python references.
             if self._receiver:
-                try:
-                    logger.debug(f"[{self.source_name}] Destroying receiver...")
-                    ndi.recv_destroy(self._receiver)
-                except Exception:
-                    logger.exception(f"[{self.source_name}] Error destroying receiver")
-                finally:
-                    self._receiver = None
+                # try:
+                #     logger.debug(f"[{self.source_name}] Destroying receiver...")
+                #     ndi.recv_destroy(self._receiver)
+                # except Exception:
+                #     logger.exception(f"[{self.source_name}] Error destroying receiver")
+                # finally:
+                self._receiver = None
 
             # Destroy per-camera finder
             if self._finder:
-                try:
-                    logger.debug(f"[{self.source_name}] Destroying per-camera finder...")
-                    ndi.find_destroy(self._finder)
-                except Exception:
-                    logger.exception(f"[{self.source_name}] Error destroying finder")
-                finally:
-                    self._finder = None
+                # try:
+                #     logger.debug(f"[{self.source_name}] Destroying per-camera finder...")
+                #     ndi.find_destroy(self._finder)
+                # except Exception:
+                #     logger.exception(f"[{self.source_name}] Error destroying finder")
+                # finally:
+                self._finder = None
 
             # Don't call ndi.destroy() - keep NDI initialized globally
             self._memory_probe.finalize()

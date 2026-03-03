@@ -38,7 +38,7 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Manual Focus** mode
 - **One Push AF**: Single autofocus operation
 
-- **USB Game Controller Support**
+### USB Game Controller Support
 - **Pan/Tilt**: Analog stick or D-pad control
 - **Zoom**: Trigger-based variable speed
 - **Camera Switching**: Shoulder buttons (L1/R1) with auto-stop safety
@@ -51,6 +51,18 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Dual Joystick Mode**: Separate left/right stick control
 - **Safe Camera Switching**: Optionally stops previous camera when switching (enabled by default)
 - **Hotplug Detection**: Automatic controller connect/disconnect
+
+### Elgato Stream Deck Plus Support
+- **8 LCD Buttons**: Configurable per-button actions with live camera thumbnails
+- **4 Rotary Encoders**: Camera selection and parameter control
+- **Button Mappings**: Assign Preset 1-8, Run, Arm, Next, Back, or None to each button
+- **Unique Action Validation**: Each action (except None) can only be assigned once
+- **Encoder Press Selection**: Press encoder to select camera (configurable)
+- **Visual Feedback**: Real-time button updates with camera names and preset labels
+- **Live Thumbnails**: Button displays show camera video feed
+- **Clickable Icon**: Click Stream Deck icon in toolbar to open Stream Deck preferences
+- **Preferences Dialog**: Dedicated Stream Deck tab for button/encoder configuration
+- **Automatic Detection**: Hotplug support with connection indicator
 
 ### User Interface
 - **Dark Theme**: Professional appearance with qdarkstyle
@@ -71,7 +83,10 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Automatic Settings Sync**: Camera settings (exposure, focus, white balance) queried and synced on connection
 
 ### Application Settings
-- **Preferences Dialog**: Configure USB controller mappings, application behavior, and video settings
+- **Preferences Dialog**: Multi-tab preferences (Controller, Stream Deck, Application)
+  - **Controller Tab**: USB game controller mappings and speed settings
+  - **Stream Deck Tab**: Button action assignments and encoder press configuration
+  - **Application Tab**: Single instance mode, NDI video toggle, video performance settings
 - **Single Instance Mode**: Optional enforcement to prevent multiple app instances (default: enabled)
 - **NDI Video Toggle**: Enable/disable NDI video streaming globally
 - **Video Performance**: Choose between High Bandwidth (max quality) or Low Bandwidth (compressed) for NDI streaming
@@ -121,6 +136,8 @@ pip install -r requirements.txt
 - **PyQt6**: Modern Qt6 framework for Python
 - **NDI Bindings**: Bundled in `videocue/ndi_wrapper/` (compiled .pyd files)
 - **pygame**: USB game controller support
+- **streamdeck**: Elgato Stream Deck Plus support (with pillow for image rendering)
+- **hidapi**: USB HID communication library for Stream Deck (auto-downloaded by build script)
 - **qdarkstyle**: Dark theme stylesheet
 - **ruff** (recommended): Fast Python linter with better accuracy than Pylint
 
@@ -188,7 +205,7 @@ Edit `VideoCue.spec` to update:
 ## USB Controller Configuration
 
 ### Accessing Settings
-- Menu: **Edit → Controller Preferences**
+- Menu: **Edit → Controller Preferences** (opens to Controller tab)
 - Or click the controller icon in the toolbar
 
 ### Available Settings
@@ -197,6 +214,27 @@ Edit `VideoCue.spec` to update:
 - **Joystick Mode**: Single stick (combined) or dual stick (separate pan/tilt)
 - **Brightness Control**: Enable/disable and configure increase/decrease buttons
 - **Camera Switching**: Stop previous camera when switching (prevents runaway cameras)
+
+## Stream Deck Configuration
+
+### Accessing Settings
+- Menu: **Edit → Controller Preferences** → **Stream Deck** tab
+- Or click the Stream Deck icon in the toolbar (opens directly to Stream Deck tab)
+
+### Button Configuration
+Each of the 8 buttons can be assigned one action:
+- **None**: Button disabled
+- **Preset 1-8**: Recall specific preset on selected camera
+- **Run**: Execute current armed cue
+- **Arm**: Arm next cue in sequence
+- **Next**: Switch to next camera
+- **Back**: Switch to previous camera
+
+**Validation**: Each action (except None) can only be assigned once across all buttons
+
+### Encoder Settings
+- **Encoder Press to Select Camera**: Enable/disable camera selection via encoder press
+- When enabled, pressing any of the 4 encoders selects the corresponding camera (1-4)
 
 ### Default Controller Mapping
 - **Left Stick** (Axis 0/1): Pan/Tilt (analog)
@@ -261,6 +299,17 @@ Edit `VideoCue.spec` to update:
     "brightness_increase_button": 3,
     "brightness_decrease_button": 0,
     "stop_on_camera_switch": true
+  },
+  "streamdeck": {
+    "encoder_press_enabled": true,
+    "button_0_action": "preset_1",
+    "button_1_action": "preset_2",
+    "button_2_action": "run",
+    "button_3_action": "arm",
+    "button_4_action": "none",
+    "button_5_action": "none",
+    "button_6_action": "next",
+    "button_7_action": "back"
   }
 }
 ```
@@ -340,6 +389,22 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Check pygame compatibility with your controller
 - Windows may require Xbox controller drivers
 
+### Stream Deck Not Detected
+- Verify Stream Deck Plus is connected and recognized by operating system
+- Check Device Manager (Windows) for "USB Input Device" entries
+- Install official Elgato Stream Deck software to verify hardware functionality
+- Try reconnecting device (hotplug detection active)
+- Verify hidapi.dll is present in application directory (auto-downloaded by build script)
+- Check console output for Stream Deck connection logs and errors
+- Note: Only Stream Deck Plus (8 buttons + 4 encoders) is currently supported
+
+### Stream Deck Buttons Not Responding
+- Verify button actions are configured in preferences (Edit → Controller Preferences → Stream Deck tab)
+- Check that no duplicate actions are assigned (except None)
+- Ensure camera is selected for preset-based buttons
+- Check console output for action execution errors
+- Verify encoder press is enabled if using encoders to select cameras
+
 ### Video Performance Issues
 - **Color Format**: **View → Video Format** menu
   - BGRA/RGBA: NDI SDK handles conversion natively (lower CPU usage)
@@ -372,7 +437,9 @@ videocue/
 │   ├── visca_ip.py          # VISCA protocol implementation with BirdDog support
 │   ├── visca_commands.py    # VISCA command definitions and constants
 │   ├── ndi_video.py         # NDI video receiver threads (with error handling)
-│   └── usb_controller.py    # USB game controller handler
+│   ├── usb_controller.py    # USB game controller handler
+│   ├── streamdeck_controller.py # Elgato Stream Deck Plus controller handler
+│   └── streamdeck_init.py   # Stream Deck initialization and discovery
 ├── models/
 │   ├── config_manager.py    # JSON configuration persistence
 │   ├── cue_manager.py       # Cue list persistence and row operations
@@ -381,7 +448,7 @@ videocue/
 │   ├── main_window.py       # Main application window with deferred loading
 │   ├── camera_widget.py     # Individual camera control widget with reconnect
 │   ├── camera_add_dialog.py # Camera discovery/add dialog
-│   ├── preferences_dialog.py # USB controller settings
+│   ├── preferences_dialog.py # Multi-tab preferences (Controller, Stream Deck, Application)
 │   ├── about_dialog.py       # About dialog
 │   ├── network_interface_dialog.py # Network interface selection
 │   └── update_check_thread.py # Update check worker thread

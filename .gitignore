@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.so
 
+# Downloaded runtime DLLs (auto-downloaded by build script)
+hidapi.dll
+
 # Python distribution / packaging
 .Python
 build/

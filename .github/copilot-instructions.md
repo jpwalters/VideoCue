@@ -1,7 +1,7 @@
 # VideoCue - Python VISCA-over-IP Camera Controller
 
 ## Project Overview
-Python/PyQt6 application for controlling professional PTZ cameras using VISCA-over-IP protocol (UDP port 52381) with optional NDI video streaming and USB game controller support. Port of JavaFX version.
+Python/PyQt6 application for controlling professional PTZ cameras using VISCA-over-IP protocol (UDP port 52381) with optional NDI video streaming, USB game controller support, and Elgato Stream Deck Plus integration. Port of JavaFX version.
 
 ## Architecture
 
@@ -9,12 +9,14 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **videocue.py**: Application entry point, initializes PyQt6 app with qdarkstyle theme, **global exception handler** prevents crashes, **SingleInstanceLock** for optional single-instance mode, **global popup window policy** (remove minimize/maximize on dialogs)
 - **ui/main_window.py**: Main window (QTabWidget), **deferred camera loading** via showEvent, progress bar with 3-step milestone tracking per camera (create/configure/initialized), **USB signal management** with UniqueConnection pattern
 - **ui/camera_widget.py**: Per-camera widget (QTreeWidget sections: video, PTZ controls, exposure, white balance, focus, presets), **connection state tracking** (is_connected), **reconnect button**, **play/pause video controls**, **automatic settings query** on connection, **startup initialization watchdog** (timeout -> failed + reconnect)
-- **ui/preferences_dialog.py**: Preferences dialog with USB controller settings, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
+- **ui/preferences_dialog.py**: Multi-tab preferences dialog (Controller, Stream Deck, Application) with USB controller settings, Stream Deck button mappings, encoder press configuration, application settings (single instance mode, NDI video toggle), **150ms reconnection delay** prevents button bleed-through
 - **ui/camera_add_dialog.py**: NDI discovery + manual IP entry dialog + **manual NDI source name entry** (firewall workaround)
 - **controllers/visca_ip.py**: VISCA protocol (UDP datagrams, hex commands), **send_command (fire-and-forget)** vs **query_command (waits for response)**
 - **controllers/ndi_video.py**: NDI video receiver (separate QThread per camera, **configurable color format** UYVY/BGRA/RGBA, frame dropping), **5-second timeout**, **configurable bandwidth** (HIGHEST/LOWEST), **Scopes rendering modes** (False Color, Waveform, Vectorscope, RGB Parade, Histogram), **network interface binding**, **comprehensive error handling**, **persistent NumPy buffers for UYVY conversion**
 - **controllers/usb_controller.py**: pygame joystick polling (16ms events, 5s hotplug), emits PyQt signals, **B button for one-push autofocus**, **Menu button opens preferences dialog**
-- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference**, **ndi_color_format preference** (default: uyvy), **scope mode preferences** (`ndi_false_color_enabled`, `ndi_waveform_enabled`, `ndi_vectorscope_enabled`, `ndi_rgb_parade_enabled`, `ndi_histogram_enabled`)
+- **controllers/streamdeck_init.py**: Elgato Stream Deck Plus discovery and initialization, device manager
+- **controllers/streamdeck_controller.py**: Stream Deck event handling, button rendering with PIL, encoder processing, button action execution
+- **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference**, **ndi_color_format preference** (default: uyvy), **scope mode preferences** (`ndi_false_color_enabled`, `ndi_waveform_enabled`, `ndi_vectorscope_enabled`, `ndi_rgb_parade_enabled`, `ndi_histogram_enabled`), **streamdeck section** (encoder_press_enabled, button_0-7_action mappings)
 - **models/video.py**: Video size and camera preset data models
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
 - **utils/__init__.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
@@ -102,6 +104,38 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **Connection Awareness**: All USB handlers check `camera.is_connected` before sending commands
 - Emits PyQt signals, Qt automatically marshals to main thread
 - **Error Handling**: Try-except blocks in all event handlers with console logging
+
+### Stream Deck Plus Controller
+- **Hardware**: Elgato Stream Deck Plus (8 LCD buttons + 4 rotary encoders) - only model currently supported
+- **Communication**: USB HID via hidapi.dll (v0.14.0, auto-downloaded by build script)
+- **Button Features**:
+  - 8 configurable LCD buttons with live camera thumbnails
+  - Each button assigned one action: None, Preset 1-8, Run, Arm, Next, Back
+  - Unique action validation: each action (except None) can only be assigned once
+  - Real-time visual feedback: camera names and preset labels update on buttons
+  - Button rendering via PIL (pillow) with camera video frames
+- **Encoder Features**:
+  - 4 rotary encoders for camera selection and parameter control
+  - Encoder press to select camera (configurable, default enabled)
+  - Maps to cameras 1-4 when encoder press enabled
+- **Configuration** (config_manager.py):
+  - `streamdeck.encoder_press_enabled`: Boolean, default True
+  - `streamdeck.button_0_action` through `button_7_action`: String action names
+  - Valid actions: "none", "preset_1" through "preset_8", "run", "arm", "next", "back"
+- **Controllers**:
+  - `streamdeck_init.py`: Stream Deck discovery, initialization, device manager
+  - `streamdeck_controller.py`: Event handling, button rendering, encoder processing
+- **Preferences UI** (preferences_dialog.py):
+  - Dedicated Stream Deck tab in multi-tab preferences dialog
+  - 8 QComboBox widgets for button action assignments
+  - `update_streamdeck_button_availability()` validates unique actions on change
+  - Encoder press enable/disable checkbox
+- **Main Window Integration** (main_window.py):
+  - Clickable Stream Deck icon in toolbar (pointer cursor)
+  - `show_streamdeck_preferences()` opens preferences to Stream Deck tab
+  - Tooltip: "Click to configure Stream Deck"
+- **Error Handling**: Try-except blocks with console logging, graceful degradation if device not connected
+- **Hotplug Support**: Automatic detection when device connects/disconnects
 
 ### Camera Features (via VISCA)
 - **Exposure**: 5 modes (Auto, Manual, Shutter Priority, Iris Priority, Bright) with Enum-based state management
@@ -218,12 +252,14 @@ pyinstaller VideoCue.spec
 - PyQt6 (6.5.0+): UI framework
 - ndi-python (5.0.0+): NDI video streaming (optional, graceful fallback)
 - pygame (2.5.0+): USB controller support
+- streamdeck (1.0.0+): Elgato Stream Deck Plus support (with pillow for button rendering)
+- hidapi (0.14.0): USB HID communication library for Stream Deck (auto-downloaded by build script)
 - qdarkstyle (3.1+): Dark theme
 - ruff (recommended): Fast Python linter with fewer false positives than Pylint
 
 ### Configuration
 - Stored at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) or `~/.config/VideoCue/config.json` (Unix)
-- Schema: cameras array (id, ndi_source, ip, port, presets), preferences (video_size_default, video_frame_skip, ndi_bandwidth, ndi_color_format, scope toggles, theme, **single_instance_mode**, **ndi_video_enabled**), usb_controller (mappings, speeds, **brightness_enabled**, **brightness_step**)
+- Schema: cameras array (id, ndi_source, ip, port, presets), preferences (video_size_default, video_frame_skip, ndi_bandwidth, ndi_color_format, scope toggles, theme, **single_instance_mode**, **ndi_video_enabled**), usb_controller (mappings, speeds, **brightness_enabled**, **brightness_step**), streamdeck (encoder_press_enabled, button_0-7_action mappings)
 - See [config_schema.json](config_schema.json) for full JSON structure
 - ConfigManager uses `uuid.uuid4()` for camera IDs
 - Auto-saves on camera add/delete, preset changes, video size changes, app exit
@@ -459,6 +495,14 @@ def _apply_queried_settings(self, results: dict):
 3. Connect signal in [MainWindow.init_usb_controller()](videocue/ui/main_window.py)
 4. Route to selected camera via `get_selected_camera()`
 
+### Adding Stream Deck Button Actions
+1. Add action to `VALID_ACTIONS` list in [preferences_dialog.py](videocue/ui/preferences_dialog.py)
+2. Update validation logic in `update_streamdeck_button_availability()` if action should be unique
+3. Implement action handler in [streamdeck_controller.py](videocue/controllers/streamdeck_controller.py)
+4. Add to `_execute_button_action()` method with try-except error handling
+5. Route to selected camera or cue system via main window reference
+6. Update button rendering in `_render_button()` if visual feedback needed
+
 ### Modifying UI Layout
 - CameraWidget PTZ buttons: 3x3 QGridLayout in `create_controls_tree()`
 - Main window tabs: QTabWidget in `init_ui()`
@@ -471,6 +515,7 @@ def _apply_queried_settings(self, results: dict):
 1. **Main thread**: PyQt event loop, all UI updates
 2. **NDI threads**: One QThread per camera for video reception
 3. **USB polling**: QTimer on main thread (16ms for events, 5s for hotplug)
+4. **Stream Deck event loop**: Separate thread for USB HID communication and button rendering
 
 ### Thread Safety
 - PyQt signals automatically queue cross-thread calls
@@ -547,6 +592,23 @@ def _apply_queried_settings(self, results: dict):
 - Hotplug detection may take up to 5 seconds
 - Check console for pygame errors
 - Controller commands blocked when camera disconnected
+
+### Stream Deck Plus
+- **Device Not Detected**:
+  - Verify Stream Deck Plus is connected via USB
+  - Check Device Manager (Windows) → Human Interface Devices for HID entries
+  - Install official Elgato Stream Deck software to verify hardware
+  - Verify hidapi.dll is present in application directory (auto-downloaded by build script)
+  - Check console output for Stream Deck initialization logs
+  - Note: Only Stream Deck Plus (8 buttons + 4 encoders) is currently supported
+- **Buttons Not Responding**:
+  - Open preferences: Edit → Controller Preferences → Stream Deck tab
+  - Verify button actions are assigned (default: all None)
+  - Ensure no duplicate actions (except None)
+  - For preset buttons: ensure camera is selected and preset exists
+  - For Run button: ensure cue is armed first
+  - Check console output for action execution errors
+- **Connection indicator not updating**: Hotplug detection active, disconnect/reconnect device
 
 ### Linter False Positives (Development)
 - Use Ruff instead of Pylint: `pip install ruff`

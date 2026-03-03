@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSlider,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -136,14 +137,65 @@ class PreferencesDialog(QDialog):
 
         main_layout.addWidget(instructions_label)
 
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
+
+        # Create tabs
+        self._create_controller_tab()
+        self._create_streamdeck_tab()
+        self._create_application_tab()
+
+        # Buttons (large, easy to press)
+
+        button_layout = QHBoxLayout()
+
+        button_layout.addStretch()
+
+        cancel_button = QPushButton("Cancel (X)")
+
+        cancel_button.setMinimumHeight(40)
+
+        cancel_button.setMinimumWidth(100)
+
+        cancel_button.clicked.connect(self.reject)
+
+        button_layout.addWidget(cancel_button)
+
+        self.cancel_button = cancel_button  # Store reference for X button handler
+
+        save_button = QPushButton("Save (A)")
+
+        save_button.setMinimumHeight(40)
+
+        save_button.setMinimumWidth(100)
+
+        save_button.clicked.connect(self.save_preferences)
+
+        save_button.setDefault(True)
+
+        save_button.setStyleSheet(
+            "QPushButton { font-weight: bold; background-color: #0d47a1; color: white; }"
+            + "QPushButton:focus { border: 2px solid #FF8800; }"
+        )
+
+        save_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        self.save_button = save_button  # Store reference for A button handler
+
+        button_layout.addWidget(save_button)
+
+        main_layout.addLayout(button_layout)
+
+        # Set initial focus to first tab
+        self.tab_widget.setCurrentIndex(0)
+
+    def _create_controller_tab(self):
+        """Create the Controller tab"""
         # Scrollable content area
-
-        self.scroll_area = QScrollArea()
-
-        self.scroll_area.setWidgetResizable(True)
-
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
         scroll_widget = QWidget()
-
         layout = QVBoxLayout(scroll_widget)
 
         # Speed Settings Group (moved to top, most important)
@@ -470,31 +522,6 @@ class PreferencesDialog(QDialog):
 
         layout.addWidget(menu_button_group)
 
-        # Video Streaming Group
-
-        video_group = QGroupBox("Video Streaming")
-
-        video_layout = QFormLayout()
-
-        self.ndi_video_enabled_checkbox = QCheckBox(
-            "Enable NDI video streaming (requires NDI Runtime)"
-        )
-
-        self.ndi_video_enabled_checkbox.setToolTip(
-            "Enable or disable NDI video streaming globally.\n"
-            "When disabled, cameras will operate in IP control mode only.\n"
-            "Disabling can improve performance on systems with limited resources.\n"
-            "Requires NDI Runtime to be installed."
-        )
-
-        self.ndi_video_enabled_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        video_layout.addRow("", self.ndi_video_enabled_checkbox)
-
-        video_group.setLayout(video_layout)
-
-        layout.addWidget(video_group)
-
         # Camera switching group
 
         switching_group = QGroupBox("Camera Switching")
@@ -525,28 +552,6 @@ class PreferencesDialog(QDialog):
 
         layout.addWidget(switching_group)
 
-        # Application group
-
-        app_group = QGroupBox("Application")
-
-        app_layout = QFormLayout()
-
-        self.single_instance_checkbox = QCheckBox("Enable single instance mode (requires restart)")
-
-        self.single_instance_checkbox.setToolTip(
-            "When enabled, only one instance of VideoCue can run at a time.\n"
-            "When disabled, multiple instances can run simultaneously.\n"
-            "This setting requires restarting the application to take effect."
-        )
-
-        self.single_instance_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        app_layout.addRow("", self.single_instance_checkbox)
-
-        app_group.setLayout(app_layout)
-
-        layout.addWidget(app_group)
-
         # Quick tips
 
         tips_label = QLabel(
@@ -566,55 +571,11 @@ class PreferencesDialog(QDialog):
 
         layout.addStretch()
 
-        # Add scroll area to main layout
-
-        self.scroll_area.setWidget(scroll_widget)
-
-        main_layout.addWidget(self.scroll_area)
-
-        # Buttons (large, easy to press)
-
-        button_layout = QHBoxLayout()
-
-        button_layout.addStretch()
-
-        cancel_button = QPushButton("Cancel (X)")
-
-        cancel_button.setMinimumHeight(40)
-
-        cancel_button.setMinimumWidth(100)
-
-        cancel_button.clicked.connect(self.reject)
-
-        button_layout.addWidget(cancel_button)
-
-        self.cancel_button = cancel_button  # Store reference for X button handler
-
-        save_button = QPushButton("Save (A)")
-
-        save_button.setMinimumHeight(40)
-
-        save_button.setMinimumWidth(100)
-
-        save_button.clicked.connect(self.save_preferences)
-
-        save_button.setDefault(True)
-
-        save_button.setStyleSheet(
-            "QPushButton { font-weight: bold; background-color: #0d47a1; color: white; }"
-            + "QPushButton:focus { border: 2px solid #FF8800; }"
-        )
-
-        save_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        self.save_button = save_button  # Store reference for A button handler
-
-        button_layout.addWidget(save_button)
-
-        main_layout.addLayout(button_layout)
+        # Add scroll area to tab
+        scroll_area.setWidget(scroll_widget)
+        self.tab_widget.addTab(scroll_area, "Controller")
 
         # Set initial focus to first speed slider
-
         self.dpad_slider.setFocus()
 
         # Connect combobox signals to update button availability
@@ -630,6 +591,142 @@ class PreferencesDialog(QDialog):
         self.stop_movement_button_combo.currentIndexChanged.connect(self.update_button_availability)
 
         self.menu_button_combo.currentIndexChanged.connect(self.update_button_availability)
+
+    def _create_streamdeck_tab(self):
+        """Create the Stream Deck tab"""
+        # Scrollable content area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
+
+        # Stream Deck Button Mappings Group
+        button_group = QGroupBox("Button Mappings")
+        button_layout = QFormLayout()
+
+        # Create 8 button mapping dropdowns
+        self.streamdeck_button_combos = []
+        for button_id in range(8):
+            combo = QComboBox()
+            combo.addItem("None", "")
+            combo.addItem("Preset 1", "preset_1")
+            combo.addItem("Preset 2", "preset_2")
+            combo.addItem("Preset 3", "preset_3")
+            combo.addItem("Preset 4", "preset_4")
+            combo.addItem("Preset 5", "preset_5")
+            combo.addItem("Preset 6", "preset_6")
+            combo.addItem("Preset 7", "preset_7")
+            combo.addItem("Preset 8", "preset_8")
+            combo.addItem("Run", "run_cue")
+            combo.addItem("Arm", "arm_cue")
+            combo.addItem("Next", "page_next")
+            combo.addItem("Back", "page_prev")
+            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            combo.currentIndexChanged.connect(self.update_streamdeck_button_availability)
+
+            button_layout.addRow(f"Button {button_id}:", combo)
+            self.streamdeck_button_combos.append(combo)
+
+        button_group.setLayout(button_layout)
+        layout.addWidget(button_group)
+
+        # Encoder Settings Group
+        encoder_group = QGroupBox("Encoder Settings")
+        encoder_layout = QFormLayout()
+
+        self.encoder_press_enabled_checkbox = QCheckBox("Enable encoder press to select camera")
+        self.encoder_press_enabled_checkbox.setToolTip(
+            "When enabled, pressing an encoder (rotary dial) will select\n"
+            "the corresponding camera. When disabled, encoders can only\n"
+            "be rotated for control."
+        )
+        self.encoder_press_enabled_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        encoder_layout.addRow("", self.encoder_press_enabled_checkbox)
+
+        encoder_group.setLayout(encoder_layout)
+        layout.addWidget(encoder_group)
+
+        # Tips
+        tips_label = QLabel(
+            "Tips:\n"
+            "• Each action (except None) can only be assigned to one button\n"
+            "• Preset buttons will show the preset name on the Stream Deck display\n"
+            "• Page Next/Back navigate between camera pages on encoders"
+        )
+        tips_label.setStyleSheet("color: #aaa; font-size: 9px; margin-top: 10px;")
+        tips_label.setWordWrap(True)
+        layout.addWidget(tips_label)
+
+        layout.addStretch()
+
+        # Add scroll area to tab
+        scroll_area.setWidget(scroll_widget)
+        self.tab_widget.addTab(scroll_area, "Stream Deck")
+
+    def _create_application_tab(self):
+        """Create the Application tab"""
+        # Scrollable content area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
+
+        # Video Streaming Group
+        video_group = QGroupBox("Video Streaming")
+        video_layout = QFormLayout()
+
+        self.ndi_video_enabled_checkbox = QCheckBox(
+            "Enable NDI video streaming (requires NDI Runtime)"
+        )
+
+        self.ndi_video_enabled_checkbox.setToolTip(
+            "Enable or disable NDI video streaming globally.\n"
+            "When disabled, cameras will operate in IP control mode only.\n"
+            "Disabling can improve performance on systems with limited resources.\n"
+            "Requires NDI Runtime to be installed."
+        )
+
+        self.ndi_video_enabled_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        video_layout.addRow("", self.ndi_video_enabled_checkbox)
+
+        video_group.setLayout(video_layout)
+        layout.addWidget(video_group)
+
+        # Application group
+        app_group = QGroupBox("Application")
+        app_layout = QFormLayout()
+
+        self.single_instance_checkbox = QCheckBox("Enable single instance mode (requires restart)")
+
+        self.single_instance_checkbox.setToolTip(
+            "When enabled, only one instance of VideoCue can run at a time.\n"
+            "When disabled, multiple instances can run simultaneously.\n"
+            "This setting requires restarting the application to take effect."
+        )
+
+        self.single_instance_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        app_layout.addRow("", self.single_instance_checkbox)
+
+        app_group.setLayout(app_layout)
+        layout.addWidget(app_group)
+
+        # Tips
+        tips_label = QLabel(
+            "Tips:\n"
+            "• Disabling NDI video reduces resource usage\n"
+            "• Single instance mode prevents multiple VideoCue windows"
+        )
+        tips_label.setStyleSheet("color: #aaa; font-size: 9px; margin-top: 10px;")
+        tips_label.setWordWrap(True)
+        layout.addWidget(tips_label)
+
+        layout.addStretch()
+
+        # Add scroll area to tab
+        scroll_area.setWidget(scroll_widget)
+        self.tab_widget.addTab(scroll_area, "Application")
 
     def update_dpad_label(self, value):
         """Update D-pad speed label"""
@@ -720,6 +817,44 @@ class PreferencesDialog(QDialog):
 
                 # Enable/disable the item based on whether it's used elsewhere
 
+                item.setEnabled(not is_used_elsewhere)
+
+    def update_streamdeck_button_availability(self):
+        """Update which Stream Deck button options are enabled/disabled based on selections"""
+        # Get all currently selected actions (excluding None/"")
+        selected_actions = {}
+        for button_id, combo in enumerate(self.streamdeck_button_combos):
+            action = combo.currentData()
+            if action:  # Not empty string (None option)
+                selected_actions[f"button_{button_id}"] = action
+
+        # Update each combobox to disable already-selected actions
+        for combo_index, combo in enumerate(self.streamdeck_button_combos):
+            model = combo.model()
+            if model is None:
+                continue
+
+            for row in range(combo.count()):
+                item = model.item(row)
+                if item is None:
+                    continue
+
+                action_value = combo.itemData(row)
+
+                # Always enable None/"" option
+                if not action_value:
+                    item.setEnabled(True)
+                    continue
+
+                # Check if this action is selected by another button
+                is_used_elsewhere = False
+                for other_button_id, other_action in selected_actions.items():
+                    # Don't compare with itself
+                    if other_button_id != f"button_{combo_index}" and other_action == action_value:
+                        is_used_elsewhere = True
+                        break
+
+                # Enable/disable the item based on whether it's used elsewhere
                 item.setEnabled(not is_used_elsewhere)
 
     def load_preferences(self):
@@ -829,9 +964,30 @@ class PreferencesDialog(QDialog):
 
         self.single_instance_checkbox.setChecked(single_instance_mode)
 
+        # Load Stream Deck button mappings
+        streamdeck_config = self.config.get_streamdeck_config()
+
+        for button_id in range(8):
+            action_key = f"button_{button_id}_action"
+            action = streamdeck_config.get(action_key, "")
+            combo = self.streamdeck_button_combos[button_id]
+
+            # Find the index for this action
+            index = combo.findData(action)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            else:
+                # Default to None if action not found
+                combo.setCurrentIndex(0)
+
+        # Load encoder press enabled setting
+        encoder_press_enabled = streamdeck_config.get("encoder_press_enabled", True)
+        self.encoder_press_enabled_checkbox.setChecked(encoder_press_enabled)
+
         # Update button availability after loading all preferences
 
         self.update_button_availability()
+        self.update_streamdeck_button_availability()
 
     def on_a_button_pressed(self):
         """Handle A button press to save preferences"""
@@ -856,6 +1012,10 @@ class PreferencesDialog(QDialog):
 
         from videocue.controllers.usb_controller import MovementDirection
 
+        # Get scroll area from current tab
+        current_widget = self.tab_widget.currentWidget()
+        scroll_area = current_widget if isinstance(current_widget, QScrollArea) else None
+
         if direction == MovementDirection.UP:
             self.focusPreviousChild()
 
@@ -863,8 +1023,8 @@ class PreferencesDialog(QDialog):
 
             # Ensure newly focused widget is visible in scroll area
 
-            if new_focused and self.scroll_area:
-                self.scroll_area.ensureWidgetVisible(new_focused)
+            if new_focused and scroll_area:
+                scroll_area.ensureWidgetVisible(new_focused)
 
         elif direction == MovementDirection.DOWN:
             self.focusNextChild()
@@ -873,8 +1033,8 @@ class PreferencesDialog(QDialog):
 
             # Ensure newly focused widget is visible in scroll area
 
-            if new_focused and self.scroll_area:
-                self.scroll_area.ensureWidgetVisible(new_focused)
+            if new_focused and scroll_area:
+                scroll_area.ensureWidgetVisible(new_focused)
 
         elif direction == MovementDirection.RIGHT:
             focused = self.focusWidget()
@@ -987,6 +1147,16 @@ class PreferencesDialog(QDialog):
         # Save single instance mode setting
 
         self.config.set_single_instance_mode(self.single_instance_checkbox.isChecked())
+
+        # Save Stream Deck button mappings
+        streamdeck_config = self.config.get_streamdeck_config()
+
+        for button_id, combo in enumerate(self.streamdeck_button_combos):
+            action_key = f"button_{button_id}_action"
+            streamdeck_config[action_key] = combo.currentData()
+
+        # Save encoder press enabled setting
+        streamdeck_config["encoder_press_enabled"] = self.encoder_press_enabled_checkbox.isChecked()
 
         self.config.save()
 
