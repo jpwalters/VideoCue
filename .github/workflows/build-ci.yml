@@ -44,6 +44,23 @@ jobs:
           
           Remove-Item $tempZip, $tempExtract -Recurse -Force
       
+      - name: Verify Stream Deck dependencies
+        run: |
+          Write-Host "Checking Stream Deck dependencies...`n"
+          
+          # Check for hidapi.dll
+          if (Test-Path "hidapi.dll") {
+            $dllSize = (Get-Item "hidapi.dll").Length / 1KB
+            Write-Host "✓ hidapi.dll found ($([math]::Round($dllSize, 2)) KB)"
+          } else {
+            Write-Host "✗ WARNING: hidapi.dll not found!"
+          }
+          
+          # Check Python packages (using PowerShell output to avoid encoding issues)
+          python -c "import streamdeck" 2>&1 | Out-Null; if ($?) { Write-Host "✓ streamdeck package installed" } else { Write-Host "✗ streamdeck not found"; exit 1 }
+          python -c "import hid" 2>&1 | Out-Null; if ($?) { Write-Host "✓ hidapi Python package installed" } else { Write-Host "✗ hidapi not found"; exit 1 }
+          python -c "from PIL import Image" 2>&1 | Out-Null; if ($?) { Write-Host "✓ Pillow package installed" } else { Write-Host "✗ Pillow not found"; exit 1 }
+      
       - name: Verify NDI bindings are bundled
         run: |
           if (Test-Path "videocue\ndi_wrapper\NDIlib.cp310-win_amd64.pyd") {

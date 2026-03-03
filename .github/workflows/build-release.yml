@@ -60,10 +60,11 @@ jobs:
             Write-Host "✗ WARNING: hidapi.dll not found!"
           }
           
-          # Check Python packages
-          python -c "import streamdeck; print('✓ streamdeck package installed'); print(f'  Version: {streamdeck.__version__}')"
-          python -c "import hid; print('✓ hidapi Python package installed')"
-          python -c "from PIL import Image; print('✓ Pillow package installed')"
+          # Check Python packages (using PowerShell output to avoid encoding issues)
+          python -c "import streamdeck" 2>&1 | Out-Null; if ($?) { Write-Host "✓ streamdeck package installed" } else { Write-Host "✗ streamdeck not found"; exit 1 }
+          python -c "import streamdeck; print(streamdeck.__version__)" | ForEach-Object { Write-Host "  Version: $_" }
+          python -c "import hid" 2>&1 | Out-Null; if ($?) { Write-Host "✓ hidapi Python package installed" } else { Write-Host "✗ hidapi not found"; exit 1 }
+          python -c "from PIL import Image" 2>&1 | Out-Null; if ($?) { Write-Host "✓ Pillow package installed" } else { Write-Host "✗ Pillow not found"; exit 1 }
       
       - name: Download and Install NDI SDK
         run: |
