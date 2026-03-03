@@ -29,9 +29,48 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --force-reinstall --no-cache-dir -r requirements-build.lock.txt
-          Write-Host "`nImmediate post-install test:"
-          python -c "import streamdeck; print('✓ streamdeck imports successfully right after install')"
-          python -c "import sys; print('sys.executable:', sys.executable)"
+          
+          Write-Host "`n=== IMMEDIATE POST-INSTALL DIAGNOSTICS ==="
+          
+          # Get site-packages location
+          $sitePackages = python -c "import site; print(site.getsitepackages()[0])"
+          Write-Host "Site-packages directory: $sitePackages"
+          Write-Host "Python executable: $(python -c 'import sys; print(sys.executable)')"
+          
+          # Check if package files physically exist
+          Write-Host "`nPhysical file check:"
+          if (Test-Path "$sitePackages\streamdeck") {
+            Write-Host "✓ streamdeck directory EXISTS"
+            $files = Get-ChildItem "$sitePackages\streamdeck" -File | Select-Object -First 5
+            Write-Host "  First 5 files: $($files.Name -join ', ')"
+          } else {
+            Write-Host "✗ streamdeck directory DOES NOT EXIST"
+            Write-Host "  Listing site-packages:"
+            Get-ChildItem $sitePackages -Directory | Select-Object -First 20 | ForEach-Object { Write-Host "    - $($_.Name)" }
+          }
+          
+          if (Test-Path "$sitePackages\hid.pyd") {
+            Write-Host "✓ hid.pyd EXISTS (binary module)"
+          } elseif (Test-Path "$sitePackages\hid") {
+            Write-Host "✓ hid directory EXISTS"
+          } else {
+            Write-Host "✗ hid module DOES NOT EXIST"
+          }
+          
+          if (Test-Path "$sitePackages\PIL") {
+            Write-Host "✓ PIL directory EXISTS"
+          } else {
+            Write-Host "✗ PIL directory DOES NOT EXIST"
+          }
+          
+          # Try import test
+          Write-Host "`nImport test:"
+          python -c "import streamdeck; print('✓ streamdeck imports OK'); print('  Version:', streamdeck.__version__)"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "✗ IMPORT FAILED - Files exist but Python cannot import!"
+            Write-Host "  This suggests a deeper Python environment issue"
+            exit 1
+          }
           
       - name: Verify installed packages
         run: |
