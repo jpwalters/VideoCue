@@ -31,7 +31,12 @@ jobs:
           
       - name: Verify installed packages
         run: |
-          Write-Host "Installed packages:"
+          Write-Host "Python diagnostics:"
+          Write-Host "  which python: $(Get-Command python | Select-Object -ExpandProperty Source)"
+          Write-Host "  which pip: $(Get-Command pip | Select-Object -ExpandProperty Source)"
+          python --version
+          pip --version
+          Write-Host "`nInstalled packages:"
           pip list | Select-String -Pattern "(streamdeck|hidapi|pillow|pyqt6|pygame)"
       
       - name: Download hidapi DLL for Stream Deck support
@@ -62,28 +67,35 @@ jobs:
             Write-Host "✗ WARNING: hidapi.dll not found!"
           }
           
-          # Check Python packages (properly check exit codes)
-          python -c "import streamdeck"
+          # Check Python packages  
+          Write-Host "Testing Python imports..."
+          
+          # Test streamdeck
+          python -c "import streamdeck; print('streamdeck OK')"
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✓ streamdeck package installed"
+            Write-Host "✓ streamdeck package working"
           } else {
-            Write-Host "✗ streamdeck not found"
+            Write-Host "✗ streamdeck import failed"
+            Write-Host "Diagnostics:"
+            python -c "import sys; print('Python:', sys.executable); print('sys.path:', sys.path)"
             exit 1
           }
           
+          # Test hidapi
           python -c "import hid"
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✓ hidapi Python package installed"
+            Write-Host "✓ hidapi Python package working"
           } else {
-            Write-Host "✗ hidapi not found"
+            Write-Host "✗ hidapi import failed"
             exit 1
           }
           
-          python -c "from PIL import Image"
+          # Test Pillow
+          python -c "from PIL import Image; print('Pillow OK')"
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✓ Pillow package installed"
+            Write-Host "✓ Pillow package working"
           } else {
-            Write-Host "✗ Pillow not found"
+            Write-Host "✗ Pillow import failed"
             exit 1
           }
       
