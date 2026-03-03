@@ -21,11 +21,17 @@ jobs:
         with:
           python-version: '3.10'
           cache: 'pip'
+          cache-dependency-path: 'requirements-build.lock.txt'
       
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-build.lock.txt
+          
+      - name: Verify installed packages
+        run: |
+          Write-Host "Installed packages:"
+          pip list | Select-String -Pattern "(streamdeck|hidapi|pillow|pyqt6|pygame)"
       
       - name: Download hidapi DLL for Stream Deck support
         run: |
