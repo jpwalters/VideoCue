@@ -26,69 +26,16 @@ jobs:
       
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          # Upgrade pip and setuptools FIRST to prevent mid-install corruption
+          python -m pip install --upgrade pip setuptools
+          
+          # Now install packages with stable setuptools
           python -m pip install --force-reinstall --no-cache-dir -r requirements-build.lock.txt
           
-          Write-Host "`n=== IMMEDIATE POST-INSTALL DIAGNOSTICS ==="
-          
-          # Get site-packages
-          $sitePackages = python -c "import site; sp = [p for p in site.getsitepackages() if 'site-packages' in p]; print(sp[0] if sp else site.getsitepackages()[0])"
-          Write-Host "Site-packages: $sitePackages"
-          
-          # Deep inspection of streamdeck package
-          Write-Host "`nDeep inspection of streamdeck:"
-          if (Test-Path "$sitePackages\streamdeck") {
-            Write-Host "✓ streamdeck directory EXISTS"
-            Write-Host "  Full contents:"
-            Get-ChildItem "$sitePackages\streamdeck" -Recurse | ForEach-Object { 
-              $rel = $_.FullName.Replace("$sitePackages\streamdeck\", "  ")
-              $type = if ($_.PSIsContainer) { "[DIR]" } else { "[FILE] $($_.Length) bytes" }
-              Write-Host "    $type $rel"
-            }
-            
-            # Check __init__.py contents
-            Write-Host "`n  Checking __init__.py:"
-            $initPath = "$sitePackages\streamdeck\__init__.py"
-            $initSize = (Get-Item $initPath).Length
-            Write-Host "    Size: $initSize bytes"
-            Write-Host "    First 500 chars:"
-            Get-Content $initPath -TotalCount 20 | ForEach-Object { Write-Host "      $_" }
-            
-            # Try to read it with Python
-            Write-Host "`n  Python can read the file:"
-            python -c "with open(r'$initPath', 'r', encoding='utf-8') as f: content = f.read(); print(f'    Read {len(content)} chars successfully')"
-          }
-          
-          # Check dist-info
-          Write-Host "`nChecking streamdeck metadata:"
-          if (Test-Path "$sitePackages\streamdeck-*.dist-info") {
-            Write-Host "  Found dist-info:"
-            Get-ChildItem "$sitePackages" -Filter "streamdeck-*.dist-info" | ForEach-Object { Write-Host "    $($_.Name)" }
-          }
-          
-          # Try importing with explicit path manipulation
-          Write-Host "`nTrying explicit sys.path import:"
-          python -c "import sys; sys.path.insert(0, r'$sitePackages'); print('sys.path[0]:', sys.path[0]); import streamdeck; print('✓ SUCCESS with explicit path!')"
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "  BUG FOUND: Import works with explicit sys.path but not normally!"
-          }
-          
-          # Try importlib
-          Write-Host "`nTrying importlib:"
-          python -c "import importlib.util; spec = importlib.util.find_spec('streamdeck'); print('  find_spec result:', spec)"
-          
-          # Check for .pth files or other interference
-          Write-Host "`nChecking for .pth files in site-packages:"
-          Get-ChildItem "$sitePackages" -Filter "*.pth" | ForEach-Object { 
-            Write-Host "  Found: $($_.Name)"
-            Get-Content $_.FullName | ForEach-Object { Write-Host "    $_" }
-          }
-          
-          # Final import attempt
-          Write-Host "`nFinal import test:"
-          python -c "import streamdeck; print('✓ Import successful')"
+          Write-Host "`n=== POST-INSTALL VERIFICATION ==="
+          python -c "import streamdeck, hid; from PIL import Image; print('✓ All imports successful'); print('streamdeck:', streamdeck.__version__)"
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "✗ Import still fails - this is a Python environment bug!"
+            Write-Host "✗ Import failed"
             exit 1
           }
           
