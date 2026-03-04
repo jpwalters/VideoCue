@@ -42,22 +42,22 @@ jobs:
           "print()" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "    from StreamDeck.DeviceManager import DeviceManager" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✓ StreamDeck imported successfully')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('SUCCESS: StreamDeck imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('StreamDeck import failed:', e)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('FAILED: StreamDeck import error:', e)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "    import traceback; traceback.print_exc(); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "    import hid" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✓ hid imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('SUCCESS: hid imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✗ hid import failed:', e); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('FAILED: hid import error:', e); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "    from PIL import Image" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✓ Pillow imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('SUCCESS: Pillow imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✗ Pillow import failed:', e); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('FAILED: Pillow import error:', e); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "print()" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "print('✓✓✓ All imports successful!')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "print('=== All imports successful! ===')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           
           python test_imports.py
           if ($LASTEXITCODE -ne 0) {
@@ -119,11 +119,11 @@ jobs:
           
           # Test all packages in a single command
           Write-Host "`nTesting Python imports..."
-          python -c "from StreamDeck.DeviceManager import DeviceManager; import hid; from PIL import Image; print('✓ All packages import successfully')"
+          python -c "from StreamDeck.DeviceManager import DeviceManager; import hid; from PIL import Image; print('SUCCESS: All packages import successfully')"
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✓ All Stream Deck dependencies working"
+            Write-Host "SUCCESS: All Stream Deck dependencies working"
           } else {
-            Write-Host "✗ Import failed"
+            Write-Host "FAILED: Import failed"
             Write-Host "`nPost-failure diagnostics:"
             python -c "import sys; print('Python:', sys.executable); print('sys.path:', sys.path)"
             exit 1
