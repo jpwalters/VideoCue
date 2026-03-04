@@ -41,10 +41,10 @@ jobs:
           "print('sys.path:', sys.path)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "print()" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    import streamdeck" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✓ streamdeck version:', streamdeck.__version__)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    from StreamDeck.DeviceManager import DeviceManager" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✓ StreamDeck imported successfully')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
-          "    print('✗ streamdeck import failed:', e)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('StreamDeck import failed:', e)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "    import traceback; traceback.print_exc(); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           "    import hid" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
@@ -119,7 +119,7 @@ jobs:
           
           # Test all packages in a single command
           Write-Host "`nTesting Python imports..."
-          python -c "import streamdeck; import hid; from PIL import Image; print('✓ All packages import successfully'); print('streamdeck version:', streamdeck.__version__)"
+          python -c "from StreamDeck.DeviceManager import DeviceManager; import hid; from PIL import Image; print('✓ All packages import successfully')"
           if ($LASTEXITCODE -eq 0) {
             Write-Host "✓ All Stream Deck dependencies working"
           } else {
