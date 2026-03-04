@@ -33,9 +33,48 @@ jobs:
           python -m pip install --no-cache-dir -r requirements-build.lock.txt
           
           Write-Host "`n=== POST-INSTALL VERIFICATION ==="
-          python -c "import streamdeck, hid; from PIL import Image; print('✓ All imports successful'); print('streamdeck:', streamdeck.__version__)"
+          
+          # Test with fresh Python interpreter (not inline -c which might have stale import cache)
+          $testScript = @"
+import sys
+print('Python executable:', sys.executable)
+print('Python version:', sys.version)
+print('sys.path:', sys.path)
+print()
+
+# Try imports
+try:
+    import streamdeck
+    print('✓ streamdeck version:', streamdeck.__version__)
+    print('  Location:', streamdeck.__file__)
+except Exception as e:
+    print('✗ streamdeck import failed:', e)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+
+try:
+    import hid
+    print('✓ hid imported')
+except Exception as e:
+    print('✗ hid import failed:', e)
+    sys.exit(1)
+
+try:
+    from PIL import Image
+    print('✓ Pillow imported')
+except Exception as e:
+    print('✗ Pillow import failed:', e)
+    sys.exit(1)
+
+print()
+print('✓✓✓ All imports successful!')
+"@
+          
+          $testScript | Out-File -FilePath "test_imports.py" -Encoding utf8
+          python test_imports.py
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "✗ Import failed"
+            Write-Host "✗ Import verification failed"
             exit 1
           }
           
