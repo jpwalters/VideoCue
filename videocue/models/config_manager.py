@@ -197,14 +197,23 @@ class ConfigManager:
                 "enabled": True,
                 "brightness_control_enabled": True,
                 "encoder_press_enabled": True,
+                "stop_sends_to_all_cameras": True,
                 "button_0_action": "preset_1",
                 "button_1_action": "preset_2",
                 "button_2_action": "preset_3",
                 "button_3_action": "preset_4",
                 "button_4_action": "page_prev",
-                "button_5_action": "arm_cue",
+                "button_5_action": "stop_cue",
                 "button_6_action": "run_cue",
                 "button_7_action": "page_next",
+                "button_0_color": "none",
+                "button_1_color": "none",
+                "button_2_color": "none",
+                "button_3_color": "none",
+                "button_4_color": "none",
+                "button_5_color": "red",
+                "button_6_color": "green",
+                "button_7_color": "none",
             },
         }
 
@@ -537,7 +546,10 @@ class ConfigManager:
 
     def get_streamdeck_config(self) -> dict:
         """Get Stream Deck configuration"""
-        return self.config.get("streamdeck", self._default_schema()["streamdeck"])
+        if "streamdeck" not in self.config:
+            # Initialize streamdeck section with defaults if it doesn't exist
+            self.config["streamdeck"] = self._default_schema()["streamdeck"]
+        return self.config["streamdeck"]
 
     def get_cameras(self) -> list[dict]:
         """Get all cameras sorted by position"""

@@ -422,8 +422,8 @@ class MainWindow(QMainWindow):
         self.streamdeck_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.streamdeck_icon_label.setToolTip("Stream Deck Plus Status (Click to configure)")
         self.streamdeck_icon_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.streamdeck_icon_label.mousePressEvent = (
-            lambda event: self.show_streamdeck_preferences()
+        self.streamdeck_icon_label.mousePressEvent = lambda event: (
+            self.show_streamdeck_preferences()
         )
 
         toolbar.addWidget(self.streamdeck_icon_label)
@@ -2022,6 +2022,8 @@ class MainWindow(QMainWindow):
                 self._arm_next_cue_if_cues_tab_active()
             elif action == "run_cue":
                 self._run_cue_if_cues_tab_active()
+            elif action == "stop_cue":
+                self.on_streamdeck_stop_cue()
             elif action.startswith("preset_"):
                 # Recall preset for selected camera
                 preset_number = int(action.split("_")[1])
@@ -2085,6 +2087,34 @@ class MainWindow(QMainWindow):
 
         except Exception:
             logger.exception("Error handling Stream Deck page next")
+
+    def on_streamdeck_stop_cue(self) -> None:
+        """Handle Stop button press - sends stop command based on config"""
+        try:
+            if not self.streamdeck_controller or not self.streamdeck_controller.running:
+                return
+
+            # Get stop target setting from config
+            streamdeck_config = self.config.get_streamdeck_config()
+            stop_all_cameras = streamdeck_config.get("stop_sends_to_all_cameras", True)
+
+            if stop_all_cameras:
+                # Send stop to all cameras
+                logger.debug("Stream Deck Stop: Sending stop to all cameras")
+                for camera in self.cameras:
+                    if camera and camera.is_connected:
+                        camera.stop_movement()
+            else:
+                # Send stop only to selected camera
+                camera = self.get_selected_camera()
+                if camera and camera.is_connected:
+                    logger.debug("Stream Deck Stop: Sending stop to selected camera")
+                    camera.stop_movement()
+                else:
+                    logger.debug("Stream Deck Stop: No camera selected or camera not connected")
+
+        except Exception:
+            logger.exception("Error handling Stream Deck stop")
 
     def get_streamdeck_max_pages(self) -> int:
         """Calculate maximum number of Stream Deck pages"""
@@ -2155,6 +2185,21 @@ class MainWindow(QMainWindow):
                 "page_next": "►",
                 "arm_cue": "ARM",
                 "run_cue": "RUN",
+                "stop_cue": "STOP",
+            }
+
+            # Color mapping (matching preferences dialog)
+            color_mapping = {
+                "none": (0, 0, 0),
+                "red": (220, 20, 60),
+                "green": (34, 139, 34),
+                "blue": (30, 144, 255),
+                "orange": (255, 140, 0),
+                "purple": (147, 112, 219),
+                "yellow": (255, 215, 0),
+                "cyan": (0, 206, 209),
+                "magenta": (255, 20, 147),
+                "white": (245, 245, 245),
             }
 
             for button_id in range(8):
@@ -2172,8 +2217,22 @@ class MainWindow(QMainWindow):
                     # Use static label for non-preset actions
                     label = static_labels.get(action, "")
 
+                # Get button color from config
+                color_key = f"button_{button_id}_color"
+                color_name = streamdeck_config.get(color_key, "none")
+                background = color_mapping.get(color_name, (0, 0, 0))
+
+                # Determine text color based on background brightness
+                # Use white text on dark backgrounds, black on light backgrounds
+                bg_brightness = (
+                    background[0] * 0.299 + background[1] * 0.587 + background[2] * 0.114
+                )
+                text_color = (255, 255, 255) if bg_brightness < 128 else (0, 0, 0)
+
                 # Always update button display (even if label is empty to clear it)
-                self.streamdeck_controller.set_button_display(button_id, label)
+                self.streamdeck_controller.set_button_display(
+                    button_id, label, color=text_color, background=background
+                )
 
         except Exception:
             logger.exception("Error updating Stream Deck displays")
@@ -2688,6 +2747,11 @@ class MainWindow(QMainWindow):
         # Connect finished signal to reset flag when dialog closes
         self.preferences_dialog.finished.connect(self._on_preferences_dialog_closed)
 
+        # Connect signal to update Stream Deck displays when preferences are saved
+        self.preferences_dialog.streamdeck_preferences_saved.connect(
+            self._on_streamdeck_preferences_saved
+        )
+
         logger.debug("Dialog created, calling show() - ready for input")
 
         # Use show() instead of exec() so signals are processed while dialog is visible
@@ -2703,6 +2767,14 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(150, self._reconnect_usb_handlers)
 
         self._preferences_dialog_open = False
+
+    def _on_streamdeck_preferences_saved(self):
+        """Called when Stream Deck preferences are saved"""
+        logger.info("Stream Deck preferences saved, updating displays")
+
+        # Update Stream Deck displays to reflect new button mappings
+        if self.streamdeck_controller and self.streamdeck_controller.running:
+            self.update_streamdeck_displays()
 
     def _reconnect_usb_handlers(self):
         """Reconnect USB controller handlers after preferences dialog closes"""

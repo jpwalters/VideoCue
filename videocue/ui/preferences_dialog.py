@@ -5,7 +5,7 @@ Controller Preferences Dialog
 
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 class PreferencesDialog(QDialog):
     """Dialog for configuring USB controller preferences"""
+
+    # Signal emitted when Stream Deck preferences are saved
+    streamdeck_preferences_saved = pyqtSignal()
 
     def __init__(self, config, parent=None, usb_controller=None):
         super().__init__(parent)
@@ -604,31 +607,78 @@ class PreferencesDialog(QDialog):
         button_group = QGroupBox("Button Mappings")
         button_layout = QFormLayout()
 
-        # Create 8 button mapping dropdowns
-        self.streamdeck_button_combos = []
-        for button_id in range(8):
-            combo = QComboBox()
-            combo.addItem("None", "")
-            combo.addItem("Preset 1", "preset_1")
-            combo.addItem("Preset 2", "preset_2")
-            combo.addItem("Preset 3", "preset_3")
-            combo.addItem("Preset 4", "preset_4")
-            combo.addItem("Preset 5", "preset_5")
-            combo.addItem("Preset 6", "preset_6")
-            combo.addItem("Preset 7", "preset_7")
-            combo.addItem("Preset 8", "preset_8")
-            combo.addItem("Run", "run_cue")
-            combo.addItem("Arm", "arm_cue")
-            combo.addItem("Next", "page_next")
-            combo.addItem("Back", "page_prev")
-            combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            combo.currentIndexChanged.connect(self.update_streamdeck_button_availability)
+        # Color options with RGB values
+        self.color_options = [
+            ("None (Black)", "none", (0, 0, 0)),
+            ("Red", "red", (220, 20, 60)),
+            ("Green", "green", (34, 139, 34)),
+            ("Blue", "blue", (30, 144, 255)),
+            ("Orange", "orange", (255, 140, 0)),
+            ("Purple", "purple", (147, 112, 219)),
+            ("Yellow", "yellow", (255, 215, 0)),
+            ("Cyan", "cyan", (0, 206, 209)),
+            ("Magenta", "magenta", (255, 20, 147)),
+            ("White", "white", (245, 245, 245)),
+        ]
 
-            button_layout.addRow(f"Button {button_id}:", combo)
-            self.streamdeck_button_combos.append(combo)
+        # Create 8 button mapping dropdowns with color selection
+        self.streamdeck_button_combos = []
+        self.streamdeck_button_color_combos = []
+        for button_id in range(8):
+            # Action combo
+            action_combo = QComboBox()
+            action_combo.addItem("None", "")
+            action_combo.addItem("Preset 1", "preset_1")
+            action_combo.addItem("Preset 2", "preset_2")
+            action_combo.addItem("Preset 3", "preset_3")
+            action_combo.addItem("Preset 4", "preset_4")
+            action_combo.addItem("Preset 5", "preset_5")
+            action_combo.addItem("Preset 6", "preset_6")
+            action_combo.addItem("Preset 7", "preset_7")
+            action_combo.addItem("Preset 8", "preset_8")
+            action_combo.addItem("Stop", "stop_cue")
+            action_combo.addItem("Run", "run_cue")
+            action_combo.addItem("Arm", "arm_cue")
+            action_combo.addItem("Next", "page_next")
+            action_combo.addItem("Back", "page_prev")
+            action_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            action_combo.currentIndexChanged.connect(self.update_streamdeck_button_availability)
+
+            # Color combo
+            color_combo = QComboBox()
+            for color_name, color_key, _ in self.color_options:
+                color_combo.addItem(color_name, color_key)
+            color_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+            # Create horizontal layout for action and color
+            button_row = QHBoxLayout()
+            button_row.addWidget(action_combo, 2)  # Action takes more space
+            button_row.addWidget(QLabel("Color:"))
+            button_row.addWidget(color_combo, 1)
+
+            button_layout.addRow(f"Button {button_id}:", button_row)
+            self.streamdeck_button_combos.append(action_combo)
+            self.streamdeck_button_color_combos.append(color_combo)
 
         button_group.setLayout(button_layout)
         layout.addWidget(button_group)
+
+        # Stop Action Settings Group
+        stop_group = QGroupBox("Stop Button Settings")
+        stop_layout = QFormLayout()
+
+        self.stop_sends_to_all_cameras_checkbox = QCheckBox(
+            "Stop button sends stop command to all cameras"
+        )
+        self.stop_sends_to_all_cameras_checkbox.setToolTip(
+            "When enabled, the Stop button sends stop commands to all cameras.\n"
+            "When disabled, Stop only affects the currently selected camera."
+        )
+        self.stop_sends_to_all_cameras_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        stop_layout.addRow("", self.stop_sends_to_all_cameras_checkbox)
+
+        stop_group.setLayout(stop_layout)
+        layout.addWidget(stop_group)
 
         # Encoder Settings Group
         encoder_group = QGroupBox("Encoder Settings")
@@ -651,7 +701,9 @@ class PreferencesDialog(QDialog):
             "Tips:\n"
             "• Each action (except None) can only be assigned to one button\n"
             "• Preset buttons will show the preset name on the Stream Deck display\n"
-            "• Page Next/Back navigate between camera pages on encoders"
+            "• Page Next/Back navigate between camera pages on encoders\n"
+            "• Button colors: Stop defaults to Red, Run defaults to Green\n"
+            "• Text color automatically adjusts for readability"
         )
         tips_label.setStyleSheet("color: #aaa; font-size: 9px; margin-top: 10px;")
         tips_label.setWordWrap(True)
@@ -980,9 +1032,23 @@ class PreferencesDialog(QDialog):
                 # Default to None if action not found
                 combo.setCurrentIndex(0)
 
+            # Load button color
+            color_key = f"button_{button_id}_color"
+            color = streamdeck_config.get(color_key, "none")
+            color_combo = self.streamdeck_button_color_combos[button_id]
+            color_index = color_combo.findData(color)
+            if color_index >= 0:
+                color_combo.setCurrentIndex(color_index)
+            else:
+                color_combo.setCurrentIndex(0)  # Default to "none"
+
         # Load encoder press enabled setting
         encoder_press_enabled = streamdeck_config.get("encoder_press_enabled", True)
         self.encoder_press_enabled_checkbox.setChecked(encoder_press_enabled)
+
+        # Load stop sends to all cameras setting
+        stop_sends_to_all = streamdeck_config.get("stop_sends_to_all_cameras", True)
+        self.stop_sends_to_all_cameras_checkbox.setChecked(stop_sends_to_all)
 
         # Update button availability after loading all preferences
 
@@ -1155,10 +1221,23 @@ class PreferencesDialog(QDialog):
             action_key = f"button_{button_id}_action"
             streamdeck_config[action_key] = combo.currentData()
 
+            # Save button color
+            color_key = f"button_{button_id}_color"
+            color_combo = self.streamdeck_button_color_combos[button_id]
+            streamdeck_config[color_key] = color_combo.currentData()
+
         # Save encoder press enabled setting
         streamdeck_config["encoder_press_enabled"] = self.encoder_press_enabled_checkbox.isChecked()
 
+        # Save stop sends to all cameras setting
+        streamdeck_config["stop_sends_to_all_cameras"] = (
+            self.stop_sends_to_all_cameras_checkbox.isChecked()
+        )
+
         self.config.save()
+
+        # Emit signal to notify that Stream Deck preferences changed
+        self.streamdeck_preferences_saved.emit()
 
         # Close dialog (emits finished signal)
         self.accept()
