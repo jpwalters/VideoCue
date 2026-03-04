@@ -30,8 +30,8 @@ jobs:
           # Upgrade pip and setuptools FIRST to prevent mid-install corruption
           python -m pip install --upgrade pip setuptools
           
-          # Now install packages with stable setuptools
-          python -m pip install --force-reinstall --no-cache-dir -r requirements-build.lock.txt
+          # Now install packages with stable setuptools (no --force-reinstall to avoid re-uninstalling setuptools)
+          python -m pip install --no-cache-dir -r requirements-build.lock.txt
           
           Write-Host "`n=== POST-INSTALL VERIFICATION ==="
           python -c "import streamdeck, hid; from PIL import Image; print('✓ All imports successful'); print('streamdeck:', streamdeck.__version__)"
