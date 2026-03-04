@@ -61,9 +61,11 @@ jobs:
           
           python test_imports.py
           if ($LASTEXITCODE -ne 0) {
+            Remove-Item test_imports.py -ErrorAction SilentlyContinue
             Write-Host "✗ Import verification failed"
             exit 1
           }
+          Remove-Item test_imports.py -ErrorAction SilentlyContinue
           
       - name: Verify installed packages
         run: |
