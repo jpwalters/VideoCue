@@ -35,42 +35,30 @@ jobs:
           
           Write-Host "`n=== POST-INSTALL VERIFICATION ==="
           
-          # Test with fresh Python interpreter (not inline -c which might have stale import cache)
-          $testScript = @"
-import sys
-print('Python executable:', sys.executable)
-print('sys.path:', sys.path)
-print()
-
-# Try imports
-try:
-    import streamdeck
-    print('✓ streamdeck version:', streamdeck.__version__)
-except Exception as e:
-    print('✗ streamdeck import failed:', e)
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-
-try:
-    import hid
-    print('✓ hid imported')
-except Exception as e:
-    print('✗ hid import failed:', e)
-    sys.exit(1)
-
-try:
-    from PIL import Image
-    print('✓ Pillow imported')
-except Exception as e:
-    print('✗ Pillow import failed:', e)
-    sys.exit(1)
-
-print()
-print('✓✓✓ All imports successful!')
-"@
+          # Create test script (avoid here-string for YAML compatibility)
+          "import sys" | Out-File -FilePath "test_imports.py" -Encoding utf8
+          "print('Python executable:', sys.executable)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "print('sys.path:', sys.path)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "print()" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    import streamdeck" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✓ streamdeck version:', streamdeck.__version__)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✗ streamdeck import failed:', e)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    import traceback; traceback.print_exc(); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    import hid" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✓ hid imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✗ hid import failed:', e); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "try:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    from PIL import Image" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✓ Pillow imported')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "except Exception as e:" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "    print('✗ Pillow import failed:', e); sys.exit(1)" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "print()" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
+          "print('✓✓✓ All imports successful!')" | Out-File -FilePath "test_imports.py" -Encoding utf8 -Append
           
-          $testScript | Out-File -FilePath "test_imports.py" -Encoding utf8
           python test_imports.py
           if ($LASTEXITCODE -ne 0) {
             Write-Host "✗ Import verification failed"
