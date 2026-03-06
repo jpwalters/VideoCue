@@ -296,8 +296,12 @@ jobs:
         run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool.AppImage
           chmod +x appimagetool.AppImage
-          ./appimagetool.AppImage --appimage-extract > /dev/null
-          sudo mv squashfs-root/AppRun /usr/local/bin/appimagetool
+          sudo mv appimagetool.AppImage /usr/local/bin/appimagetool.AppImage
+          sudo tee /usr/local/bin/appimagetool > /dev/null << 'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec /usr/local/bin/appimagetool.AppImage --appimage-extract-and-run "$@"
+          EOF
           sudo chmod +x /usr/local/bin/appimagetool
 
       - name: Install Python dependencies
