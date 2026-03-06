@@ -281,34 +281,23 @@ exe = EXE(  # noqa: F821
     ),
 )
 
+coll = COLLECT(  # noqa: F821
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="VideoCue",
+)
+
 if IS_MACOS:
     app = BUNDLE(  # noqa: F821
-        exe,
+        coll,
         name="VideoCue.app",
         icon=str(Path("resources/icon.icns").resolve())
         if Path("resources/icon.icns").exists()
         else None,
         bundle_identifier="com.jpw.videocue",
-    )
-
-    coll = COLLECT(  # noqa: F821
-        app,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        name="VideoCue",
-    )
-else:
-    coll = COLLECT(  # noqa: F821
-        exe,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        name="VideoCue",
     )
