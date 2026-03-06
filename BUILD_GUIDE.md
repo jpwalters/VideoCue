@@ -1,5 +1,36 @@
 # Build and Installer Creation Guide
 
+## macOS Release Build (DMG)
+
+macOS release artifacts are now built in GitHub Actions release workflow (`.github/workflows/build-release.yml`) on `macos-latest`.
+
+Current scope:
+- Produces `installer_output/VideoCue-{version}-macOS.dmg`
+- Unsigned and not notarized (intentional for this phase)
+- Runs only for release tags (`v*`)
+
+### Local macOS Build (manual)
+
+```bash
+# Install build dependencies
+python -m pip install --upgrade pip setuptools
+python -m pip install -r requirements-build.lock.txt
+
+# Build app + create unsigned DMG
+chmod +x ./build_macos.sh
+./build_macos.sh --version "1.0.0"
+
+# Optional: reuse an existing dist build and only rebuild DMG
+./build_macos.sh --version "1.0.0" --skip-build
+```
+
+### macOS Validation Checklist
+
+- Verify `dist/VideoCue/VideoCue.app` (or `dist/VideoCue.app`) exists after PyInstaller
+- Mount generated DMG and confirm `VideoCue.app` is present
+- Launch app from Applications folder after drag/install
+- Confirm startup works when NDI runtime is unavailable (IP-only mode)
+
 ## Quick Start: Automated Build (Recommended)
 
 The easiest way to build VideoCue is using the PowerShell build script:

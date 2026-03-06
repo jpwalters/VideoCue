@@ -165,6 +165,22 @@ This creates:
 - Inno Setup installer in `installer_output/VideoCue-{version}-Setup.exe`
 - Portable ZIP in `installer_output/VideoCue-{version}-portable.zip`
 
+### macOS (Release Workflow)
+- Release tags (`v*`) now also build a macOS DMG in GitHub Actions.
+- Artifact output: `installer_output/VideoCue-{version}-macOS.dmg`
+- Current phase is unsigned/not notarized.
+
+### macOS (Manual)
+```bash
+python -m pip install --upgrade pip setuptools
+python -m pip install -r requirements-build.lock.txt
+chmod +x ./build_macos.sh
+./build_macos.sh --version "0.4.1"
+
+# Optional: reuse existing dist build and only rebuild DMG
+./build_macos.sh --version "0.4.1" --skip-build
+```
+
 ### Manual Build
 ```bash
 pyinstaller VideoCue.spec
@@ -184,8 +200,8 @@ pyinstaller VideoCue.spec
 
 ### Configuration
 Edit `VideoCue.spec` to update:
-- NDI DLL path (line 13)
-- Application icon (if `resources/icon.png` exists)
+- Platform-specific NDI runtime search paths (`ndi_runtime_paths`)
+- Application icons (`resources/icon.ico` on Windows, optional `resources/icon.icns` on macOS)
 
 ## Camera Setup
 
