@@ -181,6 +181,24 @@ chmod +x ./build_macos.sh
 ./build_macos.sh --version "0.4.1" --skip-build
 ```
 
+### Linux (Release Workflow)
+- Release tags (`v*`) now also build Linux installers in GitHub Actions.
+- Artifact outputs:
+  - `installer_output/VideoCue-{version}-x86_64.AppImage`
+  - `installer_output/VideoCue-{version}-amd64.deb`
+- Current phase uses an IP-only baseline if NDI runtime is unavailable.
+
+### Linux (Manual)
+```bash
+python -m pip install --upgrade pip setuptools
+python -m pip install -r requirements-build.lock.txt
+chmod +x ./build_linux.sh
+./build_linux.sh --version "0.4.1"
+
+# Optional: reuse existing dist build and only rebuild installers
+./build_linux.sh --version "0.4.1" --skip-build
+```
+
 ### Manual Build
 ```bash
 pyinstaller VideoCue.spec

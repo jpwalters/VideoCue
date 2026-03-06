@@ -31,6 +31,39 @@ chmod +x ./build_macos.sh
 - Launch app from Applications folder after drag/install
 - Confirm startup works when NDI runtime is unavailable (IP-only mode)
 
+## Linux Release Build (AppImage + .deb)
+
+Linux release artifacts are now built in GitHub Actions release workflow (`.github/workflows/build-release.yml`) on `ubuntu-latest`.
+
+Current scope:
+- Produces `installer_output/VideoCue-{version}-x86_64.AppImage`
+- Produces `installer_output/VideoCue-{version}-amd64.deb`
+- Runs only for release tags (`v*`)
+- Uses IP-only baseline in CI if NDI runtime is unavailable
+
+### Local Linux Build (manual)
+
+```bash
+# Install build dependencies
+python -m pip install --upgrade pip setuptools
+python -m pip install -r requirements-build.lock.txt
+
+# Build Linux artifacts
+chmod +x ./build_linux.sh
+./build_linux.sh --version "1.0.0"
+
+# Optional: reuse existing dist build and only rebuild installers
+./build_linux.sh --version "1.0.0" --skip-build
+```
+
+### Linux Validation Checklist
+
+- Verify `installer_output/VideoCue-{version}-x86_64.AppImage` exists
+- Verify `installer_output/VideoCue-{version}-amd64.deb` exists
+- Test AppImage launch (`chmod +x` then run)
+- Test `.deb` install and launch (`dpkg -i` then `videocue`)
+- Confirm startup works when NDI runtime is unavailable (IP-only mode)
+
 ## Quick Start: Automated Build (Recommended)
 
 The easiest way to build VideoCue is using the PowerShell build script:
