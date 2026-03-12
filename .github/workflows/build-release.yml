@@ -218,7 +218,16 @@ jobs:
           retention-days: 30
 
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x86_64
+            label: intel
+          - runner: macos-latest
+            arch: arm64
+            label: silicon
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout code
@@ -245,14 +254,14 @@ jobs:
       - name: Build app with PyInstaller
         run: |
           chmod +x ./build_macos.sh
-          ./build_macos.sh --version "${{ steps.version.outputs.version }}"
+          ./build_macos.sh --version "${{ steps.version.outputs.version }}" --arch "${{ matrix.arch }}"
 
       - name: Upload macOS artifact to release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            installer_output/VideoCue-${{ steps.version.outputs.version }}-macOS.dmg
+            installer_output/VideoCue-${{ steps.version.outputs.version }}-macOS-${{ matrix.arch }}.dmg
           draft: false
           prerelease: false
         env:
@@ -262,7 +271,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build-artifacts-macos
+          name: build-artifacts-macos-${{ matrix.label }}
           path: |
             dist/
             installer_output/

@@ -4,9 +4,11 @@ set -euo pipefail
 # Build an unsigned macOS DMG from the PyInstaller app bundle.
 # Usage:
 #   ./build_macos.sh --version 1.0.0
+#   ./build_macos.sh --version 1.0.0 --arch arm64
 #   ./build_macos.sh --version 1.0.0 --skip-build
 
 VERSION=""
+ARCH=""
 SKIP_BUILD=0
 
 while [[ $# -gt 0 ]]; do
@@ -15,17 +17,21 @@ while [[ $# -gt 0 ]]; do
       VERSION="${2:-}"
       shift 2
       ;;
+    --arch)
+      ARCH="${2:-}"
+      shift 2
+      ;;
     --skip-build)
       SKIP_BUILD=1
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 --version <version> [--skip-build]"
+      echo "Usage: $0 --version <version> [--arch <arch>] [--skip-build]"
       exit 0
       ;;
     *)
       echo "ERROR: Unknown argument: $1"
-      echo "Usage: $0 --version <version> [--skip-build]"
+      echo "Usage: $0 --version <version> [--arch <arch>] [--skip-build]"
       exit 1
       ;;
   esac
@@ -33,8 +39,13 @@ done
 
 if [[ -z "$VERSION" ]]; then
   echo "ERROR: --version is required"
-  echo "Usage: $0 --version <version> [--skip-build]"
+  echo "Usage: $0 --version <version> [--arch <arch>] [--skip-build]"
   exit 1
+fi
+
+# Default arch to current machine architecture
+if [[ -z "$ARCH" ]]; then
+  ARCH="$(uname -m)"
 fi
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
@@ -57,7 +68,7 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 mkdir -p installer_output
-DMG_PATH="installer_output/VideoCue-${VERSION}-macOS.dmg"
+DMG_PATH="installer_output/VideoCue-${VERSION}-macOS-${ARCH}.dmg"
 
 echo "[3/3] Creating DMG: ${DMG_PATH}"
 hdiutil create -volname "VideoCue" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
