@@ -40,6 +40,23 @@ class HardwareConstants:
     COLOR_GAIN_MAX = 255
 
 
+class BirdDogConstants:
+    """BirdDog REST API constants"""
+
+    REST_PORT = 8080
+    REST_TIMEOUT_S = 2.0
+    ALLOWED_ENDPOINTS = frozenset(
+        {
+            "about",
+            "birddogwbsetup",
+            "birddogcmsetup",
+            "birddogpicsetup",
+            "birddogexpsetup",
+            "birddoggammasetup",
+        }
+    )
+
+
 class ViscaConstants:
     """VISCA protocol constants"""
 

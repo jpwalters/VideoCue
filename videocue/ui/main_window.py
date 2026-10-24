@@ -116,6 +116,12 @@ class MainWindow(QMainWindow):
         self.cameras = []
         self.selected_camera_index = 0
 
+        # Color matching state
+        self._color_match_worker = None
+        self._color_match_sampler = None
+        self._color_match_progress = None
+        self._color_match_target = None
+
         # USB controller
         self.usb_controller = None
 
@@ -1382,6 +1388,12 @@ class MainWindow(QMainWindow):
             camera.connection_state_changed.connect(
                 lambda _connected, _cam=camera: self._update_cue_header_highlight()
             )
+            camera.connection_state_changed.connect(
+                lambda _connected: self._update_color_match_availability()
+            )
+            camera.color_match_requested.connect(
+                lambda cam=camera: self.start_color_match(cam)
+            )
 
             # Connect initialization signals to track progress
             camera.connection_starting.connect(
@@ -1684,6 +1696,7 @@ class MainWindow(QMainWindow):
         self.selected_camera_index = index
         self.cameras[index].set_selected(True)
         self._update_cue_header_highlight()
+        self._update_color_match_availability()
 
         # Update Stream Deck displays to reflect new selection
         self.update_streamdeck_displays()
@@ -1693,6 +1706,176 @@ class MainWindow(QMainWindow):
         if 0 <= self.selected_camera_index < len(self.cameras):
             return self.cameras[self.selected_camera_index]
         return None
+
+    def _update_color_match_availability(self) -> None:
+        """Enable 'Match to Selected' on every camera except the selected reference."""
+        reference = self.get_selected_camera()
+        reference_ok = reference is not None and reference.is_connected
+        busy = self._color_match_worker is not None
+        for cam in self.cameras:
+            cam.set_color_match_available(reference_ok and cam is not reference and not busy)
+
+    def _scopes_enabled(self) -> bool:
+        return any(
+            (
+                self.config.get_ndi_false_color_enabled(),
+                self.config.get_ndi_waveform_enabled(),
+                self.config.get_ndi_vectorscope_enabled(),
+                self.config.get_ndi_rgb_parade_enabled(),
+                self.config.get_ndi_histogram_enabled(),
+            )
+        )
+
+    def start_color_match(self, target: "CameraWidget") -> None:
+        """Match target camera color to the currently selected camera."""
+        from PyQt6.QtWidgets import QProgressDialog
+
+        from videocue.controllers.color_matcher import (
+            ColorMatchEndpoint,
+            ColorMatchWorker,
+            FrameSampler,
+        )
+
+        reference = self.get_selected_camera()
+        error = None
+        if self._color_match_worker is not None:
+            error = UIStrings.ERROR_MATCH_BUSY
+        elif reference is None or reference is target:
+            error = UIStrings.ERROR_MATCH_SAME_CAMERA
+        elif not (reference.is_connected and target.is_connected):
+            error = UIStrings.ERROR_MATCH_NOT_CONNECTED
+        elif self._scopes_enabled():
+            error = UIStrings.ERROR_MATCH_SCOPES_ACTIVE
+        elif reference.ndi_thread is None or target.ndi_thread is None:
+            error = UIStrings.ERROR_MATCH_NO_VIDEO
+        if error:
+            QMessageBox.warning(self, UIStrings.DIALOG_COLOR_MATCH, error)
+            return
+
+        ref_name = reference._format_camera_display_name()
+        tgt_name = target._format_camera_display_name()
+        reply = QMessageBox.question(
+            self,
+            UIStrings.DIALOG_COLOR_MATCH,
+            UIStrings.MSG_MATCH_AIM_CAMERAS.format(target=tgt_name, reference=ref_name),
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok,
+        )
+        if reply != QMessageBox.StandardButton.Ok:
+            return
+
+        sampler = FrameSampler()
+        sampler.attach("reference", reference.ndi_thread)
+        sampler.attach("target", target.ndi_thread)
+        worker = ColorMatchWorker(
+            ColorMatchEndpoint(ref_name, reference.visca_ip, reference.visca, "reference"),
+            ColorMatchEndpoint(tgt_name, target.visca_ip, target.visca, "target"),
+            sampler,
+        )
+
+        progress = QProgressDialog(
+            UIStrings.STATUS_MATCH_PREFLIGHT, UIStrings.BTN_CANCEL, 0, 100, self
+        )
+        progress.setWindowTitle(UIStrings.DIALOG_COLOR_MATCH)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setMinimumDuration(0)
+        progress.canceled.connect(worker.cancel)
+
+        def on_progress(value: int, text: str) -> None:
+            progress.setValue(value)
+            progress.setLabelText(text)
+
+        worker.progress.connect(on_progress)
+        worker.match_finished.connect(self._on_color_match_finished)
+        worker.match_failed.connect(self._on_color_match_failed)
+
+        self._color_match_worker = worker
+        self._color_match_sampler = sampler
+        self._color_match_progress = progress
+        self._color_match_target = target
+        self._update_color_match_availability()
+        worker.start()
+        progress.show()
+
+    def _finish_color_match(self) -> "CameraWidget | None":
+        target = self._color_match_target
+        if self._color_match_progress is not None:
+            self._color_match_progress.close()
+            self._color_match_progress.deleteLater()
+        if self._color_match_sampler is not None:
+            self._color_match_sampler.detach_all()
+        if self._color_match_worker is not None:
+            self._color_match_worker.wait(2000)
+            self._color_match_worker.deleteLater()
+        self._color_match_worker = None
+        self._color_match_sampler = None
+        self._color_match_progress = None
+        self._color_match_target = None
+        self._update_color_match_availability()
+        return target
+
+    def _refresh_match_target(self, target: "CameraWidget | None") -> None:
+        if target is not None and target in self.cameras:
+            target.refresh_settings()
+
+    def _on_color_match_failed(self, message: str) -> None:
+        self._refresh_match_target(self._finish_color_match())
+        QMessageBox.warning(self, UIStrings.DIALOG_COLOR_MATCH, message)
+
+    def _on_color_match_finished(self, result: dict) -> None:
+        from PyQt6.QtWidgets import QApplication
+
+        from videocue.controllers.birddog_api import BirdDogAPI, BirdDogAPIError
+        from videocue.controllers.color_matcher import restore_snapshot
+
+        target = self._finish_color_match()
+        values = {
+            "target": result["target"],
+            "reference": result["reference"],
+            "duration": result["duration_s"],
+            "before": result["error_before"],
+            "after": result["error_after"],
+            "wb_before": result["wb_error_before"],
+            "wb_after": result["wb_error_after"],
+            "sectors": result["sectors_compared"],
+        }
+        if not result["improved"]:
+            self._refresh_match_target(target)
+            QMessageBox.warning(
+                self, UIStrings.DIALOG_COLOR_MATCH, UIStrings.MSG_MATCH_NOT_IMPROVED.format(**values)
+            )
+            return
+
+        text = UIStrings.MSG_MATCH_RESULT.format(**values)
+        if result["reference_auto_wb"]:
+            text += UIStrings.MSG_MATCH_REFERENCE_AUTO_WB
+        if abs(result["luma_reference"] - result["luma_target"]) > 0.08:
+            text += UIStrings.MSG_MATCH_EXPOSURE_DIFF
+
+        box = QMessageBox(QMessageBox.Icon.Information, UIStrings.DIALOG_COLOR_MATCH, text, parent=self)
+        keep_btn = box.addButton(UIStrings.BTN_KEEP, QMessageBox.ButtonRole.AcceptRole)
+        revert_btn = box.addButton(UIStrings.BTN_REVERT, QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep_btn)
+        box.exec()
+
+        if box.clickedButton() is revert_btn and target is not None:
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                mismatches = restore_snapshot(BirdDogAPI(target.visca_ip), result["snapshot"])
+            except BirdDogAPIError as e:
+                mismatches = [str(e)]
+            finally:
+                QApplication.restoreOverrideCursor()
+            if mismatches:
+                QMessageBox.warning(
+                    self,
+                    UIStrings.DIALOG_COLOR_MATCH,
+                    UIStrings.ERROR_MATCH_REVERT_FAILED.format(details="\n".join(mismatches)),
+                )
+
+        self._refresh_match_target(target)
 
     def _update_usb_indicator(self, connected: bool, name: str = ""):
         """Update USB controller visual indicator"""
@@ -2856,6 +3039,9 @@ class MainWindow(QMainWindow):
             logger.error(f"Error saving config on close: {e}")
 
         # Stop all cameras asynchronously
+        if self._color_match_worker is not None:
+            self._color_match_worker.cancel()
+            self._color_match_worker.wait(10000)
         logger.info(f"Stopping {len(self.cameras)} camera threads...")
         for camera in self.cameras:
             camera._cleanup_threads()  # Stop all camera threads

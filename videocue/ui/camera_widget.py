@@ -87,6 +87,7 @@ class CameraWidget(QWidget):
     connection_state_changed = pyqtSignal(bool)
     connection_starting = pyqtSignal()  # Emitted when connection attempt begins
     initialized = pyqtSignal()  # Emitted when camera initialization complete
+    color_match_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -201,6 +202,8 @@ class CameraWidget(QWidget):
         self.blue_gain_value_label = None
         self.wb_manual_widget = None
         self.one_push_wb_btn = None
+        self.match_color_btn = None
+        self._color_match_available = False
         self.red_gain_layout_widget = None
         self.blue_gain_layout_widget = None
         self._last_frame_time = None
@@ -899,6 +902,13 @@ class CameraWidget(QWidget):
         wb_button_layout.addWidget(self.one_push_wb_btn)
         wb_button_layout.addStretch()
         layout.addLayout(wb_button_layout)
+
+        self.match_color_btn = QPushButton(UIStrings.BTN_MATCH_COLOR)
+        self.match_color_btn.setToolTip(UIStrings.TOOLTIP_MATCH_COLOR_UNAVAILABLE)
+        self.match_color_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.match_color_btn.setEnabled(False)
+        self.match_color_btn.clicked.connect(self.color_match_requested.emit)
+        layout.addWidget(self.match_color_btn)
 
         # Red Gain (for manual WB)
         self.red_gain_label = QLabel("Red Gain:")
@@ -2231,6 +2241,27 @@ class CameraWidget(QWidget):
                 widget.setEnabled(enabled)
             for widget in self.controls_container.findChildren(QCheckBox):
                 widget.setEnabled(enabled)
+        if self.match_color_btn is not None:
+            self.match_color_btn.setEnabled(enabled and self._color_match_available)
+
+    def set_color_match_available(self, available: bool):
+        """Enable the match button when another connected camera is the selected reference."""
+        self._color_match_available = available
+        if self.match_color_btn is None:
+            return
+        self.match_color_btn.setEnabled(available and self.is_connected)
+        self.match_color_btn.setToolTip(
+            UIStrings.TOOLTIP_MATCH_COLOR if available else UIStrings.TOOLTIP_MATCH_COLOR_UNAVAILABLE
+        )
+
+    def refresh_settings(self):
+        """Re-read camera settings into the UI (e.g. after an external change)."""
+        if not self.is_connected:
+            return
+        query_thread = getattr(self, "_query_thread", None)
+        if query_thread is not None and query_thread.isRunning():
+            return
+        self._query_all_settings_async()
 
     def reconnect_camera(self):
         """Attempt to reconnect to camera (non-blocking)"""

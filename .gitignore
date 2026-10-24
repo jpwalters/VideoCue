@@ -69,4 +69,5 @@ htmlcov/
 # .github/ - commented out to keep copilot instructions
 videocue/test/
 installer_output/
+tools/output/
 *.zip

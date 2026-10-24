@@ -22,13 +22,36 @@ if sys.platform == "win32" and hasattr(sys, "_MEIPASS"):
         # Add _internal to PATH for DLL loading (avoids os.add_dll_directory crashes)
         os.environ["PATH"] = str(internal_path) + os.pathsep + os.environ.get("PATH", "")
 
-from PyQt6.QtCore import QEvent, Qt  # type: ignore
-from PyQt6.QtGui import QIcon  # type: ignore
-from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox  # type: ignore
 
-from videocue import __version__
-from videocue.exceptions import VideoCueError
-from videocue.ui_strings import UIStrings
+def _preload_ndi_before_qt() -> None:
+    """Load the NDI extension before PyQt6 so it binds to the system MSVC runtime."""
+    # PyQt6 bundles an older msvcp140.dll that makes the NDI 6 extension crash on load
+    if sys.platform != "win32" or os.environ.get("VIDEOCUE_DISABLE_NDI") == "1":
+        return
+    will_supervise = (
+        os.environ.get("VIDEOCUE_SUPERVISED_CHILD") != "1"
+        and "--child-process" not in sys.argv
+        and os.environ.get("VIDEOCUE_SUPERVISOR_DISABLED") != "1"
+    )
+    if will_supervise:
+        return  # supervisor never uses NDI; keep it crash-free so it can offer a restart
+    try:
+        from videocue.ndi_wrapper import _load_ndilib
+
+        _load_ndilib()
+    except ImportError:
+        pass  # ndi_video reports NDI as unavailable later
+
+
+_preload_ndi_before_qt()
+
+from PyQt6.QtCore import QEvent, Qt  # type: ignore  # noqa: E402
+from PyQt6.QtGui import QIcon  # type: ignore  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox  # type: ignore  # noqa: E402
+
+from videocue import __version__  # noqa: E402
+from videocue.exceptions import VideoCueError  # noqa: E402
+from videocue.ui_strings import UIStrings  # noqa: E402
 
 # Import qdarkstyle for dark theme
 try:

@@ -138,6 +138,58 @@ class UIStrings:
     ERROR_NDI_NOT_AVAILABLE = "NDI Not Available"
     ERROR_CAMERA_CONNECTION = "Camera connection failed"
     ERROR_VIDEO_THREAD = "Video thread error"
+
+    # Color Matching
+    BTN_MATCH_COLOR = "Match to Selected"
+    TOOLTIP_MATCH_COLOR = (
+        "Automatically match this camera's white balance and color to the selected camera"
+    )
+    TOOLTIP_MATCH_COLOR_UNAVAILABLE = (
+        "Select a different connected camera as the color reference to enable matching"
+    )
+    BTN_KEEP = "Keep"
+    BTN_REVERT = "Revert"
+    DIALOG_COLOR_MATCH = "Color Match"
+    MSG_MATCH_AIM_CAMERAS = (
+        "Match {target} to {reference}?\n\n"
+        "Point both cameras at the same scene and keep them still while matching.\n"
+        "Exposure is not changed. This takes up to a few minutes."
+    )
+    MSG_MATCH_REFERENCE_AUTO_WB = (
+        "\n\nNote: the reference camera is not in Manual white balance, so the match "
+        "may drift when the lighting changes."
+    )
+    MSG_MATCH_RESULT = (
+        "{target} matched to {reference} in {duration}s.\n\n"
+        "Overall color difference: {before:.2f} → {after:.2f}\n"
+        "White balance difference: {wb_before:.2f} → {wb_after:.2f}\n"
+        "Hue sectors compared: {sectors}"
+    )
+    MSG_MATCH_NOT_IMPROVED = (
+        "Could not improve the match ({before:.2f} → {after:.2f}). "
+        "Original settings were restored.\n\n"
+        "Make sure both cameras see the same, well-lit scene."
+    )
+    MSG_MATCH_EXPOSURE_DIFF = (
+        "\n\nThe cameras' brightness differs noticeably; consider matching exposure too."
+    )
+    STATUS_MATCH_PREFLIGHT = "Checking cameras..."
+    STATUS_MATCH_SNAPSHOT = "Saving current settings..."
+    STATUS_MATCH_SEED = "Preparing target camera..."
+    STATUS_MATCH_WB = "Matching white balance..."
+    STATUS_MATCH_COLOR = "Matching color..."
+    STATUS_MATCH_VERIFY = "Verifying match..."
+    STATUS_MATCH_DONE = "Done"
+    STATUS_MATCH_CANCELLED = "Color match cancelled; original settings restored"
+    ERROR_MATCH_SAME_CAMERA = "Select a different camera as the color reference."
+    ERROR_MATCH_NOT_CONNECTED = "Both cameras must be connected."
+    ERROR_MATCH_SCOPES_ACTIVE = "Turn off scopes (View → Scopes) before color matching."
+    ERROR_MATCH_NO_VIDEO = "Video must be playing on both cameras"
+    ERROR_MATCH_REST_UNAVAILABLE = "BirdDog web API (port 8080) not reachable"
+    ERROR_MATCH_UNSUPPORTED_MODEL = "Color matching supports BirdDog P200 and P400 cameras only."
+    ERROR_MATCH_SCENE = "Scene not usable for matching"
+    ERROR_MATCH_BUSY = "A color match is already running."
+    ERROR_MATCH_REVERT_FAILED = "Some settings could not be restored:\n{details}"
     ERROR_CONFIG_LOAD = "Error loading configuration"
     ERROR_CONFIG_SAVE = "Error saving configuration"
     ERROR_USB_INIT = "USB controller initialization failed"

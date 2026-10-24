@@ -18,6 +18,9 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **controllers/streamdeck_controller.py**: Stream Deck event handling, button rendering with PIL, encoder processing, button action execution
 - **models/config_manager.py**: JSON config at `%LOCALAPPDATA%\VideoCue\config.json` (Windows) / `~/.config/VideoCue/config.json` (Unix), **ndi_bandwidth preference**, **ndi_color_format preference** (default: uyvy), **scope mode preferences** (`ndi_false_color_enabled`, `ndi_waveform_enabled`, `ndi_vectorscope_enabled`, `ndi_rgb_parade_enabled`, `ndi_histogram_enabled`), **streamdeck section** (encoder_press_enabled, button_0-7_action mappings)
 - **models/video.py**: Video size and camera preset data models
+- **controllers/birddog_api.py**: BirdDog REST client (port 8080, endpoint whitelist, model detection P200/P400)
+- **controllers/color_matcher.py**: `FrameSampler`, `ColorMatchWorker` (closed-loop color match), snapshot/restore helpers
+- **models/color_analysis.py**: Pure NumPy scene color signatures (white point + 6 hue sectors) used by the matcher
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
 - **utils/__init__.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
 - **utils/network_interface.py**: Network interface detection and subnet matching for NDI binding (v0.6.14)
@@ -177,6 +180,17 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
   - Delete button: Removes from app, frees camera memory slot
   - Reorder (↑↓): Changes list order without affecting camera memory
   - No complex re-storing workflow - reordering is instant
+
+### Auto Color Matching
+- "Match to Selected" button in each CameraWidget WB section matches that camera to the **selected** camera (reference is never changed); MainWindow `start_color_match()` runs `ColorMatchWorker` with a modal progress dialog, then Keep/Revert
+- Cameras must be roughly aimed at the same scene; scopes must be off and video playing on both. Exposure is not changed
+- Stages: snapshot (REST) → seed (same model copies reference color settings + WB gains) → WB via VISCA Manual + R/B gain → color via REST → WB touch-up → verify. Restores snapshot on cancel/error/no improvement
+- Optimizer: Levenberg-Marquardt with a Jacobian measured by nudging each parameter on the live camera, Broyden updates, accepts only improving steps
+- BirdDog REST (`/birddogwbsetup`, `/birddogcmsetup`): partial JSON POST, no auth, **no server-side range validation** — limits are enforced in `ParamSpec` tables
+  - P400: `Level`, `Phase`, matrix `RG/RB/GR/GB/BR/BG` (needs `Matrix: On`) in wbsetup
+  - P200: per-hue `*Gain`/`*Hue`, `ColourGain`, `HuePhase` in cmsetup (note `RedGain`/`BlueGain` there are NOT WB gains)
+- E2E test (live cameras, restores settings): `python tools/color_match_e2e_test.py --ref 192.168.1.104 --targets 192.168.1.103,192.168.1.102 --yes`; REST probe: `python tools/birddog_api_probe.py <ips>`
+- Dev scripts must load NDI before PyQt6 (`videocue.ndi_wrapper._load_ndilib()`): PyQt6's bundled older MSVC runtime crashes the NDI 6 extension otherwise
 
 ### Deferred Loading Architecture
 - **Problem**: Camera connections (especially NDI) block UI from appearing
