@@ -15,6 +15,7 @@ class NetworkConstants:
     NDI_NO_FRAME_THRESHOLD = 100  # frames before timeout (10 seconds at 100ms timeout)
     NDI_THREAD_STOP_TIMEOUT_S = 2.0  # seconds
     NDI_CONNECTION_RETRY_DELAY_MS = 500  # Delay before retry on connection failure
+    ATEM_DEFAULT_IP = "192.168.10.240"  # Blackmagic factory default
 
 
 class UIConstants:

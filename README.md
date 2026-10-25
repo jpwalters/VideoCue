@@ -64,6 +64,14 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Preferences Dialog**: Dedicated Stream Deck tab for button/encoder configuration
 - **Automatic Detection**: Hotplug support with connection indicator
 
+### ATEM Switcher Tally
+- **Program/Preview Tally**: Red (Program) and green (Preview) bar above each camera's video
+- **Blackmagic ATEM**: Connects over the network (UDP port 9910); read-only, never switches
+- **M/E Selection**: Tally from M/E 1 (main program output, default) or M/E 2
+- **Optional Preview Tally**: Preview (green) can be turned off
+- **Input Assignment**: Click the tally bar to pick the camera's ATEM input (names read from the switcher)
+- **Status Indicator**: ATEM icon in toolbar (green connected, red not connected, grey disabled)
+
 ### User Interface
 - **Dark Theme**: Professional appearance with qdarkstyle
 - **Multi-tab Layout**: Organized camera and cue management
@@ -270,6 +278,29 @@ Each of the 8 buttons can be assigned one action:
 - **Encoder Press to Select Camera**: Enable/disable camera selection via encoder press
 - When enabled, pressing any of the 4 encoders selects the corresponding camera (1-4)
 
+## ATEM Switcher Tally
+
+### Setup
+1. **Edit → Preferences → Switcher** tab (or click the **ATEM** icon in the toolbar)
+2. Check **Show tally from ATEM switcher** and enter the switcher's IP address
+3. Choose the **Tally source**: M/E 1 (main program output) or M/E 2
+4. Optionally uncheck **Show Preview tally**
+5. Click **Test Connection** to confirm the switcher answers and lists its inputs
+6. Click the bar above each camera's video and choose its ATEM input
+
+### How Tally Is Determined
+- **M/E 1**: The switcher's own tally, including keyers, downstream keyers and transitions
+- **M/E 2**: Worked out from the M/E 2 Program/Preview buses, transitions and upstream keyers; downstream keyers are not included
+- If M/E 2 is chosen on a single-M/E switcher, tally falls back to M/E 1 (shown in the ATEM icon tooltip)
+
+### Testing Without a Switcher
+```bash
+python tools/atem_simulator.py            # fake 2-M/E ATEM on 127.0.0.1:9910
+python tools/atem_tally_probe.py 127.0.0.1 # print tally from the simulator
+python -m unittest tests.test_atem_tally -v
+```
+On site, run `python tools/atem_tally_probe.py <switcher-ip>` first to confirm the laptop can reach the switcher.
+
 ### Default Controller Mapping
 - **Left Stick** (Axis 0/1): Pan/Tilt (analog)
 - **D-Pad**: Pan/Tilt (digital)
@@ -438,6 +469,13 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Ensure camera is selected for preset-based buttons
 - Check console output for action execution errors
 - Verify encoder press is enabled if using encoders to select cameras
+
+### ATEM Tally Not Connecting
+- Run `python tools/atem_tally_probe.py <switcher-ip>` to check reachability
+- The laptop must be on a network that can reach the switcher (same subnet or routed)
+- Allow outbound UDP port 9910 through firewalls
+- The switcher allows a limited number of control connections; close unused ATEM Software Control/Companion sessions
+- Tally bar stays grey with "No ATEM input": click it to assign the camera's ATEM input
 
 ### Video Performance Issues
 - **Color Format**: **View → Video Format** menu

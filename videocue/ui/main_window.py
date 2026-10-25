@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (  # type: ignore
 
 from videocue import __version__
 from videocue.constants import UIConstants
+from videocue.controllers.atem_tally import AtemInput, AtemTallyClient, TallyMap
 from videocue.controllers.ndi_video import get_ndi_error_message, ndi_available
 from videocue.controllers.usb_controller import MovementDirection, USBController
 from videocue.models.config_manager import ConfigManager
@@ -130,6 +131,14 @@ class MainWindow(QMainWindow):
         self.streamdeck_current_page = 0
         self.streamdeck_brightness_timers = {}  # Track timers for temporary brightness display
 
+        # ATEM switcher tally
+        self.atem_client: AtemTallyClient | None = None
+        self.atem_icon_label = None
+        self._atem_connected = False
+        self._atem_me_count = 0
+        self._atem_inputs: dict[int, AtemInput] = {}
+        self._atem_tally: TallyMap = {}
+
         # Pre-initialize UI attributes
         self.usb_icon_label = None
         self.cameras_container = None
@@ -184,6 +193,9 @@ class MainWindow(QMainWindow):
 
         # Initialize Stream Deck controller
         self.init_streamdeck_controller()
+
+        # Connect to ATEM switcher for tally (if enabled)
+        self.apply_atem_config()
 
         # Defer camera loading until after window is shown
         self._cameras_loaded = False
@@ -436,6 +448,14 @@ class MainWindow(QMainWindow):
 
         # Update icon based on connection status
         self._update_streamdeck_indicator(False)
+
+        # ATEM switcher tally status indicator
+        self.atem_icon_label = QLabel(UIStrings.ATEM_ICON)
+        self.atem_icon_label.setFixedHeight(28)
+        self.atem_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.atem_icon_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.atem_icon_label.mousePressEvent = lambda event: self.show_switcher_preferences()  # type: ignore
+        toolbar.addWidget(self.atem_icon_label)
 
         toolbar.addStretch()
 
@@ -1394,6 +1414,9 @@ class MainWindow(QMainWindow):
             camera.color_match_requested.connect(
                 lambda cam=camera: self.start_color_match(cam)
             )
+            camera.atem_input_changed.connect(self._apply_tally_to_cameras)
+            camera.set_tally_visible(self.atem_client is not None)
+            camera.set_atem_inputs(self._atem_inputs)
 
             # Connect initialization signals to track progress
             camera.connection_starting.connect(
@@ -1409,6 +1432,7 @@ class MainWindow(QMainWindow):
             # Add to layout (before stretch)
             self.cameras_layout.insertWidget(len(self.cameras), camera)
             self.cameras.append(camera)
+            self._apply_tally_to_cameras()
 
             # Select first camera
             if len(self.cameras) == 1:
@@ -1906,6 +1930,109 @@ class MainWindow(QMainWindow):
             self.streamdeck_icon_label.setToolTip(
                 "<span style='font-size: 10pt;'>Stream Deck Plus disconnected<br>Click to configure</span>"
             )
+
+    def apply_atem_config(self) -> None:
+        """Start, update or stop the ATEM tally client to match the saved configuration."""
+        atem_config = self.config.get_atem_config()
+        enabled = bool(atem_config["enabled"] and atem_config["ip"])
+
+        if not enabled:
+            self._stop_atem_client()
+        elif self.atem_client is not None and self.atem_client.ip == atem_config["ip"]:
+            self.atem_client.set_tally_me(atem_config["tally_me"])
+        else:
+            self._stop_atem_client()
+            client = AtemTallyClient(atem_config["ip"], atem_config["tally_me"])
+            client.connection_changed.connect(
+                lambda connected, c=client: self._on_atem_connection_changed(c, connected)
+            )
+            client.tally_changed.connect(lambda tally, c=client: self._on_atem_tally(c, tally))
+            client.inputs_discovered.connect(
+                lambda inputs, c=client: self._on_atem_inputs(c, inputs)
+            )
+            client.me_count_discovered.connect(
+                lambda count, c=client: self._on_atem_me_count(c, count)
+            )
+            self.atem_client = client
+            client.start()
+            logger.info("ATEM tally client started for %s", atem_config["ip"])
+
+        for camera in self.cameras:
+            camera.set_tally_visible(enabled)
+        self._apply_tally_to_cameras()
+        self._update_atem_indicator()
+
+    def _stop_atem_client(self) -> None:
+        client = self.atem_client
+        self.atem_client = None
+        self._atem_connected = False
+        self._atem_tally = {}
+        self._atem_me_count = 0
+        if client is None:
+            return
+        # Names and M/E count belong to this switcher; forget them in case the IP changes.
+        self._atem_inputs = {}
+        for camera in self.cameras:
+            camera.set_atem_inputs({})
+        client.stop()
+        if not client.wait(2000):
+            logger.warning("ATEM tally thread did not stop in time")
+
+    def _on_atem_connection_changed(self, client: AtemTallyClient, connected: bool) -> None:
+        if client is not self.atem_client:
+            return
+        self._atem_connected = connected
+        if not connected:
+            self._atem_tally = {}
+            self._apply_tally_to_cameras()
+        self._update_atem_indicator()
+
+    def _on_atem_tally(self, client: AtemTallyClient, tally: TallyMap) -> None:
+        if client is not self.atem_client:
+            return
+        self._atem_tally = tally
+        self._apply_tally_to_cameras()
+
+    def _on_atem_inputs(self, client: AtemTallyClient, inputs: dict[int, AtemInput]) -> None:
+        if client is not self.atem_client:
+            return
+        self._atem_inputs = inputs
+        for camera in self.cameras:
+            camera.set_atem_inputs(inputs)
+
+    def _on_atem_me_count(self, client: AtemTallyClient, me_count: int) -> None:
+        if client is not self.atem_client:
+            return
+        self._atem_me_count = me_count
+        self._update_atem_indicator()
+
+    def _apply_tally_to_cameras(self) -> None:
+        show_preview = self.config.get_atem_config()["show_preview_tally"]
+        for camera in self.cameras:
+            program, preview = self._atem_tally.get(camera.atem_input, (False, False))
+            camera.set_tally(program, preview and show_preview)
+
+    def _update_atem_indicator(self) -> None:
+        if self.atem_icon_label is None:
+            return
+        atem_config = self.config.get_atem_config()
+        if self.atem_client is None:
+            color = "#888888"
+            tooltip = UIStrings.TOOLTIP_ATEM_DISABLED
+        elif self._atem_connected:
+            color = "#00FF00"
+            using_me2 = atem_config["tally_me"] == 1 and self._atem_me_count != 1
+            me_name = UIStrings.ATEM_ME_2 if using_me2 else UIStrings.ATEM_ME_1
+            tooltip = UIStrings.TOOLTIP_ATEM_CONNECTED.format(ip=self.atem_client.ip, me=me_name)
+            if atem_config["tally_me"] == 1 and not using_me2:
+                tooltip += UIStrings.TOOLTIP_ATEM_ME_FALLBACK
+        else:
+            color = "#FF0000"
+            tooltip = UIStrings.TOOLTIP_ATEM_DISCONNECTED.format(ip=self.atem_client.ip)
+        self.atem_icon_label.setStyleSheet(
+            f"color: {color}; font-size: 11px; font-weight: bold; padding: 0 4px;"
+        )
+        self.atem_icon_label.setToolTip(f"<span style='font-size: 10pt;'>{tooltip}</span>")
 
     @pyqtSlot(str)
     def on_usb_connected(self, name: str) -> None:
@@ -2865,11 +2992,16 @@ class MainWindow(QMainWindow):
         """Show Stream Deck preferences dialog (opens to Stream Deck tab)"""
         self.show_controller_preferences(initial_tab=1)
 
+    def show_switcher_preferences(self):
+        """Show preferences dialog opened to the Switcher (ATEM) tab"""
+        self.show_controller_preferences(initial_tab=3)
+
     def show_controller_preferences(self, initial_tab=0):
         """Show controller preferences dialog (non-modal, stays open)
 
         Args:
-            initial_tab: Index of tab to show initially (0=Controller, 1=Stream Deck, 2=Application)
+            initial_tab: Index of tab to show initially
+                (0=Controller, 1=Stream Deck, 2=Application, 3=Switcher)
         """
         from videocue.ui.preferences_dialog import PreferencesDialog
 
@@ -2921,7 +3053,9 @@ class MainWindow(QMainWindow):
 
         # Always create fresh dialog
         logger.debug(f"Creating dialog with usb_controller={self.usb_controller}")
-        self.preferences_dialog = PreferencesDialog(self.config, self, self.usb_controller)
+        self.preferences_dialog = PreferencesDialog(
+            self.config, self, self.usb_controller, atem_me_count=self._atem_me_count
+        )
 
         # Set initial tab
         if initial_tab > 0:
@@ -2934,6 +3068,7 @@ class MainWindow(QMainWindow):
         self.preferences_dialog.streamdeck_preferences_saved.connect(
             self._on_streamdeck_preferences_saved
         )
+        self.preferences_dialog.atem_preferences_saved.connect(self.apply_atem_config)
 
         logger.debug("Dialog created, calling show() - ready for input")
 
@@ -3065,6 +3200,8 @@ class MainWindow(QMainWindow):
                 logger.info("Stream Deck controller stopped")
             except Exception as e:
                 logger.warning(f"Error stopping Stream Deck controller: {e}")
+
+        self._stop_atem_client()
 
         # Cleanup NDI global resources
         # DISABLED: Calling NDI DLL cleanup functions during Python shutdown causes

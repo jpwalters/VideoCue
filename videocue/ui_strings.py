@@ -245,6 +245,53 @@ class UIStrings:
     TAB_CAMERAS = "Cameras"
     TAB_CUES = "Cues"
 
+    # ATEM Switcher Tally
+    TAB_SWITCHER = "Switcher"
+    GROUP_ATEM = "ATEM Switcher Tally"
+    ATEM_ENABLE = "Show tally from ATEM switcher"
+    ATEM_ENABLE_TOOLTIP = (
+        "Connect to a Blackmagic ATEM switcher (UDP port 9910) and mark which camera\n"
+        "is on Program (red) and Preview (green). VideoCue only listens; it never switches."
+    )
+    LBL_ATEM_IP = "Switcher IP:"
+    ATEM_IP_TOOLTIP = "IP address of the ATEM switcher (factory default 192.168.10.240)"
+    LBL_ATEM_ME = "Tally source:"
+    ATEM_ME_1 = "M/E 1 (main program output)"
+    ATEM_ME_2 = "M/E 2"
+    ATEM_ME_TOOLTIP = (
+        "M/E 1 uses the switcher's own tally, including keyers, downstream keyers and\n"
+        "transitions.\n"
+        "M/E 2 tally is worked out from the M/E 2 buses, transitions and upstream keyers;\n"
+        "downstream keyers are not included."
+    )
+    ATEM_ME_2_UNAVAILABLE = "Switcher reports one M/E; M/E 2 is unavailable"
+    ATEM_SHOW_PREVIEW = "Show Preview tally (green)"
+    BTN_ATEM_TEST = "Test Connection"
+    ATEM_TEST_RUNNING = "Connecting to {ip}..."
+    ATEM_TEST_OK = "Connected: {me_count} M/E, {input_count} inputs ({names})"
+    ATEM_TEST_FAILED = "No response from {ip} on UDP port 9910"
+    ATEM_INVALID_IP = "Enter a valid IPv4 address for the ATEM switcher."
+    ATEM_TIPS = (
+        "Tips:\n"
+        "• Assign each camera's ATEM input by clicking the bar above its video\n"
+        "• The laptop must reach the switcher on UDP port 9910\n"
+        "• The switcher allows a limited number of control connections at once"
+    )
+    ATEM_ICON = "ATEM"
+    TOOLTIP_ATEM_CONNECTED = "ATEM {ip}: connected, tally from {me}<br>Click to configure"
+    TOOLTIP_ATEM_DISCONNECTED = "ATEM {ip}: not connected<br>Click to configure"
+    TOOLTIP_ATEM_DISABLED = "ATEM tally disabled<br>Click to configure"
+    TOOLTIP_ATEM_ME_FALLBACK = "<br>M/E 2 not available on this switcher; using M/E 1"
+    TALLY_PROGRAM = "PROGRAM"
+    TALLY_PREVIEW = "PREVIEW"
+    TALLY_LABEL = "{state} · {input}"
+    TALLY_INPUT_NAMED = "Input {id}: {name}"
+    TALLY_INPUT_UNNAMED = "Input {id}"
+    TALLY_UNASSIGNED = "No ATEM input · click to assign"
+    TOOLTIP_TALLY = "Switcher tally for this camera. Click to choose its ATEM input."
+    MENU_ATEM_INPUT_NONE = "None"
+    MENU_ATEM_INPUT_SUGGESTED = "{label} (suggested)"
+
     # Dialog Titles
     DIALOG_ADD_CAMERA = "Add Camera"
     DIALOG_PREFERENCES = "Preferences"

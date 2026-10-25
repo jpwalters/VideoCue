@@ -41,5 +41,11 @@
       "axis_4": "zoom_out",
       "axis_5": "zoom_in"
     }
+  },
+  "atem": {
+    "enabled": false,
+    "ip": "192.168.10.240",
+    "tally_me": 0,
+    "show_preview_tally": true
   }
 }

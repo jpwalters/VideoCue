@@ -6,7 +6,7 @@ import contextlib
 import logging
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot  # type: ignore
-from PyQt6.QtGui import QImage, QPixmap  # type: ignore
+from PyQt6.QtGui import QActionGroup, QImage, QPixmap  # type: ignore
 from PyQt6.QtWidgets import (  # type: ignore
     QButtonGroup,
     QCheckBox,
@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (  # type: ignore
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QRadioButton,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (  # type: ignore
 )
 
 from videocue.constants import HardwareConstants
+from videocue.controllers.atem_tally import AtemInput
 from videocue.controllers.ndi_video import NDIVideoThread, ndi_available
 from videocue.controllers.usb_controller import MovementDirection
 from videocue.controllers.visca_commands import ViscaConstants
@@ -88,6 +90,7 @@ class CameraWidget(QWidget):
     connection_starting = pyqtSignal()  # Emitted when connection attempt begins
     initialized = pyqtSignal()  # Emitted when camera initialization complete
     color_match_requested = pyqtSignal()
+    atem_input_changed = pyqtSignal()
 
     def __init__(
         self,
@@ -139,6 +142,12 @@ class CameraWidget(QWidget):
 
         # Cached display name to avoid repeated formatting
         self._cached_display_name: str = ""
+
+        # ATEM switcher tally
+        self.atem_input: int | None = (config.get_camera(camera_id) or {}).get("atem_input")
+        self._atem_inputs: dict[int, AtemInput] = {}
+        self._tally = (False, False)
+        self.tally_label = None
 
         # Pre-initialize attributes (defined in init_ui and create_controls_layout)
         self.brightness_vertical_container = None
@@ -324,6 +333,18 @@ class CameraWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
+
+        # ATEM tally bar (shown only when ATEM tally is enabled)
+        self.tally_label = QLabel()
+        self.tally_label.setFixedHeight(20)
+        self.tally_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.tally_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.tally_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tally_label.setToolTip(UIStrings.TOOLTIP_TALLY)
+        self.tally_label.mousePressEvent = lambda event: self._show_atem_input_menu()  # type: ignore
+        self.tally_label.setVisible(False)
+        layout.addWidget(self.tally_label)
+        self._render_tally()
 
         # Video display
         self.video_label = QLabel()
@@ -2215,6 +2236,90 @@ class CameraWidget(QWidget):
         """Request camera selection when widget is clicked."""
         self.selection_requested.emit()
         super().mousePressEvent(event)
+
+    def set_tally_visible(self, visible: bool) -> None:
+        self.tally_label.setVisible(visible)
+
+    def set_atem_inputs(self, inputs: dict[int, AtemInput]) -> None:
+        self._atem_inputs = inputs
+        self._render_tally()
+
+    def set_tally(self, program: bool, preview: bool) -> None:
+        if self._tally == (program, preview):
+            return
+        self._tally = (program, preview)
+        self._render_tally()
+
+    def _atem_input_label(self, input_id: int) -> str:
+        atem_input = self._atem_inputs.get(input_id)
+        if atem_input is None:
+            return UIStrings.TALLY_INPUT_UNNAMED.format(id=input_id)
+        return UIStrings.TALLY_INPUT_NAMED.format(id=input_id, name=atem_input.label())
+
+    def _render_tally(self) -> None:
+        program, preview = self._tally
+        if self.atem_input is None:
+            text = UIStrings.TALLY_UNASSIGNED
+        else:
+            text = self._atem_input_label(self.atem_input)
+            if program or preview:
+                state = UIStrings.TALLY_PROGRAM if program else UIStrings.TALLY_PREVIEW
+                text = UIStrings.TALLY_LABEL.format(state=state, input=text)
+
+        if program:
+            style = "background-color: #CC0000; color: white; font-weight: bold;"
+        elif preview:
+            style = "background-color: #00A000; color: white; font-weight: bold;"
+        else:
+            style = "background-color: #333333; color: #AAAAAA;"
+        self.tally_label.setText(text)
+        self.tally_label.setStyleSheet(f"{style} font-size: 11px; border-radius: 3px;")
+
+    def _suggest_atem_input(self, choices: list[int]) -> int | None:
+        """Suggest an input whose custom ATEM name appears in this camera's name."""
+        camera_name = self._format_camera_display_name().lower()
+        for input_id in choices:
+            atem_input = self._atem_inputs.get(input_id)
+            if atem_input is None or atem_input.names_default:
+                continue
+            for name in (atem_input.long_name, atem_input.short_name):
+                if len(name) >= 3 and name.lower() in camera_name:
+                    return input_id
+        return None
+
+    def _show_atem_input_menu(self) -> None:
+        choices = sorted(i for i, inp in self._atem_inputs.items() if inp.external)
+        if not choices:
+            choices = list(range(1, 21))
+        suggested = self._suggest_atem_input(choices) if self.atem_input is None else None
+
+        menu = QMenu(self)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        for input_id in [None, *choices]:
+            if input_id is None:
+                text = UIStrings.MENU_ATEM_INPUT_NONE
+            else:
+                text = self._atem_input_label(input_id)
+                if input_id == suggested:
+                    text = UIStrings.MENU_ATEM_INPUT_SUGGESTED.format(label=text)
+            action = menu.addAction(text)
+            action.setCheckable(True)
+            action.setChecked(input_id == self.atem_input)
+            action.setData(input_id)
+            group.addAction(action)
+            if input_id is None:
+                menu.addSeparator()
+
+        chosen = menu.exec(self.tally_label.mapToGlobal(self.tally_label.rect().bottomLeft()))
+        input_id = chosen.data() if chosen is not None else self.atem_input
+        menu.deleteLater()
+        if input_id == self.atem_input:
+            return
+        self.atem_input = input_id
+        self.config.update_camera(self.camera_id, atem_input=input_id)
+        self._render_tally()
+        self.atem_input_changed.emit()
 
     def set_video_size(self, width: int, height: int):
         """Set video display size"""

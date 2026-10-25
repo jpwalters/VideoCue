@@ -21,9 +21,22 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - **controllers/birddog_api.py**: BirdDog REST client (port 8080, endpoint whitelist, model detection P200/P400)
 - **controllers/color_matcher.py**: `FrameSampler`, `ColorMatchWorker` (closed-loop color match), snapshot/restore helpers
 - **models/color_analysis.py**: Pure NumPy scene color signatures (white point + 6 hue sectors) used by the matcher
+- **controllers/atem_tally.py**: Read-only Blackmagic ATEM tally client (`AtemTallyClient` QThread, UDP 9910), pure protocol helpers + `AtemState` (testable without Qt sockets)
 - **ui_strings.py**: **Centralized UI text constants** - all user-facing strings (buttons, tooltips, status messages, errors) for consistency and future i18n
 - **utils/__init__.py**: `resource_path()` for PyInstaller compatibility, `get_app_data_dir()` for config location
 - **utils/network_interface.py**: Network interface detection and subnet matching for NDI binding (v0.6.14)
+
+### ATEM Switcher Tally
+- `AtemTallyClient` (controllers/atem_tally.py) keeps a UDP session to the ATEM: hello handshake, acks every reliable packet, reconnects every 5s, never sends switching commands
+- Layouts follow Sofie atem-connection: parses only `_top`, `InPr`, `TlSr`, `PrgI`, `PrvI`, `TrPs`, `KeOn`, `KeBP`, `InCm`
+- **M/E 1** (`tally_me=0`, default) uses `TlSr` (switcher's own tally incl. DSKs); **M/E 2** is computed from PrgI/PrvI + in-transition preview + on-air upstream keyer fills (no DSKs). M/E 2 on a 1-M/E switcher falls back to M/E 1
+- Signals: `tally_changed({source: (program, preview)})`, `connection_changed`, `inputs_discovered`, `me_count_discovered`
+- Config: `atem` section (`enabled`, `ip`, `tally_me`, `show_preview_tally`) via `get_atem_config()` (mutate + `config.save()`); per-camera `atem_input` (int or null)
+- MainWindow `apply_atem_config()` starts/updates/stops the client (called on startup and after Preferences save); signal lambdas carry the client so stale threads are ignored
+- CameraWidget shows a tally bar above the video (red PROGRAM / green PREVIEW / grey idle); clicking it picks the ATEM input. Selection border on the video stays orange (no conflict)
+- Preferences → **Switcher** tab (index 3) with Test Connection. Stream Deck is intentionally not affected
+- Tests: `python -m unittest tests.test_atem_tally -v` (uses `tools/atem_simulator.py`); on-site check: `python tools/atem_tally_probe.py <ip> [--me 2]`
+- README screenshot: `python tools/videocue_screenshot.py` regenerates `resources/VideoCue-Screenshot.png` (demo cameras, drawn concert video, simulated tally; throwaway config; needs UDP 9910 free)
 
 ### Camera Discovery Architecture
 **VISCA has no built-in discovery** - requires knowing IP address beforehand. The app uses NDI for discovery:

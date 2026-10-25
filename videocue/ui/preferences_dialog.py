@@ -3,9 +3,10 @@
 Controller Preferences Dialog
 """
 
+import ipaddress
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,6 +15,8 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -33,13 +36,18 @@ class PreferencesDialog(QDialog):
 
     # Signal emitted when Stream Deck preferences are saved
     streamdeck_preferences_saved = pyqtSignal()
+    atem_preferences_saved = pyqtSignal()
 
-    def __init__(self, config, parent=None, usb_controller=None):
+    def __init__(self, config, parent=None, usb_controller=None, atem_me_count: int = 0):
         super().__init__(parent)
 
         self.config = config
 
         self.usb_controller = usb_controller
+
+        self.atem_me_count = atem_me_count
+        self._atem_test_client = None
+        self._atem_test_timer = None
 
         self.save_button = None  # Will be set in init_ui
 
@@ -148,6 +156,7 @@ class PreferencesDialog(QDialog):
         self._create_controller_tab()
         self._create_streamdeck_tab()
         self._create_application_tab()
+        self._create_switcher_tab()
 
         # Buttons (large, easy to press)
 
@@ -780,6 +789,140 @@ class PreferencesDialog(QDialog):
         scroll_area.setWidget(scroll_widget)
         self.tab_widget.addTab(scroll_area, "Application")
 
+    def _create_switcher_tab(self):
+        """Create the Switcher (ATEM tally) tab"""
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
+
+        atem_group = QGroupBox(UIStrings.GROUP_ATEM)
+        atem_layout = QFormLayout()
+
+        self.atem_enabled_checkbox = QCheckBox(UIStrings.ATEM_ENABLE)
+        self.atem_enabled_checkbox.setToolTip(UIStrings.ATEM_ENABLE_TOOLTIP)
+        self.atem_enabled_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        atem_layout.addRow("", self.atem_enabled_checkbox)
+
+        self.atem_ip_edit = QLineEdit()
+        self.atem_ip_edit.setToolTip(UIStrings.ATEM_IP_TOOLTIP)
+        atem_layout.addRow(UIStrings.LBL_ATEM_IP, self.atem_ip_edit)
+
+        self.atem_me_combo = QComboBox()
+        self.atem_me_combo.addItem(UIStrings.ATEM_ME_1, 0)
+        self.atem_me_combo.addItem(UIStrings.ATEM_ME_2, 1)
+        self.atem_me_combo.setToolTip(UIStrings.ATEM_ME_TOOLTIP)
+        self.atem_me_combo.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        atem_layout.addRow(UIStrings.LBL_ATEM_ME, self.atem_me_combo)
+
+        self.atem_me_note_label = QLabel(UIStrings.ATEM_ME_2_UNAVAILABLE)
+        self.atem_me_note_label.setStyleSheet("color: #aaa; font-size: 9px;")
+        atem_layout.addRow("", self.atem_me_note_label)
+        self._update_atem_me_availability(self.atem_me_count)
+
+        self.atem_show_preview_checkbox = QCheckBox(UIStrings.ATEM_SHOW_PREVIEW)
+        self.atem_show_preview_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        atem_layout.addRow("", self.atem_show_preview_checkbox)
+
+        self.atem_test_button = QPushButton(UIStrings.BTN_ATEM_TEST)
+        self.atem_test_button.clicked.connect(self._test_atem_connection)
+        self.atem_test_result_label = QLabel("")
+        self.atem_test_result_label.setWordWrap(True)
+        atem_layout.addRow(self.atem_test_button, self.atem_test_result_label)
+
+        atem_group.setLayout(atem_layout)
+        layout.addWidget(atem_group)
+
+        tips_label = QLabel(UIStrings.ATEM_TIPS)
+        tips_label.setStyleSheet("color: #aaa; font-size: 9px; margin-top: 10px;")
+        tips_label.setWordWrap(True)
+        layout.addWidget(tips_label)
+
+        layout.addStretch()
+
+        scroll_area.setWidget(scroll_widget)
+        self.switcher_tab = scroll_area
+        self.tab_widget.addTab(scroll_area, UIStrings.TAB_SWITCHER)
+
+    def _update_atem_me_availability(self, me_count: int) -> None:
+        """Disable M/E 2 only when the switcher is known to have a single M/E."""
+        single_me = me_count == 1
+        item = self.atem_me_combo.model().item(1)
+        if item is not None:
+            item.setEnabled(not single_me)
+        self.atem_me_note_label.setVisible(single_me)
+
+    def _atem_ip_text(self) -> str | None:
+        text = self.atem_ip_edit.text().strip()
+        try:
+            return str(ipaddress.IPv4Address(text))
+        except ValueError:
+            return None
+
+    def _test_atem_connection(self) -> None:
+        from videocue.controllers.atem_tally import CONNECT_TIMEOUT_S, AtemTallyClient
+
+        ip = self._atem_ip_text()
+        if ip is None:
+            self.atem_test_result_label.setText(UIStrings.ATEM_INVALID_IP)
+            return
+
+        self._stop_atem_test()
+        self.atem_test_button.setEnabled(False)
+        self.atem_test_result_label.setText(UIStrings.ATEM_TEST_RUNNING.format(ip=ip))
+
+        client = AtemTallyClient(ip, reconnect=False)
+
+        def on_me_count(me_count: int) -> None:
+            if client is self._atem_test_client:
+                self.atem_me_count = me_count
+                self._update_atem_me_availability(me_count)
+
+        def on_inputs(inputs: dict) -> None:
+            if client is not self._atem_test_client:
+                return
+            external = [inputs[i] for i in sorted(inputs) if inputs[i].external]
+            names = ", ".join(inp.label() for inp in external[:6])
+            if len(external) > 6:
+                names += ", ..."
+            self.atem_test_result_label.setText(
+                UIStrings.ATEM_TEST_OK.format(
+                    me_count=self.atem_me_count, input_count=len(external), names=names
+                )
+            )
+            self._stop_atem_test()
+
+        def on_finished() -> None:
+            if client is self._atem_test_client:
+                self.atem_test_result_label.setText(UIStrings.ATEM_TEST_FAILED.format(ip=ip))
+                self._stop_atem_test()
+
+        client.me_count_discovered.connect(on_me_count)
+        client.inputs_discovered.connect(on_inputs)
+        client.finished.connect(on_finished)
+        self._atem_test_client = client
+        self._atem_test_timer = QTimer(self)
+        self._atem_test_timer.setSingleShot(True)
+        self._atem_test_timer.timeout.connect(on_finished)
+        self._atem_test_timer.start(int((CONNECT_TIMEOUT_S + 1) * 1000))
+        client.start()
+
+    def _stop_atem_test(self) -> None:
+        if self._atem_test_timer is not None:
+            self._atem_test_timer.stop()
+            self._atem_test_timer.deleteLater()
+            self._atem_test_timer = None
+        client = self._atem_test_client
+        self._atem_test_client = None
+        if client is not None:
+            client.stop()
+            client.wait(1000)
+        self.atem_test_button.setEnabled(True)
+
+    def done(self, result):
+        self._stop_atem_test()
+        super().done(result)
+
     def update_dpad_label(self, value):
         """Update D-pad speed label"""
 
@@ -1050,6 +1193,14 @@ class PreferencesDialog(QDialog):
         stop_sends_to_all = streamdeck_config.get("stop_sends_to_all_cameras", True)
         self.stop_sends_to_all_cameras_checkbox.setChecked(stop_sends_to_all)
 
+        # Load ATEM switcher tally settings
+        atem_config = self.config.get_atem_config()
+        self.atem_enabled_checkbox.setChecked(atem_config["enabled"])
+        self.atem_ip_edit.setText(atem_config["ip"])
+        index = self.atem_me_combo.findData(atem_config["tally_me"])
+        self.atem_me_combo.setCurrentIndex(max(index, 0))
+        self.atem_show_preview_checkbox.setChecked(atem_config["show_preview_tally"])
+
         # Update button availability after loading all preferences
 
         self.update_button_availability()
@@ -1158,6 +1309,12 @@ class PreferencesDialog(QDialog):
     def save_preferences(self):
         """Save preferences to config"""
 
+        atem_ip = self._atem_ip_text()
+        if atem_ip is None and self.atem_enabled_checkbox.isChecked():
+            self.tab_widget.setCurrentWidget(self.switcher_tab)
+            QMessageBox.warning(self, UIStrings.GROUP_ATEM, UIStrings.ATEM_INVALID_IP)
+            return
+
         usb_config = self.config.get_usb_controller_config()
 
         # Save speeds
@@ -1234,10 +1391,19 @@ class PreferencesDialog(QDialog):
             self.stop_sends_to_all_cameras_checkbox.isChecked()
         )
 
+        # Save ATEM switcher tally settings (an invalid IP is only allowed while disabled)
+        atem_config = self.config.get_atem_config()
+        atem_config["enabled"] = self.atem_enabled_checkbox.isChecked()
+        if atem_ip is not None:
+            atem_config["ip"] = atem_ip
+        atem_config["tally_me"] = self.atem_me_combo.currentData()
+        atem_config["show_preview_tally"] = self.atem_show_preview_checkbox.isChecked()
+
         self.config.save()
 
         # Emit signal to notify that Stream Deck preferences changed
         self.streamdeck_preferences_saved.emit()
+        self.atem_preferences_saved.emit()
 
         # Close dialog (emits finished signal)
         self.accept()

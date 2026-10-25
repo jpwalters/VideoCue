@@ -215,6 +215,12 @@ class ConfigManager:
                 "button_6_color": "green",
                 "button_7_color": "none",
             },
+            "atem": {
+                "enabled": False,
+                "ip": NetworkConstants.ATEM_DEFAULT_IP,
+                "tally_me": 0,  # 0 = M/E 1 (main program), 1 = M/E 2
+                "show_preview_tally": True,
+            },
         }
 
     def add_camera(
@@ -550,6 +556,13 @@ class ConfigManager:
             # Initialize streamdeck section with defaults if it doesn't exist
             self.config["streamdeck"] = self._default_schema()["streamdeck"]
         return self.config["streamdeck"]
+
+    def get_atem_config(self) -> dict:
+        """Get ATEM switcher tally configuration (missing keys filled with defaults)"""
+        atem = self.config.setdefault("atem", {})
+        for key, value in self._default_schema()["atem"].items():
+            atem.setdefault(key, value)
+        return atem
 
     def get_cameras(self) -> list[dict]:
         """Get all cameras sorted by position"""
