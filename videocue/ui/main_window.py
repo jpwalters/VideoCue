@@ -1060,6 +1060,13 @@ class MainWindow(QMainWindow):
             return
         self._run_selected_cue_row()
 
+    def _arm_next_cue_if_cues_tab_active(self) -> None:
+        """Move the armed marker to the next cue (wraps) only when Cues tab is active."""
+        if self.tab_widget.currentWidget() != self.cues_tab:
+            return
+        self._advance_armed_cue()
+        self._refresh_cues_table()
+
     def _get_camera_display_name(self, camera_id: str) -> str:
         """Return camera display name for cues tab."""
         camera = self.config.get_camera(camera_id)
@@ -2546,6 +2553,16 @@ class MainWindow(QMainWindow):
 
         except Exception:
             logger.exception("Error updating Stream Deck displays")
+
+    def on_video_size_changed(self, size: VideoSize) -> None:
+        """Handle video size menu selection"""
+        try:
+            self.config.set_default_video_size(size.width, size.height)
+
+            for camera in self.cameras:
+                camera.set_video_size(size.width, size.height)
+        except Exception:
+            logger.exception("Error changing video size")
 
     def on_bandwidth_changed(self, bandwidth: str) -> None:
         """Handle NDI bandwidth menu selection"""

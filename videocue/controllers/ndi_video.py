@@ -2040,11 +2040,13 @@ class NDIVideoThread(QThread):
             peak_log = np.log1p(peak)
             x_coords = self._histogram_x_coords
             x_edges = self._histogram_bin_edges
+            # Map pixel columns onto the 0..255 bin axis (matches the guide lines)
+            x_samples = x_coords * (255.0 / max(1, width - 1))
             canvas = self._histogram_plot_buffer
 
             def draw_curve(curve_bins, color_index: int | None, intensity: int) -> None:
                 curve_norm = np.log1p(curve_bins) / peak_log
-                curve_resampled = np.interp(x_coords, x_edges, curve_norm)
+                curve_resampled = np.interp(x_samples, x_edges, curve_norm)
                 y_curve = (height - 1) - np.rint(curve_resampled * (height - 1)).astype(np.int32)
                 np.clip(y_curve, 0, height - 1, out=y_curve)
 
