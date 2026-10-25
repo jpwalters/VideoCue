@@ -1,4 +1,4 @@
-# VideoCue v0.6.16 - Portable Distribution
+# VideoCue - Portable Distribution
 
 ## Quick Start
 
@@ -19,8 +19,9 @@
 
 1. Application window appears immediately
 2. Camera connections happen in background (progress bar shown)
-3. Use **File → Add Camera** to add your PTZ cameras
-4. Cameras auto-discover via NDI or enter IP manually
+3. Click **Add Camera** (top right of the Cameras tab) to add your PTZ cameras
+4. Click **Search** to discover NDI cameras, or enter an NDI name or IP address manually
+5. Click a camera to select it (orange border); the USB controller and Stream Deck control the selected camera
 
 ## Requirements
 
@@ -38,11 +39,17 @@
   - X button: Emergency stop (halts camera movement)
   - B button: One-push autofocus
   - L1/R1: Switch cameras with auto-stop safety
-  - Menu button: Open controller preferences
-- **Camera Presets**: Store and recall pan/tilt/zoom positions
+  - R3 (right stick press): Run the armed cue (Cues tab)
+  - Menu button: Open Preferences
+- **Camera Presets**: Store and recall pan/tilt/zoom positions; Auto Pan between two presets
+- **Cues Tab**: Build cue rows that recall presets on several cameras at once; run with Space/Enter
 - **Exposure Control**: 5 modes (Auto, Manual, Shutter/Iris Priority, Bright)
-- **White Balance**: 5 modes including manual color temperature
+- **White Balance**: 5 modes including manual red/blue gain
+- **Match to Selected**: Automatic color matching between BirdDog P200/P400 cameras
 - **Focus Control**: Auto/Manual/One-Push AF modes
+- **Video Scopes**: False Color, Waveform, Vectorscope, RGB Parade, Histogram (View → Scopes)
+- **Elgato Stream Deck Plus**: Preset, Run, Stop and camera-page buttons; encoders select cameras
+- **ATEM Tally**: Red/green Program/Preview bar above each camera (Edit → Preferences → Switcher)
 - **Dark Theme**: Professional appearance
 - **Automatic Settings Sync**: Camera settings queried and synced on connection
 
@@ -63,11 +70,12 @@ Access via **View → Video Size** menu for resolution presets.
 
 ## Configuration
 
-Settings stored at: `%LOCALAPPDATA%\VideoCue\config.json`
+Settings stored at: `%LOCALAPPDATA%\VideoCue\config.json` (cues in `cues.json`)
 
 Includes:
 - Camera configurations with presets
 - USB controller mappings and speeds
+- Stream Deck button mappings and ATEM tally settings
 - Video size and bandwidth preferences
 - Single instance mode (default: enabled)
 
@@ -107,36 +115,10 @@ Includes:
 
 ## Support
 
-- Documentation: See README.md in source repository
+- Documentation: https://github.com/jpwalters/VideoCue#readme
 - Issues: Report on GitHub
-- Logs: `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
-
-## What's New in v0.6.16
-
-**Video & Network:**
-- Bandwidth control menu (High/Low quality modes)
-- Automatic network interface detection and binding (v0.6.14)
-- Improved NDI discovery with polling (v0.6.15)
-- Manual NDI source name entry for firewall-restricted networks
-
-**Camera Control:**
-- Automatic settings sync on connection (exposure, focus, WB queried)
-- One-push autofocus via B button on controller
-- Emergency stop via X button on controller
-- Safe camera switching (auto-stops previous camera)
-
-**User Experience:**
-- Single instance mode prevents multiple app instances
-- Comprehensive error handling prevents crashes
-- Deferred camera loading (UI appears instantly)
-- Red/green connection status indicators
-- Play/pause video streaming controls
-
-**Technical:**
-- NumPy-based UYVY→RGB conversion (~100x faster)
-- Thread-safe VISCA sequence numbers
-- USB button mapping cache for responsive input
-- Comprehensive logging to file
+- Logs: Turn on Edit → Enable File Logging, restart, then see `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
+- Release notes: https://github.com/jpwalters/VideoCue/releases
 
 ## License
 

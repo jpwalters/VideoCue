@@ -1,23 +1,29 @@
-# VideoCue - Python Edition
+# VideoCue: Multi-Camera PTZ Control for Live Production
 
-A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video streaming and USB game controller support.
+Run every PTZ camera in your show from one screen: watch live NDI video, recall shots instantly, fire multi-camera cues with a single keypress, and drive it all from a game controller or Stream Deck, with ATEM tally showing what's on air.
 
 ![VideoCue Screenshot](resources/VideoCue-Screenshot.png)
 
 ## Features
 
 ### Camera Control
-- **Multi-camera Management**: Control multiple PTZ cameras simultaneously
-- **NDI Video Streaming**: Live preview with automatic NDI source discovery
+- **Multi-camera Management**: Control multiple PTZ cameras side by side; click a camera to select it (orange border)
+- **NDI Video Streaming**: Live preview with automatic NDI source discovery and the source resolution/frame rate shown under the video
 - **VISCA-over-IP Protocol**: Industry-standard PTZ control via UDP
-- **Camera Presets**: Store and recall pan/tilt/zoom positions per camera
+- **Camera Presets**: Store and recall pan/tilt/zoom positions per camera (GO / Update / Delete, reorder, double-click to rename)
+- **Auto Pan**: Move continuously between two presets with an adjustable 1-10 s delay
+- **Reset Speed Limit**: One click restores full pan/tilt speed if a camera has been slowed down
+- **Camera Order**: ◀ / ▶ buttons move a camera left or right; ⚙ opens the camera's web page; × removes it
+
+![Full camera control panel](docs/images/camera-controls.png)
 
 ### Cue Tab
 - **Cue Sequencing**: Dedicated Cues tab for building ordered cue rows
-- **Multi-Camera Mapping**: Per-camera preset assignment in each cue row
-- **Cue Row Operations**: Add, Insert, Duplicate, Delete
-- **Run Workflow**: Arm-and-run model with next/last-run row highlighting
-- **Fast Execution**: Run from toolbar button or keyboard (Space/Enter/Return in Cues tab)
+- **Multi-Camera Mapping**: Per-camera preset assignment in each cue row (one column per camera)
+- **Cue Row Operations**: Add, Insert (after the selected row, numbered +0.1), Duplicate, Delete
+- **Run Workflow**: Arm-and-run model; the armed row is green with `>`, the last run row is red
+- **Fast Execution**: Run from the toolbar button, the keyboard (Space/Enter/Return), the USB controller (R3) or a Stream Deck button
+- **Lock**: 🔒/🔓 locks the table during a show so cues can't be edited by accident
 - **Cue Persistence**: Cue list and camera columns saved in `cues.json`
 
 ### Exposure Controls
@@ -25,18 +31,25 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Iris Control**: F-stop adjustment (F16 to F1.4)
 - **Shutter Speed**: 1/10000 to 1/4 second
 - **Gain Control**: 0-45 dB range
-- **Brightness**: 0-41 levels (Bright mode)
+- **Brightness**: 0-41 levels (Bright mode), also on the vertical **Brt** slider next to the PTZ pad
 - **Backlight Compensation**: Enable/disable
 
 ### White Balance
 - **5 White Balance Modes**: Auto, Indoor (3200K), Outdoor (5600K), One Push, Manual
 - **Manual Color Temperature**: Adjustable red/blue gain (0-255)
 - **One Push Calibration**: Single-button white balance
+- **Match to Selected**: Automatically match a camera's white balance and color to the selected camera (BirdDog P200/P400, see [Auto Color Matching](#auto-color-matching))
 
 ### Focus Controls
 - **Auto Focus** with continuous tracking
-- **Manual Focus** mode
+- **Manual Focus** mode with Near/Far buttons (hold for continuous)
 - **One Push AF**: Single autofocus operation
+
+### Video Scopes
+- **View → Scopes**: False Color (Atomos-style), Waveform (Luma), Vectorscope (Chroma), RGB Parade, Histogram (Luma + RGB)
+- One scope at a time, applied to every camera's preview; the choice is remembered
+
+![Video scopes](docs/images/scopes.png)
 
 ### USB Game Controller Support
 - **Pan/Tilt**: Analog stick or D-pad control
@@ -45,23 +58,22 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Stop Movement**: X button to immediately halt camera movement
 - **One-Push Autofocus**: B button to trigger autofocus on demand
 - **Brightness Control**: Y/A buttons (configurable, Bright mode only)
-- **Controller Settings**: Menu/Start button to open controller preferences dialog
-- **Configurable Mappings**: Customize all button/axis assignments
+- **Run Cue**: Press the right stick (R3) to run the armed cue while the Cues tab is open
+- **Controller Settings**: Menu/Start button to open the Preferences dialog
+- **Configurable Mappings**: Choose which button triggers focus, stop, menu and brightness
 - **Speed Adjustment**: Independent speed settings for pan/tilt/zoom
 - **Dual Joystick Mode**: Separate left/right stick control
 - **Safe Camera Switching**: Optionally stops previous camera when switching (enabled by default)
 - **Hotplug Detection**: Automatic controller connect/disconnect
 
 ### Elgato Stream Deck Plus Support
-- **8 LCD Buttons**: Configurable per-button actions with live camera thumbnails
-- **4 Rotary Encoders**: Camera selection and parameter control
-- **Button Mappings**: Assign Preset 1-8, Run, Arm, Next, Back, or None to each button
+- **8 LCD Buttons**: Each button runs one action and shows its label (preset buttons show the preset name of the selected camera)
+- **Button Actions**: Preset 1-8, Run, Arm, Stop, Next, Back, or None, each with an optional button color
 - **Unique Action Validation**: Each action (except None) can only be assigned once
-- **Encoder Press Selection**: Press encoder to select camera (configurable)
-- **Visual Feedback**: Real-time button updates with camera names and preset labels
-- **Live Thumbnails**: Button displays show camera video feed
+- **4 Rotary Encoders**: Each touch strip shows a camera number (orange = selected); press to select that camera, turn to change its brightness (Bright mode)
+- **Camera Pages**: Next/Back page through cameras in groups of four
+- **Stop**: Stops movement on all cameras (or only the selected one)
 - **Clickable Icon**: Click Stream Deck icon in toolbar to open Stream Deck preferences
-- **Preferences Dialog**: Dedicated Stream Deck tab for button/encoder configuration
 - **Automatic Detection**: Hotplug support with connection indicator
 
 ### ATEM Switcher Tally
@@ -74,14 +86,14 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 
 ### User Interface
 - **Dark Theme**: Professional appearance with qdarkstyle
-- **Multi-tab Layout**: Organized camera and cue management
-- **Collapsible Sections**: Clean, organized control panels
+- **Multi-tab Layout**: Cameras tab and Cues tab
+- **Scrollable Control Panel**: Camera Controls, Auto Pan, Settings and Preset Locations under each video
 - **Status Indicators**: Real-time connection status with red/green indicators
-- **Video Size Options**: Multiple preview size presets (View → Video Size)
+- **Video Size Options**: 384×216 up to 896×504 for all previews (View → Video Size)
 - **Video Performance Control**: High/Low bandwidth modes (View → Video Performance)
 - **Video Format**: UYVY/BGRA/RGBA options (View → Video Format)
 - **Scopes Menu**: False Color, Waveform (Luma), Vectorscope (Chroma), RGB Parade, Histogram (Luma + RGB)
-- **Controller Status**: Visual USB controller connection indicator
+- **Toolbar Status Icons**: USB controller, Stream Deck and ATEM indicators; click any of them to open its settings
 - **Loading Progress**: Granular progress bar during camera initialization
 - **Deferred Loading**: UI appears immediately before network connections
 - **Startup Timeout Recovery**: Cameras that stall during startup are marked failed after timeout and show Reconnect
@@ -89,14 +101,18 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 - **Reconnect Button**: One-click reconnection for failed cameras
 - **Comprehensive Error Handling**: Graceful error recovery prevents crashes
 - **Automatic Settings Sync**: Camera settings (exposure, focus, white balance) queried and synced on connection
+- **Update Check**: Help → Check for Updates compares your version with the latest GitHub release
 
 ### Application Settings
-- **Preferences Dialog**: Multi-tab preferences (Controller, Stream Deck, Application)
+- **Preferences Dialog** (Edit → Preferences): Controller, Stream Deck, Application and Switcher tabs
   - **Controller Tab**: USB game controller mappings and speed settings
-  - **Stream Deck Tab**: Button action assignments and encoder press configuration
-  - **Application Tab**: Single instance mode, NDI video toggle, video performance settings
+  - **Stream Deck Tab**: Button actions, button colors, Stop behaviour and encoder press
+  - **Application Tab**: NDI video toggle and single instance mode
+  - **Switcher Tab**: ATEM tally connection
+  - The dialog can be driven with the game controller (D-pad to move, A = Save, X = Cancel)
 - **Single Instance Mode**: Optional enforcement to prevent multiple app instances (default: enabled)
 - **NDI Video Toggle**: Enable/disable NDI video streaming globally
+- **File Logging**: Edit → Enable File Logging (takes effect after restart)
 - **Video Performance**: Choose between High Bandwidth (max quality) or Low Bandwidth (compressed) for NDI streaming
 - **Scope Mode Persistence**: Selected scope mode is saved and applied across cameras
 - **Network Interface Binding**: Automatic detection and binding to correct network interface for multi-homed systems (v0.6.14+)
@@ -129,7 +145,8 @@ A multi-camera PTZ controller using VISCA-over-IP protocol with NDI video stream
 ### From Source
 ```bash
 # Clone repository
-cd VideoCue/python
+git clone https://github.com/jpwalters/VideoCue.git
+cd VideoCue
 
 # Create virtual environment (recommended)
 python -m venv .venv
@@ -232,53 +249,135 @@ Edit `VideoCue.spec` to update:
 ## Camera Setup
 
 ### Adding Cameras
-1. Click **File → Add Camera**
-2. Select from discovered NDI sources (requires mDNS/port 5353 open), or
-3. Enter NDI source name manually (for firewall-restricted networks), or
-4. Enter camera IP address manually for IP-only control
-5. Configure VISCA port (default: 52381)
+1. On the **Cameras** tab, click **Add Camera** (top right)
+2. Click **Search** to discover NDI sources (requires mDNS/port 5353 open) and tick the ones to add; cameras you already have are greyed out, or
+3. Tick **Manual NDI Name** and type the exact NDI source name (for firewall-restricted networks), or
+4. Tick **Manual IP** and enter the camera's IP address for IP-only control. Add `:port` if the camera does not use the default VISCA port 52381 (for example `192.168.1.100:52382`)
 
-### Camera Controls
-- **Pan/Tilt**: 8-direction movement with variable speed
-- **Zoom**: Variable speed in/out
-- **Focus**: Auto/Manual modes with one-push AF
-- **Presets**: Store current position, recall with one click
+![Add Camera dialog](docs/images/add-camera.png)
+
+### Working With Cameras
+- **Select**: Click anywhere on a camera; the selected camera has an orange border around its video. The USB controller and Stream Deck control the selected camera
+- **Status bar** (under the video): green/red connection dot, **Reconnect** (when red), camera name and IP, video resolution, ▶/⏸ play/pause, ◀/▶ move the camera left/right, ⚙ open the camera's web page, × remove the camera
+- **Pan/Tilt**: Hold one of the 8 arrow buttons; ■ stops
+- **Zoom**: Hold **Zoom -** / **Zoom +**; **Stop** halts zoom
+- **Reset Speed Limit**: Restores maximum pan/tilt speed if movement has become slow
+- **Focus**: Auto/Manual, **One Push** autofocus, **Near**/**Far** in Manual
+- **Exposure / White Balance**: Only the sliders for the chosen mode are shown (for example Iris, Shutter and Gain in Manual exposure)
+
+### Presets
+- **Store Current Position as Preset**: Asks for a name and saves the position into the next free camera memory slot
+- Each preset shows `[slot] Name` with **GO** (recall), **Update** (re-save the current position to the same slot) and **Delete**
+- ↑/↓ change the list order only; the camera memory slot stays the same
+- Double-click a preset name to rename it
+
+### Auto Pan
+1. Store two presets (for example the left and right ends of a stage)
+2. Pick them as **Left Position** and **Right Position**
+3. Set **Pan Speed** (delay between positions, 1-10 s) and click **Start Auto Pan**
+4. **Stop Auto Pan** stops after the current move
+
+## Cues
+
+![Cues tab](docs/images/cues-tab.png)
+
+1. Store presets on each camera first; the Cues tab has one **Cam** column per camera
+2. Click **＋ Add** to add a row, then pick a preset for each camera in that row (leave a camera blank to leave it where it is)
+3. Edit the **Cue** number (whole number or decimal, e.g. `100` or `100.1`) and **Name** by double-clicking the cell
+4. **↳ Insert** adds a row after the selected one (cue number +0.1); **⧉ Duplicate** copies the selected row; **🗑 Delete** removes it
+5. Click **🔓** to lock the table (**🔒**) during the show so nothing is edited by accident
+
+**Running cues**
+- The **armed** (next) cue is green and marked `>` next to its row number; double-click a row number to arm that row
+- **▶ Run**, Space, Enter or Return recalls the armed cue's presets on every camera, turns that row red (last run), selects the first camera in the cue and arms the next row (wrapping to the top)
+- The USB controller's R3 button and the Stream Deck **Run** button also run the armed cue, but only while the Cues tab is showing
+- The column of the selected camera is highlighted orange; disconnected cameras are skipped
+
+## Auto Color Matching
+
+Match to Selected makes one camera's white balance and color match another, using the live NDI video from both.
+
+1. Point both cameras at the same scene and keep them still
+2. Make sure video is playing on both and scopes are off (View → Scopes)
+3. Click the **reference** camera to select it
+4. On the camera you want to change, click **Match to Selected** (in the White Balance settings)
+5. Wait while VideoCue saves the current settings, matches white balance, then color, and verifies the result
+6. Choose **Keep** or **Revert** (Cancel during matching restores the original settings)
+
+Notes:
+- Supported on BirdDog P200 and P400 cameras; the camera web API (port 8080) must be reachable
+- The reference camera is never changed, and exposure is not changed
+- For the most stable result, put the reference camera in Manual white balance first
+- If the match can't be improved, the original settings are restored automatically
 
 ## USB Controller Configuration
 
 ### Accessing Settings
-- Menu: **Edit → Controller Preferences** (opens to Controller tab)
-- Or click the controller icon in the toolbar
+- Menu: **Edit → Preferences** (opens to the Controller tab)
+- Or click the controller icon in the toolbar, or press Menu/Start on the controller
+
+![Controller preferences](docs/images/preferences-controller.png)
 
 ### Available Settings
-- **Speed Settings**: Adjust pan/tilt/zoom response (0.1x to 1.5x)
+- **Speed Settings**: Adjust D-pad, joystick and zoom response (0.1x to 1.5x)
 - **Direction Settings**: Invert vertical axis if needed
 - **Joystick Mode**: Single stick (combined) or dual stick (separate pan/tilt)
-- **Brightness Control**: Enable/disable and configure increase/decrease buttons
+- **Brightness Control**: Enable/disable, step size, and increase/decrease buttons
+- **One-Push Auto Focus / Stop Camera Movement / Preferences Menu**: Choose the button for each (or None)
 - **Camera Switching**: Stop previous camera when switching (prevents runaway cameras)
+- **Run on R3**: Run the armed cue by pressing the right stick (Cues tab only)
+
+### Default Controller Mapping
+- **Left Stick** (Axis 0/1): Pan/Tilt (analog)
+- **D-Pad**: Pan/Tilt (digital)
+- **Right Trigger** (Axis 5): Zoom in
+- **Left Trigger** (Axis 4): Zoom out
+- **L1/LB** (Button 4): Previous camera
+- **R1/RB** (Button 5): Next camera
+- **X/Square** (Button 2): **Stop camera movement** (emergency stop)
+- **B/Circle** (Button 1): **One-push autofocus** (trigger quick autofocus)
+- **Y/Triangle** (Button 3): Brightness increase (Bright mode)
+- **A/Cross** (Button 0): Brightness decrease (Bright mode)
+- **Menu/Start** (Button 7): Open Preferences
+- **Right Stick press** (R3): Run the armed cue (Cues tab)
+
+### Supported Controllers
+- Xbox controllers (wired/wireless)
+- PlayStation controllers (DS4, DualSense)
+- Generic USB game controllers
+- Any DirectInput/XInput compatible device
 
 ## Stream Deck Configuration
 
 ### Accessing Settings
-- Menu: **Edit → Controller Preferences** → **Stream Deck** tab
+- Menu: **Edit → Preferences** → **Stream Deck** tab
 - Or click the Stream Deck icon in the toolbar (opens directly to Stream Deck tab)
 
+![Stream Deck preferences](docs/images/preferences-streamdeck.png)
+
 ### Button Configuration
-Each of the 8 buttons can be assigned one action:
-- **None**: Button disabled
-- **Preset 1-8**: Recall specific preset on selected camera
-- **Run**: Execute current armed cue
-- **Arm**: Arm next cue in sequence
-- **Next**: Switch to next camera
-- **Back**: Switch to previous camera
+Each of the 8 buttons can be assigned one action and a color:
+
+| Action | What it does | Default button |
+|--------|--------------|----------------|
+| Preset 1-8 | Recall the 1st-8th preset of the selected camera (button shows the preset name) | Presets 1-4 on buttons 0-3 |
+| Back | Previous page of cameras on the encoders | Button 4 |
+| Stop | Stop movement on all cameras (or only the selected one) | Button 5 (red) |
+| Run | Run the armed cue (Cues tab must be showing) | Button 6 (green) |
+| Next | Next page of cameras on the encoders | Button 7 |
+| Arm | Move the armed marker to the next cue without running it (Cues tab must be showing) | - |
+| None | Button does nothing | - |
 
 **Validation**: Each action (except None) can only be assigned once across all buttons
 
-### Encoder Settings
-- **Encoder Press to Select Camera**: Enable/disable camera selection via encoder press
-- When enabled, pressing any of the 4 encoders selects the corresponding camera (1-4)
+### Encoders
+- The 4 encoders show 4 cameras at a time (camera numbers 1-4, then 5-8 after **Next**, and so on); the selected camera is orange
+- **Press** an encoder to select that camera (can be turned off with **Enable encoder press to select camera**)
+- **Turn** an encoder to change that camera's brightness (camera must be in Bright exposure mode; step size comes from the Controller tab)
 
 ## ATEM Switcher Tally
+
+![Switcher preferences](docs/images/preferences-switcher.png)
 
 ### Setup
 1. **Edit → Preferences → Switcher** tab (or click the **ATEM** icon in the toolbar)
@@ -301,80 +400,72 @@ python -m unittest tests.test_atem_tally -v
 ```
 On site, run `python tools/atem_tally_probe.py <switcher-ip>` first to confirm the laptop can reach the switcher.
 
-### Default Controller Mapping
-- **Left Stick** (Axis 0/1): Pan/Tilt (analog)
-- **D-Pad**: Pan/Tilt (digital)
-- **Right Trigger** (Axis 5): Zoom in
-- **Left Trigger** (Axis 4): Zoom out
-- **L1/LB** (Button 4): Previous camera
-- **R1/RB** (Button 5): Next camera
-- **X/Square** (Button 2): **Stop camera movement** (emergency stop)
-- **B/Circle** (Button 1): **One-push autofocus** (trigger quick autofocus)
-- **Y/Triangle** (Button 3): Brightness increase (Bright mode)
-- **A/Cross** (Button 0): Brightness decrease (Bright mode)
-- **Menu/Start** (Button 7): Open controller preferences dialog
-
-### Supported Controllers
-- Xbox controllers (wired/wireless)
-- PlayStation controllers (DS4, DualSense)
-- Generic USB game controllers
-- Any DirectInput/XInput compatible device
-
 ## Configuration Files
 
 ### Location
-- **Windows**: `%LOCALAPPDATA%\VideoCue\config.json`
-- **macOS/Linux**: `~/.config/VideoCue/config.json`
+- **Windows**: `%LOCALAPPDATA%\VideoCue\`
+- **macOS/Linux**: `~/.config/VideoCue/`
 
-### Schema
+| File | Contents |
+|------|----------|
+| `config.json` | Cameras, presets and all preferences |
+| `cues.json` | Cue rows and the camera-to-column mapping |
+| `logs/videocue.log` | Application log (only when Edit → Enable File Logging is on) |
+| `logs/videocue-crash-*.log` | Written automatically after a crash |
+
+Settings are saved automatically when you change them. See [config_schema.json](config_schema.json) for every default value.
+
+### Schema (abridged)
 ```json
 {
   "cameras": [
     {
       "id": "unique-id",
-      "ndi_source_name": "CAMERA-NAME (IP)",
+      "ndi_source_name": "BIRDDOG-12345 (CAM)",
       "visca_ip": "192.168.1.100",
       "visca_port": 52381,
       "video_size": [512, 288],
-      "presets": {
-        "Preset 1": {"pan": 0, "tilt": 0, "zoom": 0}
-      }
+      "position": 0,
+      "atem_input": 1,
+      "presets": [
+        {"uuid": "preset-uuid", "name": "Wide Shot", "preset_number": 0}
+      ]
     }
   ],
   "preferences": {
     "video_size_default": [512, 288],
-    "video_frame_skip": 6,
     "ndi_bandwidth": "low",
     "ndi_color_format": "uyvy",
-    "ndi_false_color_enabled": false,
     "ndi_waveform_enabled": false,
-    "ndi_vectorscope_enabled": false,
-    "ndi_rgb_parade_enabled": false,
-    "ndi_histogram_enabled": false,
-    "theme": "dark",
     "ndi_video_enabled": true,
-    "single_instance_mode": true
+    "file_logging_enabled": false,
+    "single_instance_mode": true,
+    "preferred_network_interface": null
   },
   "usb_controller": {
-    "enabled": true,
     "dpad_speed": 0.7,
     "joystick_speed": 1.0,
     "zoom_speed": 0.7,
-    "brightness_enabled": true,
-    "brightness_increase_button": 3,
-    "brightness_decrease_button": 0,
-    "stop_on_camera_switch": true
+    "joystick_mode": "single",
+    "stop_on_camera_switch": true,
+    "run_cue_enabled": true
   },
   "streamdeck": {
     "encoder_press_enabled": true,
+    "stop_sends_to_all_cameras": true,
     "button_0_action": "preset_1",
-    "button_1_action": "preset_2",
-    "button_2_action": "run",
-    "button_3_action": "arm",
-    "button_4_action": "none",
-    "button_5_action": "none",
-    "button_6_action": "next",
-    "button_7_action": "back"
+    "button_4_action": "page_prev",
+    "button_5_action": "stop_cue",
+    "button_5_color": "red",
+    "button_6_action": "run_cue",
+    "button_6_color": "green",
+    "button_7_action": "page_next"
+  },
+  "atem": {
+    "enabled": false,
+    "ip": "192.168.10.240",
+    "tally_me": 0,
+    "show_preview_tally": true
   }
 }
 ```
@@ -464,11 +555,25 @@ All camera settings are queried on load to synchronize UI with camera state:
 - Note: Only Stream Deck Plus (8 buttons + 4 encoders) is currently supported
 
 ### Stream Deck Buttons Not Responding
-- Verify button actions are configured in preferences (Edit → Controller Preferences → Stream Deck tab)
+- Verify button actions are configured in preferences (Edit → Preferences → Stream Deck tab)
 - Check that no duplicate actions are assigned (except None)
 - Ensure camera is selected for preset-based buttons
+- **Run** only works while the Cues tab is showing
+- Encoder turning only changes brightness when the camera is in Bright exposure mode
 - Check console output for action execution errors
 - Verify encoder press is enabled if using encoders to select cameras
+
+### Cue Does Nothing
+- Switch to the Cues tab before pressing Space/Enter, R3 or the Stream Deck Run button
+- Cameras that are disconnected (red) or have no preset in that row are skipped
+- If a preset was deleted from a camera, pick a new one in the cue row
+- Unlock the table (🔓) to edit cues
+
+### Match to Selected Is Greyed Out or Fails
+- Select (click) a different, connected camera first; that camera is the reference
+- Video must be playing on both cameras and scopes must be off
+- Only BirdDog P200/P400 cameras are supported, and their web API on port 8080 must be reachable
+- Aim both cameras at the same, well-lit scene
 
 ### ATEM Tally Not Connecting
 - Run `python tools/atem_tally_probe.py <switcher-ip>` to check reachability
@@ -493,10 +598,11 @@ All camera settings are queried on load to synchronize UI with camera state:
 
 ### Application Crashes/Errors
 - **Global Exception Handler**: Unhandled errors show dialog instead of crashing
-- **Error Logging**: Check console output for detailed error traces
+- **Crash Recovery**: After a crash VideoCue offers **Restart (With NDI)** or **Restart (Without NDI)**; a crash in the video components at startup restarts with NDI video turned off for that session
+- **Error Logging**: Turn on Edit → Enable File Logging and check `logs/videocue.log`; crash logs are saved as `logs/videocue-crash-*.log` (see [Configuration Files](#configuration-files))
 - **Graceful Degradation**: Most errors allow application to continue running
 - **NDI Timeout**: Invalid NDI sources timeout after 5 seconds (prevents app freeze)
-- All critical operations wrapped in try-except blocks for stability
+- If crashes continue, turn off NDI video in Edit → Preferences → Application and reconnect cameras one at a time
 
 ## Development
 
@@ -508,19 +614,23 @@ videocue/
 ├── controllers/
 │   ├── visca_ip.py          # VISCA protocol implementation with BirdDog support
 │   ├── visca_commands.py    # VISCA command definitions and constants
-│   ├── ndi_video.py         # NDI video receiver threads (with error handling)
+│   ├── ndi_video.py         # NDI video receiver threads and scope rendering
 │   ├── usb_controller.py    # USB game controller handler
 │   ├── streamdeck_controller.py # Elgato Stream Deck Plus controller handler
-│   └── streamdeck_init.py   # Stream Deck initialization and discovery
+│   ├── streamdeck_init.py   # Stream Deck initialization and discovery
+│   ├── atem_tally.py        # Read-only Blackmagic ATEM tally client
+│   ├── birddog_api.py       # BirdDog REST client (color settings)
+│   └── color_matcher.py     # Auto color matching worker
 ├── models/
 │   ├── config_manager.py    # JSON configuration persistence
 │   ├── cue_manager.py       # Cue list persistence and row operations
+│   ├── color_analysis.py    # Scene color signatures for color matching
 │   └── video.py             # Video size and preset models
 ├── ui/
 │   ├── main_window.py       # Main application window with deferred loading
 │   ├── camera_widget.py     # Individual camera control widget with reconnect
 │   ├── camera_add_dialog.py # Camera discovery/add dialog
-│   ├── preferences_dialog.py # Multi-tab preferences (Controller, Stream Deck, Application)
+│   ├── preferences_dialog.py # Multi-tab preferences (Controller, Stream Deck, Application, Switcher)
 │   ├── about_dialog.py       # About dialog
 │   ├── network_interface_dialog.py # Network interface selection
 │   └── update_check_thread.py # Update check worker thread
@@ -529,7 +639,12 @@ videocue/
   └── network_interface.py  # Interface detection/subnet matching
 
 resources/
-└── icon.png                  # Application icon (if present)
+├── icon.png / icon.ico       # Application icons
+└── VideoCue-Screenshot.png   # README screenshot
+
+docs/images/                  # Documentation screenshots
+tests/                        # Unit tests (python -m unittest tests.test_atem_tally -v)
+tools/                        # Simulators, probes and the screenshot tool
 
 build.ps1                     # Automated PowerShell build script
 config_schema.json            # Default configuration template
@@ -555,12 +670,15 @@ ruff.toml                     # Ruff linter configuration
 - **Constants Module**: Centralized configuration (NetworkConstants, UIConstants, HardwareConstants, ViscaConstants)
 - **UI Strings Centralization**: All user-facing text in `ui_strings.py` for consistency and future i18n
 - **Camera Switch Safety**: Configurable auto-stop prevents runaway cameras when switching
-- **Comprehensive Logging**: Python logging framework with file output to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
+- **Comprehensive Logging**: Python logging framework with optional file output to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
 - **Query-based Sync**: All camera settings queried after connection to sync UI with camera state
 - **Performance Optimizations**:
   - Button mapping cache eliminates repeated config lookups during event handling
   - Frame dropping via Qt signal queuing prevents UI lag during video reception
   - USB hotplug detection every 5 seconds (non-blocking polling)
+
+### Updating Screenshots
+`python tools/videocue_screenshot.py` regenerates `resources/VideoCue-Screenshot.png`; add `--docs` to also regenerate the images in `docs/images/`. It uses demo cameras, a drawn concert scene and the built-in ATEM simulator with a throwaway config, so it needs a visible desktop and UDP port 9910 free.
 
 ### Adding New Camera Parameters
 

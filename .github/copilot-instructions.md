@@ -36,7 +36,7 @@ Python/PyQt6 application for controlling professional PTZ cameras using VISCA-ov
 - CameraWidget shows a tally bar above the video (red PROGRAM / green PREVIEW / grey idle); clicking it picks the ATEM input. Selection border on the video stays orange (no conflict)
 - Preferences → **Switcher** tab (index 3) with Test Connection. Stream Deck is intentionally not affected
 - Tests: `python -m unittest tests.test_atem_tally -v` (uses `tools/atem_simulator.py`); on-site check: `python tools/atem_tally_probe.py <ip> [--me 2]`
-- README screenshot: `python tools/videocue_screenshot.py` regenerates `resources/VideoCue-Screenshot.png` (demo cameras, drawn concert video, simulated tally; throwaway config; needs UDP 9910 free)
+- README screenshot: `python tools/videocue_screenshot.py` regenerates `resources/VideoCue-Screenshot.png` (demo cameras, drawn concert video, simulated tally; throwaway config; needs UDP 9910 free); `--docs` also regenerates `docs/images/*.png` (camera controls, scopes, Cues tab, Preferences tabs, Add Camera). Screenshots in `docs/images/`, not `resources/` (PyInstaller bundles all of `resources/`)
 
 ### Camera Discovery Architecture
 **VISCA has no built-in discovery** - requires knowing IP address beforehand. The app uses NDI for discovery:

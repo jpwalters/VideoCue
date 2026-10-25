@@ -21,7 +21,7 @@ Download and install NDI Runtime from https://ndi.tv/tools/
   - Or bundled in `videocue/ndi_wrapper/` directory
 - **Optional**: App will work without NDI but video streaming features will be disabled
 
-### 3. Run the Application
+### 4. Run the Application
 ```bash
 python videocue.py
 ```
@@ -41,19 +41,28 @@ VideoCue/
 │   ├── controllers/
 │   │   ├── visca_ip.py      # VISCA-over-IP protocol with BirdDog support
 │   │   ├── visca_commands.py # VISCA command definitions
-│   │   ├── ndi_video.py     # NDI video streaming with comprehensive error handling
-│   │   └── usb_controller.py # USB game controller with stop button support
+│   │   ├── ndi_video.py     # NDI video streaming and scope rendering
+│   │   ├── usb_controller.py # USB game controller with stop button support
+│   │   ├── streamdeck_controller.py # Stream Deck Plus buttons/encoders
+│   │   ├── streamdeck_init.py # Stream Deck discovery
+│   │   ├── atem_tally.py    # Read-only ATEM tally client
+│   │   ├── birddog_api.py   # BirdDog REST client
+│   │   └── color_matcher.py # Auto color matching
 │   ├── models/
 │   │   ├── video.py         # Video size and preset models
 │   │   ├── config_manager.py # JSON configuration persistence
-│   │   └── cue_manager.py   # Cue row persistence and operations
+│   │   ├── cue_manager.py   # Cue row persistence and operations
+│   │   └── color_analysis.py # Scene color signatures
 │   └── ui/
 │       ├── main_window.py    # Main application window with deferred loading
 │       ├── camera_widget.py  # Camera control widget with query-based sync
 │       ├── camera_add_dialog.py # Camera discovery dialog
-│       ├── preferences_dialog.py # USB controller settings
+│       ├── preferences_dialog.py # Controller, Stream Deck, Application, Switcher tabs
 │       ├── about_dialog.py   # About dialog
 │       └── network_interface_dialog.py # Network interface selection dialog
+├── docs/images/            # Documentation screenshots
+├── tests/                  # Unit tests
+├── tools/                  # ATEM simulator/probe, BirdDog probe, screenshot tool
 ├── requirements.txt
 ├── build.ps1               # Automated PowerShell build script
 ├── config_schema.json
@@ -109,12 +118,15 @@ Configuration is stored in:
 - **Windows**: `%LOCALAPPDATA%\VideoCue\config.json`
 - **macOS/Linux**: `~/.config/VideoCue/config.json`
 
+Cues are stored next to it in `cues.json`, and logs in the `logs/` folder.
+
 The configuration includes:
-- Camera list (NDI sources, VISCA IPs, presets)
+- Camera list (NDI sources, VISCA IPs, presets, ATEM input)
 - Video size preferences
 - NDI video/scopes preferences (bandwidth, format, scope mode)
 - USB controller settings
-- Stream Deck button mappings and encoder preferences
+- Stream Deck button mappings, colors and encoder preferences
+- ATEM switcher tally settings
 
 ## Features Implemented
 
@@ -149,24 +161,32 @@ The configuration includes:
 - **B button for one-push autofocus** (trigger quick AF on selected camera)
 - **Menu/Start button to open controller preferences dialog**
 - Brightness control (Y/A buttons in Bright mode)
+- **R3 (right stick press) runs the armed cue** while the Cues tab is open
 - **Safe camera switching** (auto-stop previous camera, configurable)
 - **Optimized button handling** - Button mappings cached at init for responsive input
 
 ✅ Elgato Stream Deck Plus support
-- 8 LCD buttons with live camera thumbnails
-- 4 rotary encoders for camera selection and parameter control
-- Configurable button actions: Preset 1-8, Run, Arm, Next, Back, or None
+- 8 LCD buttons showing action labels (preset buttons show the selected camera's preset names)
+- Configurable button actions: Preset 1-8, Run, Arm, Stop, Next, Back, or None, plus a color per button
+- 4 rotary encoders: press selects a camera, turn adjusts brightness (Bright mode)
+- Next/Back page the encoders through cameras in groups of four
 - Unique action validation (each action assignable once per configuration)
 - Encoder press to select camera (configurable, default enabled)
-- Visual feedback with real-time button updates (camera names, preset labels)
 - Clickable Stream Deck icon in toolbar (opens preferences to Stream Deck tab)
-- Dedicated preferences tab for button/encoder configuration
 - Hotplug detection with automatic connection indicator
 
+✅ ATEM switcher tally
+- Red PROGRAM / green PREVIEW bar above each camera's video
+- M/E 1 or M/E 2, optional preview tally, click the bar to assign the ATEM input
+
+✅ Auto color matching
+- Match to Selected matches a BirdDog P200/P400 camera to the selected camera, with Keep/Revert
+
 ✅ Multi-camera management
-- Add cameras via NDI discovery or manual IP
-- Per-camera presets (store/recall/delete)
-- Per-camera video size
+- Add cameras via NDI discovery, manual NDI name or manual IP (optional `:port`)
+- Per-camera presets (store/recall/update/delete/reorder/rename)
+- Auto Pan between two presets
+- Reorder cameras with ◀/▶
 - Selection highlighting
 - Connection state tracking (red/green status indicators)
 - Automatic control disabling when disconnected
@@ -177,7 +197,7 @@ The configuration includes:
 - Per-camera preset mapping per cue row
 - Row operations: add, insert, duplicate, delete
 - Cue lock/unlock editing state
-- Arm-and-run workflow with auto-advance to next cue
+- Arm-and-run workflow with auto-advance to next cue (double-click a row number to arm it)
 - Run shortcuts: Space / Enter / Return (when Cues tab is active)
 
 ✅ User Experience
@@ -200,7 +220,7 @@ The configuration includes:
 - Global exception handler prevents crashes
 - Try-except blocks in all critical paths
 - Error dialogs with detailed information
-- Comprehensive logging to `%LOCALAPPDATA%\VideoCue\logs\videocue.log`
+- Comprehensive logging to `%LOCALAPPDATA%\VideoCue\logs\videocue.log` (Edit → Enable File Logging)
 - Console logging with full tracebacks
 - Graceful degradation on failures
 
@@ -251,17 +271,18 @@ The configuration includes:
 
 ### Stream Deck Plus
 - [ ] Test Stream Deck Plus detection and connection indicator
-- [ ] Test 8 button configuration in preferences (Edit → Controller Preferences → Stream Deck tab)
-- [ ] Test button action assignments (Preset 1-8, Run, Arm, Next, Back, None)
+- [ ] Test 8 button configuration in preferences (Edit → Preferences → Stream Deck tab)
+- [ ] Test button action assignments (Preset 1-8, Run, Arm, Stop, Next, Back, None) and button colors
 - [ ] Test unique action validation (cannot assign duplicate actions except None)
 - [ ] Test preset buttons recall correct presets on selected camera
-- [ ] Test Run button executes current armed cue
-- [ ] Test Arm button arms next cue in sequence
-- [ ] Test Next/Back buttons switch between cameras
+- [ ] Test Run button executes current armed cue (Cues tab showing)
+- [ ] Test Arm button moves the armed marker to the next cue (Cues tab showing)
+- [ ] Test Stop button stops all cameras / selected camera per setting
+- [ ] Test Next/Back buttons page the encoders through cameras
 - [ ] Test encoder press to select camera (if enabled in preferences)
+- [ ] Test encoder rotation changes brightness in Bright mode
 - [ ] Test encoder press enable/disable preference setting
-- [ ] Test live camera thumbnails on button displays
-- [ ] Test button visual feedback (camera names, preset labels update in real-time)
+- [ ] Test button labels update when the selected camera or its presets change
 - [ ] Test Stream Deck icon clickable (opens preferences to Stream Deck tab)
 - [ ] Test Stream Deck hotplug (disconnect/reconnect device)
 - [ ] Verify button actions work only on connected cameras
@@ -270,8 +291,12 @@ The configuration includes:
 - [ ] Test focus mode switching (Auto/Manual/One-Push)
 - [ ] Test exposure modes (Auto, Manual, Shutter/Iris Priority, Bright)
 - [ ] Test white balance modes (Auto, Indoor, Outdoor, One-Push, Manual)
-- [ ] Test preset store/recall/delete
+- [ ] Test preset store/recall/update/delete/reorder/rename
+- [ ] Test Auto Pan between two presets
+- [ ] Test Reset Speed Limit
+- [ ] Test Match to Selected (BirdDog P200/P400) with Keep and Revert
 - [ ] Test camera add/delete with confirmation dialog
+- [ ] Test camera reorder (◀/▶)
 - [ ] Test settings cog button (opens web interface)
 
 ### Cue Tab
@@ -323,7 +348,6 @@ The configuration includes:
 - Verify camera VISCA port (default 52381)
 - Check firewall allows UDP on port 52381
 - Click the Reconnect button when it appears
-- Press B button on controller to reconnect selected camera
 
 ### Stream Deck Plus Not Detected
 - Verify Stream Deck Plus is connected via USB
@@ -335,11 +359,11 @@ The configuration includes:
 - **Note**: Only Stream Deck Plus (8 buttons + 4 encoders) is currently supported, not other Stream Deck models
 
 ### Stream Deck Buttons Not Responding
-- Open preferences: Edit → Controller Preferences → Stream Deck tab
-- Verify button actions are assigned (default: all None)
+- Open preferences: Edit → Preferences → Stream Deck tab
+- Verify button actions are assigned (default: Preset 1-4, Back, Stop, Run, Next)
 - Ensure no duplicate actions (except None) - app validates on save
 - For preset buttons: ensure camera is selected and preset exists
-- For Run button: ensure cue is armed first
+- For Run button: the Cues tab must be showing
 - Check console output for action execution errors
 
 ### NDI Source Times Out / App Freezes During Add
@@ -390,5 +414,5 @@ The configuration includes:
 6. **Camera Nicknames**: Add user-friendly camera naming separate from NDI source names
 7. **Preset Thumbnails**: Consider adding thumbnail images to preset buttons
 8. **Multi-Camera Sync**: Explore synchronized PTZ movements across multiple cameras
-9. **Auto-Pan Enhancement**: Add configurable dwell time and transition speed
+9. **Auto-Pan Enhancement**: Add configurable transition speed
 10. **Installer Distribution**: Test and refine Inno Setup installer for production releases
